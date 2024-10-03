@@ -5,8 +5,12 @@ from typing import Callable, Any
 from scipy.interpolate import interp1d
 from time import perf_counter
 
+from .model import Model, ModelLite, ModelMetrics
 
-def size_equal(func: Callable[[np.ndarray, np.ndarray], Any]):
+
+def size_equal(
+    func: Callable[[np.ndarray, np.ndarray], Any]
+) -> Callable[[np.ndarray, np.ndarray], Any]:
     def inner(left: np.ndarray, right: np.ndarray) -> Any:
         if left.size != right.size:
             raise RuntimeError("Array sizes must be equal.")
@@ -60,7 +64,7 @@ def rse(left: np.ndarray, right: np.ndarray) -> np.float64:
 
 @size_equal
 def r_sq(left: np.ndarray, right: np.ndarray) -> np.float64:
-    return 1 - rss(left, right) / tss(right) 
+    return 1 - rss(left, right) / tss(right)
 
 
 @size_equal
@@ -87,6 +91,7 @@ def growth(arr: np.ndarray) -> np.float64:
         if i < arr.size - 1:
             gr[i] = arr[i + 1] - arr[i]
     return gr.mean()
+
 
 def statistics(data: np.ndarray, *fitted: tuple[np.ndarray, str]) -> None:
     keys = ("d_med", "d_var", "std. div.", "mse", "lin. div.", "conc")
@@ -151,7 +156,7 @@ def multi_plot(
         else 1
     )
     fig, ax = plt.subplots(rows, row_size)
-    for i in range(len(args)):
+    for i, _ in enumerate(args):
         if ax.ndim > 1:
             row = int(np.floor(i / row_size))
             col = i - row * row_size
@@ -183,7 +188,7 @@ def multi_plot_n(
         else 1
     )
     fig, ax = plt.subplots(rows, row_size)
-    for i in range(len(args)):
+    for i, _ in enumerate(args):
         if ax.ndim > 1:
             row = int(np.floor(i / row_size))
             col = i - row * row_size
@@ -201,3 +206,7 @@ def multi_plot_n(
     fig.set_figwidth(row_size * fig_scale)
     fig.set_figheight(rows * fig_scale)
     plt.show()
+
+
+def get_metrics(model: Model | ModelLite) -> ModelMetrics:
+    pass

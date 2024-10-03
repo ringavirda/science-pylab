@@ -1,9 +1,7 @@
-import sympy as sp
-import scipy as sc
-import numpy as np
 from typing import Callable
+from .common import *
 
-import modules.polys as pl
+import ffiting.polys as pl
 
 
 def poly_fit(data: np.ndarray, rank: int, length: int = 0) -> np.ndarray:
