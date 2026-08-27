@@ -59,7 +59,9 @@ def _repo_root() -> Path:
 FIG_DIR = _repo_root() / "wiki" / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-plt.rcParams.update({"figure.dpi": 110, "font.size": 10, "axes.grid": True})
+plt.rcParams.update(
+    {"figure.dpi": 110, "savefig.dpi": 300, "font.size": 12, "axes.grid": True}
+)
 
 
 # --------------------------------------------------------------------------- #

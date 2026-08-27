@@ -10,7 +10,9 @@ matplotlib.use("Agg")  # headless: write files, never open a window
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-plt.rcParams.update({"figure.dpi": 110, "font.size": 10, "axes.grid": True})
+plt.rcParams.update(
+    {"figure.dpi": 110, "savefig.dpi": 300, "font.size": 12, "axes.grid": True}
+)
 
 
 def fit_overlay(ax, x, y, yhat, *, truth=None, title="", label="fit",
