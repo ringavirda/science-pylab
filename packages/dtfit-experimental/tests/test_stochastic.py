@@ -1,10 +1,10 @@
-"""Stochastic-series adaptations -- parameter recovery on random processes.
+"""Stochastic-series adaptations: parameter recovery on random processes.
 
-Each test simulates a process with a *known* parameter and asserts that the
-dtfit-based estimator (fitting a deterministic functional of the process) gets
-back the truth within a tolerance. This is the CI-checkable core of the
-``stochastic_series`` domain experiment, which reports the full VIABLE /
-MARGINAL / NOT VIABLE verdict table.
+Each test simulates a process whose parameter is known and asserts that the
+dtfit-based estimator, which fits a deterministic functional of the process,
+gets the truth back within a tolerance. This is the CI-checkable core of the
+``stochastic_series`` domain experiment; the full VIABLE / MARGINAL / NOT
+VIABLE verdict table lives there.
 """
 
 import numpy as np
@@ -28,7 +28,7 @@ def _mean(fn, seeds):
     return float(np.mean([fn(s) for s in seeds]))
 
 
-# --- shared functional -------------------------------------------------- #
+# the shared functional
 def test_sample_acf_white_noise_is_a_spike():
     x = np.random.default_rng(0).standard_normal(4000)
     acf = sample_acf(x, 12)
@@ -36,9 +36,9 @@ def test_sample_acf_white_noise_is_a_spike():
     assert np.all(np.abs(acf[1:]) < 0.12)  # within the white-noise band
 
 
-# --- E1/E2 long memory (Hurst) ------------------------------------------ #
+# E1/E2 long memory (Hurst)
 def test_hurst_spectral_recovers_long_memory():
-    H = 0.8  # ARFIMA d = 0.3
+    H = 0.8  # = d + 1/2 for the ARFIMA d = 0.3 generated below
     err = _mean(lambda s: abs(
         hurst_spectral(B.gen_arfima(4096, 0.3, np.random.default_rng(10 + s)))["H"] - H
     ), range(3))
@@ -46,14 +46,14 @@ def test_hurst_spectral_recovers_long_memory():
 
 
 def test_hurst_aggvar_detects_long_memory_direction():
-    # Aggregated variance is only MARGINAL for the exact value, but must at
-    # least place a strongly long-memory series well above the H = 0.5 of noise.
+    # Aggregated variance is only MARGINAL on the exact value. The bar here is
+    # direction: well above the H = 0.5 of white noise, nothing tighter.
     Hs = [hurst_aggvar(B.gen_arfima(4096, 0.4, np.random.default_rng(20 + s)))["H"]
           for s in range(3)]
     assert np.mean(Hs) > 0.6
 
 
-# --- E3 mean reversion (AR(1)/OU) --------------------------------------- #
+# E3 mean reversion (AR(1)/OU)
 @pytest.mark.parametrize("phi", [0.6, 0.9])
 def test_ar1_reversion_recovers_phi(phi):
     est = _mean(lambda s: ar1_reversion(
@@ -61,7 +61,7 @@ def test_ar1_reversion_recovers_phi(phi):
     assert abs(est - phi) / phi < 0.12
 
 
-# --- E4 volatility persistence (GARCH(1,1)) ----------------------------- #
+# E4 volatility persistence (GARCH(1,1))
 def test_garch_persistence_recovers_alpha_plus_beta():
     truth = 0.08 + 0.90
     est = _mean(lambda s: garch_persistence(
@@ -70,7 +70,7 @@ def test_garch_persistence_recovers_alpha_plus_beta():
     assert abs(est - truth) / truth < 0.20
 
 
-# --- E5 stochastic cycle (AR(2), complex roots) ------------------------- #
+# E5 stochastic cycle (AR(2), complex roots)
 def test_cycle_period_recovers_period():
     P = 16.0
     est = _mean(lambda s: cycle_period(
@@ -79,7 +79,7 @@ def test_cycle_period_recovers_period():
     assert abs(est - P) / P < 0.15
 
 
-# --- E6 trend + cycle decomposition ------------------------------------- #
+# E6 trend + cycle decomposition
 def test_decompose_recovers_trend_and_cycle():
     t, y = B.gen_trend_cycle(600, 0.02, 50.0, 3.0, 1.0, np.random.default_rng(0))
     dec = decompose_trend_cycle(t, y, trend_deg=1)
@@ -89,7 +89,7 @@ def test_decompose_recovers_trend_and_cycle():
     assert fc.shape == (20,) and np.all(np.isfinite(fc))
 
 
-# --- domain harness ----------------------------------------------------- #
+# the domain harness
 def test_domain_experiments_run_and_are_viable():
     rows = [
         B.exp_ar1(2, n=1000),
@@ -102,7 +102,7 @@ def test_domain_experiments_run_and_are_viable():
     assert "verdict" in B.summary(rows)
 
 
-# --- the merged solution: fit_stochastic -------------------------------- #
+# the merged solution: fit_stochastic
 def test_merged_white_noise_reports_no_structure():
     m = fit_stochastic(np.random.default_rng(0).standard_normal(1500))
     assert isinstance(m, StochasticModel)
@@ -150,15 +150,14 @@ def test_merged_router_accuracy_is_high():
 
 
 def test_seasonal_multiharmonic_detected_and_beats_rw():
-    # a non-sinusoidal (sawtooth) seasonal shape + trend + noise, period 24
+    # a sawtooth (non-sinusoidal) season of period 24, on a trend, plus noise
     t = np.arange(600.0)
     y = (0.01 * t + 2.0 * ((t % 24) / 24.0 - 0.5)
          + np.random.default_rng(3).normal(0, 0.15, 600))
     m = fit_stochastic(y)
     assert m.seasonal and m.has_cycle
     assert abs(m.cycle_period - 24.0) < 3.0
-    assert m.n_harmonics >= 2          # multiple harmonics capture the sawtooth
-    # the multi-harmonic seasonal forecast beats the random walk on the holdout
+    assert m.n_harmonics >= 2          # one harmonic cannot shape a sawtooth
     h = 48
     tr, te = y[:-h], y[-h:]
     fc = fit_stochastic(tr).forecast(h)
@@ -177,14 +176,14 @@ def test_user_specified_seasonal_period():
 def test_forecaster_selection_can_be_controlled():
     from dtfit.stochastic import FORECASTERS
     y = B.gen_ar1(800, 0.6, np.random.default_rng(1))
-    # auto picks a known forecaster
+    # "auto" lands on a known forecaster
     assert fit_stochastic(y).forecaster_name in set(FORECASTERS) | {"custom"}
-    # a built-in name is forced
+    # a built-in name is forced through
     assert fit_stochastic(y, forecaster="drift").forecaster_name == "drift"
-    # a custom candidate set is backtest-selected among
+    # a candidate list is narrowed by backtest
     assert fit_stochastic(y, forecaster=["random walk", "mean-reversion"]) \
         .forecaster_name in {"random walk", "mean-reversion"}
-    # a custom callable is used directly
+    # a callable is taken as given
     mc = fit_stochastic(y, forecaster=lambda tr, h: np.full(h, tr.mean()))
     assert mc.forecaster_name == "custom" and mc.forecast(5).shape == (5,)
 
@@ -201,10 +200,10 @@ def test_merged_forecast_beats_random_walk_on_structured_data():
     assert skill["dtfit merged"] < skill["random walk"]
 
 
-# --- vendored (statsmodels-free) unit-root gate ------------------------- #
+# the vendored, statsmodels-free unit-root gate
 def test_unit_root_gate_verdicts_without_statsmodels():
-    """The vendored ADF gate classifies the canonical regimes correctly with no
-    statsmodels dependency (the one hard blocker to promoting this module)."""
+    """The vendored ADF gate classifies the four canonical regimes with no
+    statsmodels anywhere in the import path."""
     from dtfit.stochastic._model import _is_nonstationary
     rng = np.random.default_rng(0)
     assert _is_nonstationary(np.cumsum(rng.standard_normal(400)))          # I(1)
@@ -215,9 +214,9 @@ def test_unit_root_gate_verdicts_without_statsmodels():
 
 
 def test_vendored_adf_matches_statsmodels_to_machine_precision():
-    """The vendored ADF (tau + MacKinnon p-value, ct/AIC) reproduces statsmodels'
-    ``adfuller`` to machine precision -- so removing the dependency does not change
-    a single gate verdict."""
+    """The vendored ADF (tau plus MacKinnon p-value, ct regression, AIC lags)
+    tracks statsmodels' ``adfuller`` to 1e-7 on tau and 1e-6 on p, close enough
+    that dropping the dependency changes no gate verdict."""
     sm = pytest.importorskip("statsmodels.tsa.stattools")
     from dtfit.stochastic._stats import _adf_tau, _adf_pvalue
 
@@ -243,7 +242,7 @@ def test_vendored_adf_matches_statsmodels_to_machine_precision():
             assert abs(_adf_pvalue(tau) - ref[1]) < 1e-6
 
 
-# --- the generative half: StochasticModel.simulate() -------------------- #
+# the generative half: StochasticModel.simulate()
 def test_simulate_shape_finite_and_reproducible():
     y = B.gen_ar1(800, 0.6, np.random.default_rng(0))
     m = fit_stochastic(y)
@@ -263,15 +262,15 @@ def test_simulate_shape_finite_and_reproducible():
      lambda r: B.gen_garch(4000, 0.05, 0.08, 0.90, r), "has_vol_clustering"),
 ])
 def test_simulate_round_trip_recovers_regime(name, gen, attr):
-    """fit -> simulate -> refit recovers the same structural flag: the model is a
-    faithful *generator* of the process it characterizes, not only a summary."""
+    """fit -> simulate -> refit recovers the same structural flag: the model
+    generates the process it characterizes, it does not merely summarize it."""
     hits = sum(
         bool(getattr(fit_stochastic(
             fit_stochastic(gen(np.random.default_rng(10 + s))).simulate(seed=s)),
             attr))
         for s in range(5)
     )
-    assert hits >= 4   # robust across seeds (allow one boundary miss)
+    assert hits >= 4   # one of the five seeds may sit on a boundary
 
 
 def test_simulate_round_trip_preserves_no_structure_regimes():
@@ -286,10 +285,10 @@ def test_simulate_round_trip_preserves_no_structure_regimes():
 
 
 def test_simulate_long_memory_path_has_elevated_hurst():
-    """A simulated long-memory realization carries genuine long memory (Hurst well
-    above the 0.5 of white noise) -- the ARFIMA generator, not a bare AR(1)."""
+    """A simulated realization carries real long memory: Hurst above 0.62 on
+    average, clear of the 0.5 of white noise, out of ARFIMA and not AR(1)."""
     from dtfit.stochastic import hurst_spectral
-    # the same series test_merged_arfima_is_long_memory proves is detected
+    # the same series test_merged_arfima_is_long_memory uses
     m = fit_stochastic(B.gen_arfima(4096, 0.3, np.random.default_rng(3)))
     assert m.has_long_memory
     hs = [hurst_spectral(m.simulate(seed=s))["H"] for s in range(4)]
@@ -300,16 +299,17 @@ def test_simulate_trend_path_actually_trends():
     t, y = B.gen_trend_cycle(600, 0.05, 40.0, 2.0, 1.0, np.random.default_rng(2))
     m = fit_stochastic(y)
     sim = m.simulate(seed=0)
-    # the simulated path inherits the fitted upward trend (positive time correlation)
+    # the fitted upward trend has to survive into the simulated path
     assert np.corrcoef(np.arange(sim.size), sim)[0, 1] > 0.5
 
 
-# --- streaming filter: online characterization + change detection ------- #
+# the streaming filter: online characterization and change detection
 def test_filter_tracks_ar1_phi_online():
-    """The streaming filter's online AR(1) phi (dtfit EAC equal-areas criterion,
-    evaluated per-input) converges to the truth -- to the accuracy of the batch
-    ``fit_eac`` it streams (~0.05 on a fast-decay phi=0.3 ACF, tighter as phi
-    grows)."""
+    """The filter's online AR(1) phi, the dtfit EAC equal-areas criterion read
+    per input off a running ACF, converges on the truth. The 0.08 budget is set
+    by the low-phi case: a phi = 0.3 ACF decays within a couple of lags and
+    offers the least to integrate, while at phi = 0.85 the error runs several
+    times smaller."""
     from dtfit import StochasticFilter
     for phi in (0.3, 0.6, 0.85):
         errs = []
@@ -321,8 +321,8 @@ def test_filter_tracks_ar1_phi_online():
 
 
 def test_filter_detects_persistence_break():
-    """A persistence jump (phi 0.2 -> 0.9 at the midpoint) is flagged once, near
-    the break, on every seed."""
+    """A persistence jump, phi 0.2 -> 0.9 at the midpoint, is flagged inside
+    the 400 samples following the break on at least four of the five seeds."""
     from dtfit import StochasticFilter
     hits = 0
     for s in range(5):
@@ -338,13 +338,14 @@ def test_filter_detects_persistence_break():
 
 
 def test_filter_low_false_alarm_on_stationary_stream():
+    """The false-alarm half of the break test runs at the same settings."""
     from dtfit import StochasticFilter
     counts = []
     for s in range(5):
         f = StochasticFilter(warmup=80, settle=500, z_thresh=4.0)
         f.partial_fit(B.gen_ar1(3000, 0.6, np.random.default_rng(30 + s)))
         counts.append(f.n_flags_)
-    assert np.mean(counts) <= 1.5      # ~0.5 spurious flags per 3000-pt series
+    assert np.mean(counts) <= 1.5      # a stray flag is fine, a stream is not
 
 
 def test_filter_experiment_is_viable():
@@ -355,8 +356,8 @@ def test_filter_experiment_is_viable():
     assert tr["phi"].shape == (1000,) and np.isfinite(tr["phi"][-1])
 
 
-# --- real economic data (USD/UAH, bundled CSV) -------------------------- #
-# experiments/data is gitignored, so the CSV is absent in CI -- skip there.
+# real economic data (USD/UAH, bundled CSV)
+# experiments/data is gitignored; the CSV is simply absent in CI.
 needs_usd_uah = pytest.mark.skipif(
     not (B.EXPERIMENTS_DIR / "data" / "usd_uah_2014_2015.csv").exists(),
     reason="bundled USD/UAH CSV not available (experiments/data is gitignored)",
@@ -366,17 +367,17 @@ needs_usd_uah = pytest.mark.skipif(
 @needs_usd_uah
 def test_real_usd_uah_level_is_random_walk_and_ties_rw():
     rd = B.exp_real_data()
-    # the FX level is a near-random walk; the merged router should say so
+    # the FX level is a near-random walk; the router has to call it one
     assert rd["level_regime"].startswith("random walk")
-    # and tie (not lose to) the random-walk benchmark on the held-out forecast
+    # and tie the random-walk benchmark on the holdout, within 2 percent
     rmse = rd["forecast_rmse"]
     assert rmse["dtfit merged"] <= rmse["random walk"] * 1.02
-    # the famous stylized fact: long memory in volatility (|returns| Hurst > 0.5)
+    # the stylized fact: the long memory lives in the volatility, not the level
     assert rd["returns_vol_clustering"]
     assert rd["abs_returns_hurst"]["dtfit spectral"] > 0.55
 
 
-# --- real data from statsmodels: reproduce the textbook results --------- #
+# real data from statsmodels: reproducing the textbook results
 HAS_SM = True
 try:
     import statsmodels.api  # noqa: F401
@@ -388,14 +389,15 @@ sm_only = pytest.mark.skipif(not HAS_SM, reason="statsmodels not installed")
 
 @sm_only
 def test_real_gdp_is_random_walk_with_drift():
-    # Nelson-Plosser (1982): US real GDP is a random walk with drift.
+    # Nelson-Plosser (1982): US real GDP is a random walk with drift. The drift
+    # is a stochastic trend, not the deterministic one has_trend flags.
     m = fit_stochastic(B._sm_series("gdp"))
     assert "random walk" in m.regime and m.has_trend is False
 
 
 @sm_only
 def test_real_sunspots_is_cyclical_near_11_years():
-    # the canonical ~11-year solar cycle.
+    # the canonical ~11-year solar cycle
     m = fit_stochastic(B._sm_series("sunspots"))
     assert "cyclical" in m.regime
     assert 8.0 <= m.cycle_period <= 14.0
@@ -403,16 +405,16 @@ def test_real_sunspots_is_cyclical_near_11_years():
 
 @sm_only
 def test_real_nile_has_long_memory():
-    # Hurst's (1951) canonical long-memory series, H ~ 0.9.
+    # Hurst's (1951) canonical long-memory series, H ~ 0.9 in the literature
     h = B.hurst_comparison(B._sm_series("nile"))
     assert h["dtfit spectral"] > 0.70
-    assert h["R/S"] > 0.65   # agrees with the classic estimator
+    assert h["R/S"] > 0.65   # the classic estimator has to agree
 
 
 @sm_only
 def test_real_suite_never_forecasts_much_worse_than_random_walk():
-    # the merged solution either beats RW (where structure extrapolates) or ties
-    # it (the honest no-structure fallback) -- never loses badly.
+    # the merged solution beats the random walk where structure extrapolates,
+    # ties it where there is none, and never loses by more than 5 percent
     for r in B.exp_real_suite()["rows"]:
         ratio = r["merged/RW"]
         if r["n"] > 0 and ratio == ratio:  # not NaN

@@ -1,9 +1,9 @@
 """Download real-world datasets for validating the dtfit methods.
 
-Two datasets, chosen to match the dissertation's stated domain (nonlinear
-smoothing/forecasting on currency / economic / pandemic time series) and the
-methods' target shape (models nonlinear in their parameters -- exponential /
-transcendental):
+Two series are the domain evidence. They match the dissertation's stated domain
+(nonlinear smoothing and forecasting on currency, economic and pandemic time
+series) and they have the shape the methods target: models nonlinear in their
+parameters, exponential or transcendental.
 
 1. USD/UAH official exchange rate (National Bank of Ukraine open API).
    Window: the 2014-2015 hryvnia crisis, a sustained, roughly exponential
@@ -13,8 +13,12 @@ transcendental):
    The early-2020 growth phase is the textbook exponential-in-parameters
    signal. Pandemic-domain test.
 
+The LTSF benchmark sets follow, for the long-horizon forecasting comparison
+against the published baselines.
+
 Run:  python -m dtfit_experimental.experiments.download_data
-Files land in experiments/data/ as plain CSV (date,value).
+The two series land in experiments/data/ as plain CSV (date,value); the LTSF
+sets keep their published layout under experiments/data/ltsf/.
 """
 
 from __future__ import annotations
@@ -55,8 +59,8 @@ def download_usd_uah(start: str = "20140101", end: str = "20151231") -> Path:
         w.writerow(["date", "rate_uah_per_usd"])
         for r in rows:
             d = datetime.strptime(r["exchangedate"], "%d.%m.%Y").date()
-            # NBU historically quoted USD per 100 units; rate_per_unit is the
-            # rate for a single USD (e.g. 7.993), which is what we want.
+            # NBU historically quoted USD per 100 units. rate_per_unit is the
+            # rate for a single USD (7.993 and the like), the one we want.
             w.writerow([d.isoformat(), r["rate_per_unit"]])
     print(f"  USD/UAH: {len(rows)} daily rates -> {out.relative_to(DATA_DIR.parent)}")
     return out
@@ -87,10 +91,11 @@ LTSF_DIR = DATA_DIR / "ltsf"
 ETT_BASE = "https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/"
 ETT_FILES = ["ETTh1.csv", "ETTh2.csv", "ETTm1.csv", "ETTm2.csv"]
 
-# Larger LTSF sets live in the Autoformer dataset bundle (Google Drive /
-# Tsinghua cloud), which is awkward to fetch programmatically. We try a list of
-# candidate mirrors per file and skip (printing the canonical source) on
-# failure; the benchmark then runs on whatever subset is present.
+# The larger LTSF sets live in the Autoformer dataset bundle (Google Drive /
+# Tsinghua cloud), which is awkward to fetch programmatically. Each file gets a
+# list of candidate mirrors; a file that fetches from none of them is skipped
+# with its canonical source printed, and the benchmark runs on whatever subset
+# made it down.
 _HF_TSLIB = "https://huggingface.co/datasets/thuml/Time-Series-Library/resolve/main/"
 LTSF_MIRRORS = {
     "weather.csv": [_HF_TSLIB + "weather/weather.csv"],

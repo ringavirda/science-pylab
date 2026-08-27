@@ -1,12 +1,10 @@
-"""Shared utilities for the dtfit experiment suite.
+"""Shared helpers for the dtfit experiment suite.
 
-The experiments are now self-contained Jupyter notebooks, each over a sibling
-``backend.py`` (the single source of truth for its simulation/estimation infra).
-This package keeps the **pure-compute** helpers the backends share — metrics,
-baselines, datasets — plus a few plotting helpers the *notebooks* import (e.g.
-``common.plotting.fit_overlay``), and the ``EXPERIMENTS_DIR`` anchor used to
-locate bundled data. The old report-writer / parallel-runner harness was removed
-when the notebooks replaced ``run.py``.
+Every experiment is a notebook over a sibling ``backend.py``. This package
+holds what those backends have in common: metrics, baselines, dataset loaders,
+the few plotting helpers the notebooks import directly (``fit_overlay`` and
+friends), and the ``EXPERIMENTS_DIR`` anchor that locates the bundled data.
+Pure compute only; the notebooks own the presentation.
 """
 
 from pathlib import Path
@@ -16,8 +14,7 @@ from . import plotting
 from . import baselines
 from . import datasets
 
-# Repository anchor: ``.../dtfit_experimental/experiments`` (parent of ``common``),
-# under which bundled real-data CSVs live in ``data/``.
+# ``.../dtfit_experimental/experiments``; its ``data/`` holds the CSVs.
 EXPERIMENTS_DIR = Path(__file__).resolve().parent.parent
 
 __all__ = [

@@ -1,19 +1,19 @@
-"""LTSF benchmark data loading -- the exact protocol used by the R&D papers.
+"""LTSF benchmark loading, on the protocol the published papers report under.
 
 DLinear (arXiv:2205.13504), TimesNet (arXiv:2210.02186) and Time-LLM
-(arXiv:2310.01728) all report on the long-term-forecasting benchmark with a
-fixed pipeline (originating in the Informer/Autoformer code):
+(arXiv:2310.01728) all evaluate on the long-term-forecasting benchmark through
+one fixed pipeline, inherited from the Informer/Autoformer code:
 
-* **splits**: ETT* use 12/4/4 months (train/val/test); other sets use
-  0.7/0.1/0.2 by length;
-* **normalization**: z-score with statistics fit on the **train** split only,
-  applied to all splits;
-* **windows**: a lookback of ``L`` steps predicts the next ``H`` steps;
-* **metrics**: MSE / MAE on the normalized values.
+* splits: ETT* use 12/4/4 months (train/val/test), the other sets 0.7/0.1/0.2
+  by length;
+* normalization: z-score whose statistics come from the train split alone,
+  then applied to every split;
+* windows: a lookback of ``L`` steps predicts the next ``H`` steps;
+* metrics: MSE and MAE on the normalized values.
 
-Reproducing this pipeline exactly is what makes dtfit's measured numbers
-comparable to the papers' published numbers. CSVs live in
-``experiments/data/ltsf/`` (fetched by ``download_data.py``).
+Following it exactly is what makes dtfit's measured numbers comparable to the
+published ones. CSVs live in ``experiments/data/ltsf/``, fetched by
+``download_data.py``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ import numpy as np
 
 LTSF_DIR = Path(__file__).resolve().parent.parent / "data" / "ltsf"
 
-# canonical file name per dataset key
 FILES = {
     "ETTh1": "ETTh1.csv", "ETTh2": "ETTh2.csv",
     "ETTm1": "ETTm1.csv", "ETTm2": "ETTm2.csv",

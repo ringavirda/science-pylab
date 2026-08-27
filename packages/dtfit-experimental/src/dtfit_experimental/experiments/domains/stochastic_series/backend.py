@@ -1,31 +1,36 @@
-"""Backend for the **stochastic-series** domain experiment.
+"""Backend for the stochastic-series domain experiment.
 
-Single source of truth for the question: *can dtfit -- a deterministic curve
-fitter -- be put to work on genuinely random series (economic / financial
-data)?* dtfit cannot fit a martingale path; but it can fit the **deterministic
-functionals** of a stochastic process (its autocovariance, spectrum,
-aggregated-variance and trend/cycle), and from those recover the process's
-parameters. The estimators live in :mod:`dtfit.stochastic`; this
-module supplies the **ground-truth data generators** and the **evaluation
-harness** that measures, for each possibility, whether the dtfit route actually
-recovers the known parameter (and how it compares to the standard estimator).
+The question it exists to answer: can dtfit, a deterministic curve fitter, be
+put to work on genuinely random series such as economic and financial data?
+dtfit cannot fit a martingale path, but it can fit a stochastic process's
+deterministic functionals, its autocovariance, spectrum, aggregated variance
+and trend/cycle, and recover the process's parameters from those. The
+estimators live in :mod:`dtfit.stochastic`; this module supplies the
+ground-truth data generators and the evaluation harness that measures, for each
+possibility, whether the dtfit route really does recover the known parameter
+and how it compares against the standard estimator.
 
-Each experiment simulates a process with a *known* parameter, runs the dtfit
-estimator (and a plain baseline) over several seeds, and reports the mean
-recovery error plus a categorical verdict (VIABLE / MARGINAL / NOT VIABLE):
+Each experiment simulates a process with a known parameter, runs the dtfit
+estimator and a plain baseline over several seeds, and reports the mean
+recovery error with a categorical verdict of VIABLE, MARGINAL or NOT VIABLE:
 
-* **E1 long memory (aggregated variance)** -- ARFIMA(0,d,0); recover the Hurst
+* E1, long memory by aggregated variance: ARFIMA(0,d,0), recovering the Hurst
   exponent ``H = d + 1/2`` from the power-law aggregated-variance curve.
-* **E2 long memory (spectrum)** -- same series; recover ``H`` from the
-  low-frequency log-periodogram slope (the GPH route) via LSI.
-* **E3 mean reversion** -- AR(1)/OU; recover the AR(1) coefficient from an
+* E2, long memory by spectrum: the same series, recovering ``H`` from the
+  low-frequency log-periodogram slope, the GPH route, through LSI.
+* E3, mean reversion: AR(1)/OU, recovering the AR(1) coefficient from an
   exponential fit to the ACF.
-* **E4 volatility persistence** -- GARCH(1,1); recover ``alpha + beta`` from an
+* E4, volatility persistence: GARCH(1,1), recovering ``alpha + beta`` from an
   exponential fit to the ACF of squared returns.
-* **E5 stochastic cycle** -- AR(2) with complex roots; recover the cycle period
+* E5, stochastic cycle: AR(2) with complex roots, recovering the cycle period
   from a damped-cosine fit to the ACF.
-* **E6 trend + cycle decomposition** -- structural series + noise; recover the
-  trend slope and cycle period, leaving a stochastic residual.
+* E6, trend and cycle decomposition: a structural series plus noise, recovering
+  the trend slope and cycle period and leaving a stochastic residual.
+
+Later experiments in the same module go past parameter recovery: the merged
+router (E7), forecast skill and the head-to-head against the classical
+estimators (E8, E8b), real data (E9, E10), the streaming filter (E11), the
+generative round-trip (E12) and the AR-versus-long-memory guard (E13, E14).
 
 ``run()`` returns the rows; ``summary()`` renders the markdown verdict table.
 """
@@ -72,9 +77,7 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# ground-truth data generators
-# --------------------------------------------------------------------------- #
+# the ground-truth data generators
 def gen_arfima(n: int, d: float, rng: np.random.Generator,
                *, ntrunc: int = 1200) -> np.ndarray:
     """ARFIMA(0, d, 0): white noise fractionally integrated to order ``d``.
@@ -142,9 +145,7 @@ def gen_trend_cycle(n: int, slope: float, period: float, amp: float,
     return t, y
 
 
-# --------------------------------------------------------------------------- #
 # verdict helper
-# --------------------------------------------------------------------------- #
 def _verdict(err: float, good: float, ok: float) -> str:
     if not np.isfinite(err):
         return "NOT VIABLE"
@@ -164,9 +165,7 @@ def _mean(vals: list[float]) -> float:
     return float(np.nanmean(a)) if a.size and np.any(np.isfinite(a)) else float("nan")
 
 
-# --------------------------------------------------------------------------- #
-# E1 -- long memory via aggregated variance
-# --------------------------------------------------------------------------- #
+# E1, long memory via aggregated variance
 def exp_hurst_aggvar(seeds: int = 8, *, n: int = 4096,
                      ds: tuple[float, ...] = (0.2, 0.3, 0.4)) -> dict:
     dt_e, base_e, rs_e, dfa_e = [], [], [], []
@@ -202,9 +201,7 @@ def exp_hurst_aggvar(seeds: int = 8, *, n: int = 4096,
     }
 
 
-# --------------------------------------------------------------------------- #
-# E2 -- long memory via the low-frequency spectrum (GPH)
-# --------------------------------------------------------------------------- #
+# E2, long memory via the low-frequency spectrum (GPH)
 def exp_hurst_spectral(seeds: int = 8, *, n: int = 4096,
                        ds: tuple[float, ...] = (0.2, 0.3, 0.4)) -> dict:
     dt_e, base_e, rs_e, dfa_e = [], [], [], []
@@ -240,9 +237,7 @@ def exp_hurst_spectral(seeds: int = 8, *, n: int = 4096,
     }
 
 
-# --------------------------------------------------------------------------- #
-# E3 -- mean reversion (AR(1) / OU)
-# --------------------------------------------------------------------------- #
+# E3, mean reversion in an AR(1) / OU process
 def exp_ar1(seeds: int = 8, *, n: int = 1500,
             phis: tuple[float, ...] = (0.5, 0.8, 0.95)) -> dict:
     dt_e, base_e = [], []
@@ -267,9 +262,7 @@ def exp_ar1(seeds: int = 8, *, n: int = 1500,
     }
 
 
-# --------------------------------------------------------------------------- #
-# E4 -- volatility persistence (GARCH(1,1))
-# --------------------------------------------------------------------------- #
+# E4, volatility persistence in a GARCH(1,1)
 def exp_garch(seeds: int = 8, *, n: int = 4000,
               params: tuple[tuple[float, float, float], ...] = (
                   (0.05, 0.08, 0.90), (0.05, 0.10, 0.85), (0.02, 0.05, 0.93))
@@ -284,7 +277,7 @@ def exp_garch(seeds: int = 8, *, n: int = 4000,
                 dt_e.append(_rel(est, persist))
             except Exception:
                 dt_e.append(np.nan)
-            # baseline: the textbook GARCH(1,1) Gaussian QMLE persistence
+            # the baseline: textbook GARCH(1,1) Gaussian QMLE persistence
             try:
                 base_e.append(_rel(garch_mle_persistence(r), persist))
             except Exception:
@@ -300,9 +293,7 @@ def exp_garch(seeds: int = 8, *, n: int = 4000,
     }
 
 
-# --------------------------------------------------------------------------- #
-# E5 -- stochastic cycle (AR(2), complex roots)
-# --------------------------------------------------------------------------- #
+# E5, the stochastic cycle of an AR(2) with complex roots
 def exp_cycle(seeds: int = 8, *, n: int = 1200,
               periods: tuple[float, ...] = (10.0, 16.0, 25.0),
               damping: float = 0.97) -> dict:
@@ -314,7 +305,7 @@ def exp_cycle(seeds: int = 8, *, n: int = 1200,
                 dt_e.append(_rel(cycle_period(x)["period"], P))
             except Exception:
                 dt_e.append(np.nan)
-            # baseline: FFT periodogram peak period
+            # the baseline: the FFT periodogram's peak period
             try:
                 xx = x - x.mean()
                 spec = np.abs(np.fft.rfft(xx)) ** 2
@@ -334,9 +325,7 @@ def exp_cycle(seeds: int = 8, *, n: int = 1200,
     }
 
 
-# --------------------------------------------------------------------------- #
-# E6 -- trend + cycle decomposition
-# --------------------------------------------------------------------------- #
+# E6, trend and cycle decomposition
 def exp_decompose(seeds: int = 8, *, n: int = 600, slope: float = 0.02,
                   period: float = 50.0, amp: float = 3.0,
                   noise_sd: float = 1.0) -> dict:
@@ -352,7 +341,7 @@ def exp_decompose(seeds: int = 8, *, n: int = 600, slope: float = 0.02,
         except Exception:
             slope_e.append(np.nan)
             period_e.append(np.nan)
-        # baseline: textbook OLS trend + FFT-periodogram cycle
+        # the baseline: a textbook OLS trend plus an FFT-periodogram cycle
         try:
             bdec = classical_decompose(t, y, trend_deg=1)
             bslope_e.append(_rel(bdec["slope"], slope))
@@ -373,11 +362,9 @@ def exp_decompose(seeds: int = 8, *, n: int = 600, slope: float = 0.02,
     }
 
 
-# --------------------------------------------------------------------------- #
-# E7 -- the merged solution: does the single fit_stochastic router identify the
-# right regime for each process? (the analogue of the other domains' "merged"
-# pipeline + applicability map)
-# --------------------------------------------------------------------------- #
+# E7, the merged solution: does the single fit_stochastic router identify the
+# right regime for each process? This is the analogue of the other domains'
+# merged pipeline and applicability map.
 def _regime_match(model, expect: str) -> bool:
     """Does the model's detected regime / components match the expected label?"""
     reg = model.regime.lower()
@@ -420,9 +407,10 @@ def _router_cases() -> list[tuple[str, str, object]]:
 
 
 def exp_merged_router(seeds: int = 8) -> dict:
-    """Run ``fit_stochastic`` over every process and score regime-ID accuracy --
-    head-to-head with the classical-estimator twin (``fit_classical_stochastic``)
-    on the *same* gated routing, so the comparison isolates the estimator."""
+    """Run ``fit_stochastic`` over every process and score its regime-ID
+    accuracy head-to-head against the classical-estimator twin
+    ``fit_classical_stochastic``, on the same gated routing; the estimator is
+    then the only difference between them."""
     rows = []
     correct = total = 0
     c_correct = 0
@@ -458,13 +446,12 @@ def exp_merged_router(seeds: int = 8) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# forecast skill: the merged solution vs the established forecasters
-# --------------------------------------------------------------------------- #
+# forecast skill: the merged solution against the established forecasters
 def forecast_skill(y: np.ndarray, h: int) -> tuple[dict, str]:
-    """Hold out the last ``h`` points; return ``({method: RMSE}, regime)`` for the
-    merged solution and the established baselines (random walk, drift, AR(1),
-    ARIMA, ETS, Theta -- the statsmodels ones skipped if unavailable)."""
+    """Hold out the last ``h`` points and return ``({method: RMSE}, regime)``
+    for the merged solution and the established baselines: random walk, drift,
+    AR(1), ARIMA, ETS and Theta, the statsmodels ones skipped where
+    unavailable."""
     y = np.asarray(y, dtype=float)
     train, test = y[:-h], y[-h:]
     out: dict[str, float] = {}
@@ -486,9 +473,10 @@ def forecast_skill(y: np.ndarray, h: int) -> tuple[dict, str]:
 
 
 def exp_forecast_skill(seeds: int = 5) -> dict:
-    """Forecast-skill of the merged solution vs baselines on the structured
-    processes where extrapolation is meaningful (trend+cycle, mean-reverting).
-    Reported as RMSE ratio to the random-walk benchmark (``<1`` = beats RW)."""
+    """Forecast skill of the merged solution against the baselines, on the
+    structured processes where extrapolation means anything at all: trend+cycle
+    and mean-reverting. Reported as an RMSE ratio to the random-walk benchmark,
+    so below 1 beats the random walk."""
     cases = [
         ("trend + cycle", lambda s: gen_trend_cycle(
             400, 0.03, 40.0, 3.0, 1.0, np.random.default_rng(s))[1], 40),
@@ -509,22 +497,22 @@ def exp_forecast_skill(seeds: int = 5) -> dict:
             "rows": rows}
 
 
-# --------------------------------------------------------------------------- #
-# E8b -- the head-to-head: the SAME stochastic model, dtfit estimators vs the
-# classical estimators. Confirms whether routing the characterization through
-# dtfit's integral fitters actually improves on the textbook toolkit, on the
-# one axis that matters end-to-end: held-out forecast skill.
-# --------------------------------------------------------------------------- #
+# E8b, the head-to-head: one stochastic model, dtfit's estimators against the
+# classical ones. It settles whether routing the characterization through
+# dtfit's integral fitters improves on the textbook toolkit, on the one axis
+# that matters end to end, held-out forecast skill.
 def exp_model_comparison(seeds: int = 5) -> dict:
-    """``fit_stochastic`` vs its classical twin ``fit_classical_stochastic`` on
-    held-out forecasting across the structured regimes.
+    """``fit_stochastic`` against its classical twin
+    ``fit_classical_stochastic``, on held-out forecasting across the structured
+    regimes.
 
-    Both models run the *same* gated routing and the *same* regime-appropriate
-    forecaster set; the only difference is the estimator (dtfit's LSI/EAC integral
-    fits vs OLS / GARCH-QMLE / periodogram / DFA). For each process the last
-    ``h`` points are held out and scored by RMSE; the table reports each model's
-    RMSE ratio to the random walk (``< 1`` beats RW) and which model wins, so the
-    improvement (if any) from the dtfit route is explicit.
+    Both models run the same gated routing and the same regime-appropriate
+    forecaster set, leaving the estimator as the only difference: dtfit's
+    LSI/EAC integral fits against OLS, GARCH-QMLE, periodogram and DFA. For
+    each process the last ``h`` points are held out and scored by RMSE, and the
+    table reports each model's RMSE ratio to the random walk, below 1 beating
+    it, together with which model wins, so that any improvement from the dtfit
+    route is explicit.
     """
     cases = [
         ("trend + cycle", lambda s: gen_trend_cycle(
@@ -568,9 +556,7 @@ def exp_model_comparison(seeds: int = 5) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# E9 -- real economic data (USD/UAH 2014-15 daily rate)
-# --------------------------------------------------------------------------- #
+# E9, real economic data: the USD/UAH 2014-15 daily rate
 def load_series(name: str, col: int = 1) -> np.ndarray:
     """Load one column from a bundled real-data CSV (``experiments/data``)."""
     import csv
@@ -583,11 +569,12 @@ def exp_real_data() -> dict:
     """Characterize a real economic series with the merged solution and check the
     forecast against the established baselines.
 
-    USD/UAH 2014-15 daily exchange rate: the **level** is a near-random-walk
-    (the classic finding that nothing beats persistence on an FX level); its
-    **log-returns** are the stationary object that carries volatility clustering.
-    The merged router should call the level a random walk (and tie RW on
-    forecast), and flag clustering in the returns.
+    The USD/UAH 2014-15 daily exchange rate. Its level is a near-random walk,
+    the classic finding that nothing beats persistence on an FX level, while
+    its log-returns are the stationary object carrying the volatility
+    clustering. The merged router should therefore call the level a random walk
+    and tie the random walk on forecast, and flag the clustering in the
+    returns.
     """
     rate = load_series("usd_uah_2014_2015.csv")
     logret = np.diff(np.log(rate))
@@ -598,7 +585,7 @@ def exp_real_data() -> dict:
     h = 20
     skill, regime = forecast_skill(rate, h)
 
-    # Hurst of |log-returns| (volatility long memory) -- dtfit vs the classics
+    # Hurst of |log-returns|, volatility long memory: dtfit vs the classics
     absr = np.abs(logret - logret.mean())
     hurst_abs = {
         "dtfit spectral": _safe(lambda: hurst_spectral(absr)["H"]),
@@ -625,9 +612,7 @@ def _safe(fn):
         return float("nan")
 
 
-# --------------------------------------------------------------------------- #
-# E10 -- a gallery of real datasets, one per regime, vs known literature
-# --------------------------------------------------------------------------- #
+# E10, a gallery of real datasets, one per regime, against known literature
 def _sm_series(key: str) -> np.ndarray:
     """Load a canonical real series from ``statsmodels.datasets`` (no download)."""
     import statsmodels.api as sm
@@ -646,9 +631,10 @@ def _sm_series(key: str) -> np.ndarray:
     raise KeyError(key)
 
 
-# Each entry: a real series, the regime domain knowledge / the literature predict,
-# and the established result it should reproduce. ``source`` is a thunk so a
-# missing statsmodels (or data file) only fails that one row.
+# Each entry pairs a real series with the regime domain knowledge and the
+# literature predict for it, and with the established result it should
+# reproduce. ``source`` is a thunk, so a missing statsmodels or data file fails
+# that row alone.
 REAL_DATASETS = [
     dict(key="nile", title="Nile annual volume (1871-1970)", domain="hydrology",
          expect="long memory / trend", source=lambda: _sm_series("nile"),
@@ -691,9 +677,9 @@ def _suite_horizon(n: int) -> int:
 
 
 def exp_real_suite() -> dict:
-    """Run the merged solution on every real dataset; report the detected regime
-    and the held-out forecast skill of the merged solution **and every baseline**
-    (RMSE ratio to the random walk; ``< 1`` beats RW)."""
+    """Run the merged solution on every real dataset, reporting the detected
+    regime and the held-out forecast skill of the merged solution and of every
+    baseline, as an RMSE ratio to the random walk where below 1 beats it."""
     rows = []
     for ds in REAL_DATASETS:
         try:
@@ -730,7 +716,7 @@ def exp_real_suite() -> dict:
 def panel_forecasts(y: np.ndarray, h: int) -> dict:
     """Held-out forecast of every method for one series, as arrays for plotting.
 
-    Returns ``{"train", "test", "preds": {method: array}}`` -- the merged
+    Returns ``{"train", "test", "preds": {method: array}}``: the merged
     solution plus the established baselines over the last ``h`` points."""
     y = np.asarray(y, dtype=float)
     train, test = y[:-h], y[-h:]
@@ -750,16 +736,15 @@ def panel_forecasts(y: np.ndarray, h: int) -> dict:
     return {"train": train, "test": test, "preds": preds}
 
 
-# --------------------------------------------------------------------------- #
-# E11 -- streaming characterization + online regime-change detection
-# (the online twin of fit_stochastic's second-order stage; the stochastic
-# counterpart of the embedded domain's streaming filter + fault detector)
-# --------------------------------------------------------------------------- #
+# E11, streaming characterization with online regime-change detection: the
+# online twin of fit_stochastic's second-order stage, and the stochastic
+# counterpart of the embedded domain's streaming filter and fault detector.
 def filter_trace(y: np.ndarray, *, nlags: int = 24, halflife: float = 150.0,
                  warmup: int = 80, settle: int = 500,
                  z_thresh: float = 4.0) -> dict:
-    """Run a :class:`StochasticFilter` over ``y`` and return the online phi /
-    volatility traces and the detected change-point times (arrays for plotting)."""
+    """Run a :class:`StochasticFilter` over ``y`` and return the online phi and
+    volatility traces with the detected change-point times, as arrays ready to
+    plot."""
     f = StochasticFilter(nlags=nlags, halflife=halflife, warmup=warmup,
                          settle=settle, z_thresh=z_thresh)
     phi = np.empty(y.size)
@@ -774,11 +759,11 @@ def filter_trace(y: np.ndarray, *, nlags: int = 24, halflife: float = 150.0,
 
 
 def exp_online_filter(seeds: int = 8) -> dict:
-    """Score the streaming filter on three axes: (1) does the online AR(1) phi
-    converge to the truth, (2) does it flag a structural break (persistence jump,
-    volatility switch) promptly, (3) how often does it false-alarm on a
+    """Score the streaming filter on three axes: whether the online AR(1) phi
+    converges to the truth, whether it flags a structural break (a persistence
+    jump, a volatility switch) promptly, and how often it false-alarms on a
     stationary stream. The streaming analogue of E7's batch router."""
-    # (1) online phi tracking error vs ground truth
+    # (1) online phi tracking error against ground truth
     phi_err = []
     for phi in (0.3, 0.6, 0.85):
         for s in range(seeds):
@@ -788,8 +773,8 @@ def exp_online_filter(seeds: int = 8) -> dict:
             phi_err.append(abs(f.params_["ar1_phi"] - phi))
     track_err = _mean(phi_err)
 
-    # (2) regime-break detection: a persistence jump and a volatility switch at
-    # the midpoint; report hit-rate and median detection latency.
+    # (2) regime-break detection, on a persistence jump and a volatility switch
+    # at the midpoint, reporting hit-rate and median detection latency
     def _break_case(kind, s):
         r = np.random.default_rng(800 + s)
         if kind == "persistence":
@@ -815,7 +800,7 @@ def exp_online_filter(seeds: int = 8) -> dict:
     hit_rate = 100.0 * hits / total if total else float("nan")
     latency = float(np.median(lats)) if lats else float("nan")
 
-    # (3) false-alarm rate on a stationary stream
+    # (3) the false-alarm rate on a stationary stream
     fa = []
     for s in range(seeds):
         f = StochasticFilter(warmup=80, settle=500, z_thresh=4.0)
@@ -834,12 +819,11 @@ def exp_online_filter(seeds: int = 8) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# E12 -- the generative model: fit -> simulate -> refit round-trip
-# (StochasticModel.simulate draws a fresh realization from the detected
-# components; re-fitting it must recover the same regime -- the honest proof that
-# the batch model is a faithful *generator*, not only a summary)
-# --------------------------------------------------------------------------- #
+# E12, the generative model on a fit-simulate-refit round trip.
+# ``StochasticModel.simulate`` draws a fresh realization from the detected
+# components, and re-fitting that must recover the same regime. It is the
+# honest proof that the batch model is a faithful generator and not only a
+# summary.
 def exp_simulate_roundtrip(seeds: int = 5) -> dict:
     """Per-regime round-trip recovery rate of ``StochasticModel.simulate``."""
     cases = [
@@ -886,14 +870,14 @@ def simulate_example(seed: int = 0) -> dict:
     return {"examples": out}
 
 
-# --------------------------------------------------------------------------- #
-# streaming-filter demonstrations (E11 companion): a change-point trace and the
-# flat-memory / bounded-cost profile that matches dtfit's own streaming filters
-# --------------------------------------------------------------------------- #
+# The streaming-filter demonstrations that accompany E11: a change-point trace,
+# and the flat-memory, bounded-cost profile that matches dtfit's own streaming
+# filters.
 def filter_break_demo(*, n_seg: int = 1500, seed: int = 0) -> dict:
-    """A stream with a KNOWN structural break at the midpoint (an AR(1)
-    persistence jump 0.2 -> 0.9) run through :class:`StochasticFilter`; returns
-    the series, the true break, the online phi trace and the detected flags."""
+    """A stream carrying a known structural break at the midpoint, an AR(1)
+    persistence jump from 0.2 to 0.9, run through :class:`StochasticFilter`.
+    Returns the series, the true break, the online phi trace and the flags the
+    filter raised."""
     r = np.random.default_rng(seed)
     a = gen_ar1(n_seg, 0.2, r)
     b = gen_ar1(n_seg, 0.9, r)
@@ -905,11 +889,11 @@ def filter_break_demo(*, n_seg: int = 1500, seed: int = 0) -> dict:
 
 
 def filter_characteristics(lengths: tuple[int, ...] = (1000, 10000, 100000)) -> dict:
-    """Memory + per-sample-cost profile of :class:`StochasticFilter` vs stream
-    length, plus a reference dtfit ``LSIFilter`` per-sample cost -- evidence the
-    filter has the FLAT-memory / BOUNDED-fast characteristics of dtfit's own
-    streaming filters (state is independent of stream length; cost per sample does
-    not grow)."""
+    """Memory and per-sample-cost profile of :class:`StochasticFilter` against
+    stream length, with a reference dtfit ``LSIFilter`` per-sample cost. This
+    is the evidence that the filter has the flat-memory, bounded-cost
+    characteristics of dtfit's own streaming filters: its state is independent
+    of stream length and its cost per sample does not grow."""
     import sys
     import time
 
@@ -939,11 +923,9 @@ def filter_characteristics(lengths: tuple[int, ...] = (1000, 10000, 100000)) -> 
     return {"rows": rows, "lsifilter_us_per_sample": ref}
 
 
-# --------------------------------------------------------------------------- #
-# E13 / E14 -- the reworked regime router (finite-order-AR VETO) and the new
-# estimator capabilities (ar_order / fit_ar / fractional_difference /
-# Student-t innovations). None of this was exercised by the notebook before.
-# --------------------------------------------------------------------------- #
+# E13 and E14: the regime router's finite-order-AR veto, and the estimator
+# capabilities ar_order, fit_ar, fractional_difference and Student-t
+# innovations.
 def gen_arp(n: int, phi: tuple[float, ...], rng: np.random.Generator,
             *, sigma: float = 1.0, burn: int = 300) -> np.ndarray:
     """General AR(p): ``x_t = sum_j phi_j x_{t-j} + e_t`` (lag 1..p)."""
@@ -957,17 +939,17 @@ def gen_arp(n: int, phi: tuple[float, ...], rng: np.random.Generator,
     return x[burn:]
 
 
-# The ground-truth zoo for the AR-vs-long-memory discrimination guard. Each
+# The ground-truth zoo for the AR-versus-long-memory discrimination guard. Each
 # entry is ``(name, expect_long_memory, generator(seed) -> series)``. The AR(2)
-# complex-root case and the AR(3) case are exactly the ones the old, un-vetoed
-# router used to mislabel as long memory (their slowly-decaying ACF spoofs the
-# Hurst read-out); the veto whitens with a capped AR(p<=3) fit first.
+# complex-root case and the AR(3) case are the ones a router without the veto
+# mislabels as long memory, their slowly-decaying ACF spoofing the Hurst
+# read-out; the veto whitens with a capped AR(p<=3) fit first.
 def _ar_discrim_cases(
     n: int,
 ) -> list[tuple[str, bool, Callable[[int], np.ndarray]]]:
-    # ARFIMA is generated at the canonical long-memory sample size (4096, as in
-    # E1/E2) where the Hurst read-out is reliable; the short-memory AR processes
-    # use the router's own default working length ``n``.
+    # ARFIMA is generated at the canonical long-memory sample size, 4096 as in
+    # E1/E2, where the Hurst read-out is reliable; the short-memory AR
+    # processes use the router's own default working length ``n``.
     n_lm = 4096
     return [
         ("AR(1) phi=0.70", False,
@@ -987,19 +969,21 @@ def _ar_discrim_cases(
 
 def exp_ar_discrimination(seeds: int = 8, n: int = 1500) -> dict:
     """The headline regression guard for ``fit_stochastic``'s finite-order-AR
-    VETO. A short-memory AR(2)/AR(3) has a slowly-decaying ACF that spoofs the
-    raw Hurst read-out into "long memory"; the reworked gate whitens with a
+    veto. A short-memory AR(2) or AR(3) has a slowly-decaying ACF that spoofs
+    the raw Hurst read-out into calling it long memory; the gate whitens with a
     capped AR(p<=3) fit and, if the whitened Hurst falls back toward white,
-    reclassifies as mean-reverting. This experiment simulates each process over
-    several seeds and records how often ``fit_stochastic`` flags long memory.
+    reclassifies the process as mean-reverting. This experiment simulates each
+    process over several seeds and records how often ``fit_stochastic`` flags
+    long memory.
 
-    Contract (asserted by the verdict): every AR(1/2/3) must be **0%**
-    long-memory (they are mean-reverting) -- this is the load-bearing regression
-    guard, so it is strict; and both ARFIMA d=0.3 / d=0.4 must be a strong
-    long-memory majority (>=75%; a lone borderline realization of ARFIMA d=0.4
-    can genuinely read as short-memory near the detector's boundary, honest
-    sampling noise, not a router bug). A regression that reintroduces the
-    mislabel shows up as a non-zero long-memory fraction on an AR row."""
+    The contract the verdict asserts: every AR(1), AR(2) and AR(3) must come
+    out 0% long-memory, since they are mean-reverting, and being the
+    load-bearing regression guard that is strict; while both ARFIMA d=0.3 and
+    d=0.4 must be a strong long-memory majority at 75% or more. A lone
+    borderline realization of ARFIMA d=0.4 can genuinely read as short-memory
+    near the detector's boundary, which is honest sampling noise and not a
+    router bug. A regression that reintroduces the mislabel shows up as a
+    non-zero long-memory fraction on an AR row."""
     rows = []
     ok = True
     for name, is_lm, gen in _ar_discrim_cases(n):
@@ -1013,8 +997,8 @@ def exp_ar_discrimination(seeds: int = 8, n: int = 1500) -> dict:
                 pass
         lm_frac = 100.0 * lm / seeds
         mr_frac = 100.0 * mr / seeds
-        # contract per row: AR must be *strictly* 0% LM (the veto); ARFIMA must
-        # be a strong LM majority.
+        # The per-row contract: an AR process must be strictly 0% long-memory,
+        # which is the veto; ARFIMA must be a strong long-memory majority.
         if is_lm:
             row_ok = lm_frac >= 75.0
         else:
@@ -1033,12 +1017,13 @@ def exp_ar_discrimination(seeds: int = 8, n: int = 1500) -> dict:
 
 
 def exp_ar_order_recovery(seeds: int = 8) -> dict:
-    """Order + coefficient recovery for the new ``ar_order`` / ``fit_ar``.
+    """Order and coefficient recovery for ``ar_order`` and ``fit_ar``.
 
-    AR(1), AR(2) and AR(3) with known coefficients; per true order we report how
-    often ``ar_order`` (AIC) picks the true ``p``, the mean per-coefficient
-    recovery error ``mean|phi_hat - phi|`` (over the min shared length), and the
-    mean recovered innovation ``sigma`` (truth = 1.0)."""
+    AR(1), AR(2) and AR(3) with known coefficients. Per true order it reports
+    how often ``ar_order`` picks the true ``p`` by AIC, the mean
+    per-coefficient recovery error ``mean|phi_hat - phi|`` over the shortest
+    shared length, and the mean recovered innovation ``sigma``, whose truth is
+    1.0."""
     specs = [
         ("AR(1)", (0.6,)),
         ("AR(2)", (0.5, -0.3)),
@@ -1115,14 +1100,15 @@ def exp_fracdiff_whitening(seeds: int = 8, n: int = 2048) -> dict:
 def exp_student_t(seeds: int = 6, n: int = 4000) -> dict:
     """Student-t innovations in ``StochasticModel.simulate``.
 
-    Fit a fat-tailed AR(1) (driven by heavy-tailed Student-t shocks) with
+    Fit a fat-tailed AR(1), driven by heavy-tailed Student-t shocks, with
     ``fit_stochastic``, then draw a Gaussian path (``dist="normal"``) and a
-    Student-t path (``dist="t", df=5``). Report that both paths keep unit-ish
-    variance (they share the same fitted second-order scale) but the Student-t
-    path carries markedly heavier tails -- higher excess kurtosis. Honest and
-    simple: this checks the *innovation distribution knob*, not a forecast."""
+    Student-t path (``dist="t", df=5``). Both share the same fitted
+    second-order scale, so their path variances should stay within a factor of
+    two of each other, while the Student-t path should carry markedly heavier
+    tails, a higher excess kurtosis. This checks the innovation-distribution
+    knob, not a forecast."""
     def _excess_kurtosis(a: np.ndarray) -> float:
-        """Fisher excess kurtosis (0 for a Gaussian); numpy-only, no scipy dep."""
+        """Fisher excess kurtosis, 0 for a Gaussian; numpy only, no scipy."""
         a = np.asarray(a, dtype=float)
         m = a.mean()
         s2 = a.var()
@@ -1136,7 +1122,7 @@ def exp_student_t(seeds: int = 6, n: int = 4000) -> dict:
     kurt_t: list[float] = []
     for s in range(seeds):
         r = np.random.default_rng(1600 + s)
-        # AR(1) with heavy-tailed (Student-t, df=4) innovations -> fat tails
+        # an AR(1) driven by heavy-tailed Student-t (df=4) innovations
         shocks = r.standard_t(4, n + 200)
         x = np.empty(n + 200)
         x[0] = shocks[0]
@@ -1147,9 +1133,7 @@ def exp_student_t(seeds: int = 6, n: int = 4000) -> dict:
             m = fit_stochastic(x)
             sn = np.asarray(m.simulate(n, seed=s, dist="normal"), dtype=float)
             st = np.asarray(m.simulate(n, seed=s, dist="t", df=5.0), dtype=float)
-            # compare on the stationary innovation scale (first difference of the
-            # residual is dominated by the innovation) -- but variance of the path
-            # itself is the honest "matches" check the brief asks for.
+            # the variance of the path itself is the honest scale check here
             var_n.append(float(np.var(sn)))
             var_t.append(float(np.var(st)))
             kurt_n.append(_excess_kurtosis(sn))
@@ -1178,11 +1162,10 @@ def exp_student_t(seeds: int = 6, n: int = 4000) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# driver
-# --------------------------------------------------------------------------- #
+# the driver
 def run(seeds: int = 8, *, quick: bool = False) -> list[dict]:
-    """Run the six recovery experiments + the merged router and return the rows."""
+    """Run the six recovery experiments, the merged router and the streaming
+    filter, and return their rows."""
     if quick:
         seeds = max(2, seeds // 2)
     return [

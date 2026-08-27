@@ -1,30 +1,29 @@
-"""Baseline methods compared against dtfit across the experiment suite.
+"""The methods dtfit is scored against across the experiment suite.
 
-Everything here is a *fairly runnable* baseline -- the established methods a
-practitioner would actually reach for, wrapped behind small uniform helpers:
+Each one is an established method a practitioner would actually reach for,
+wrapped behind a small uniform helper so the harnesses can call them alike:
 
-* classical curve fitting -- SciPy ``curve_fit`` (Levenberg-Marquardt NLLS),
+* classical curve fitting: SciPy ``curve_fit`` (Levenberg-Marquardt NLLS) and
   ``numpy.polyfit``;
-* the **Western parameter-estimation lineage** a signal-processing / system-ID
-  reviewer would reach for -- Prony's method and its modern subspace successors
-  (Matrix Pencil / ESPRIT), Golub-Pereyra variable projection (VarPro), and the
-  classical method of moments / GMM (see :func:`prony_fit`, :func:`matrix_pencil_fit`,
-  :func:`varpro_fit`, :func:`moment_match_fit`). These are the *same-job*
-  counterparts to dtfit's EAC/LSI: they recover the same nonlinear parameters
-  (rates, frequencies, amplitudes) by different routes -- algebraic recurrences,
-  separable least squares, or integral moment matching;
-* neural nets -- scikit-learn ``MLPRegressor`` (batch and incremental
-  ``partial_fit``), and PyTorch MLP / LSTM sequence forecasters;
-* classical time series -- statsmodels ARIMA / SARIMAX;
-* trajectory tracking -- a constant-acceleration Kalman filter (numpy);
+* the Western parameter-estimation lineage a signal-processing or system-ID
+  reviewer asks about: Prony's method, its subspace successors Matrix Pencil
+  and ESPRIT, Golub-Pereyra variable projection, and the classical method of
+  moments (:func:`prony_fit`, :func:`matrix_pencil_fit`, :func:`varpro_fit`,
+  :func:`moment_match_fit`). These do the same job as dtfit's EAC/LSI, and
+  recover the same nonlinear parameters (rates, frequencies, amplitudes) by
+  other routes: algebraic recurrences, separable least squares, integral
+  moment matching;
+* neural nets: scikit-learn ``MLPRegressor`` (batch or ``partial_fit``) and
+  PyTorch MLP / LSTM sequence forecasters;
+* classical time series: statsmodels ARIMA / SARIMAX;
+* trajectory tracking: a constant-acceleration Kalman filter in plain numpy;
 * the naive random-walk forecast benchmark.
 
-The deep / statsmodels backends are imported lazily and guarded by
-``HAVE_TORCH`` / ``HAVE_STATSMODELS`` so the suite still runs (skipping those
-rows) on a core install. Modern deep-forecasting research methods
-(DLinear/TimesNet/Time-LLM) are *not* re-implemented here -- they are compared
-against by reproducing their published benchmark numbers in
-``experiments/06_benchmark_ltsf``.
+The torch and statsmodels backends import lazily behind ``HAVE_TORCH`` /
+``HAVE_STATSMODELS``, so a core install still runs the suite with those rows
+skipped. The deep forecasting research methods (DLinear, TimesNet, Time-LLM)
+are not re-implemented: ``experiments/cases/06_benchmark_ltsf`` compares
+against their published benchmark numbers instead.
 """
 
 from __future__ import annotations
@@ -46,9 +45,7 @@ except Exception:  # pragma: no cover
     HAVE_STATSMODELS = False
 
 
-# --------------------------------------------------------------------------- #
 # classical curve fitting
-# --------------------------------------------------------------------------- #
 def scipy_curve_fit(x, y, func, p0, *, bounds=None, maxfev=20000):
     """Levenberg-Marquardt / trust-region NLLS via scipy.optimize.curve_fit."""
     from scipy.optimize import curve_fit
@@ -65,11 +62,9 @@ def polyfit_predict(x, y, x_eval, deg=5):
     return np.polyval(c, x_eval)
 
 
-# --------------------------------------------------------------------------- #
-# Hurst-exponent baselines (the established long-memory estimators)
-# --------------------------------------------------------------------------- #
+# the established long-memory (Hurst) estimators
 def hurst_rs(x, *, n_scales=12):
-    """Classic **rescaled-range (R/S) analysis** Hurst estimator (Mandelbrot).
+    """Rescaled-range (R/S) Hurst estimator (Mandelbrot).
 
     For each scale ``m`` the average rescaled range ``E[R/S]`` over the
     non-overlapping windows scales as ``m^H``; ``H`` is the log-log slope.
@@ -99,7 +94,7 @@ def hurst_rs(x, *, n_scales=12):
 
 
 def hurst_dfa(x, *, n_scales=12, order=1):
-    """**Detrended fluctuation analysis (DFA)** Hurst estimator (Peng et al.).
+    """Detrended-fluctuation-analysis (DFA) Hurst estimator (Peng et al.).
 
     The integrated profile is split into windows of size ``m``; the RMS of the
     order-``order`` polynomial-detrended fluctuation scales as ``m^H`` (for the
@@ -143,9 +138,7 @@ def mlp_curve(x, y, x_eval, *, hidden=(64, 64), max_iter=2000, seed=0):
     return net.predict(xs.transform(np.asarray(x_eval).reshape(-1, 1)))
 
 
-# --------------------------------------------------------------------------- #
-# forecasting baselines (train on a series, predict `horizon` steps ahead)
-# --------------------------------------------------------------------------- #
+# forecasting baselines: train on a series, predict `horizon` steps ahead
 def random_walk_forecast(train, horizon):
     """Persist the last observed value (the standard hard-to-beat benchmark)."""
     return np.full(horizon, float(train[-1]))
@@ -161,8 +154,8 @@ def mlp_forecast(train, horizon, *, lookback=24, hidden=(64, 64), max_iter=1500,
                  seed=0, incremental=False):
     """Autoregressive sklearn-MLP forecaster (recursive multi-step).
 
-    With ``incremental=True`` it is trained by ``partial_fit`` over mini-batches
-    -- the streaming-friendly NN baseline used by the big-data experiment.
+    ``incremental=True`` trains it by ``partial_fit`` over mini-batches instead
+    of one batch ``fit``, the streaming-friendly form of the same baseline.
     """
     from sklearn.neural_network import MLPRegressor
 
@@ -205,9 +198,7 @@ def arima_forecast(train, horizon, *, order=(2, 1, 2), seasonal_order=None):
     return np.asarray(fit.forecast(steps=horizon), dtype=float)
 
 
-# --------------------------------------------------------------------------- #
 # torch sequence nets (small, CPU)
-# --------------------------------------------------------------------------- #
 def _torch_seq_forecast(train, horizon, *, lookback, kind, epochs, seed):
     torch.manual_seed(seed)
     train = np.asarray(train, dtype=float)
@@ -268,9 +259,7 @@ def torch_mlp_forecast(train, horizon, *, lookback=24, epochs=300, seed=0):
                                epochs=epochs, seed=seed)
 
 
-# --------------------------------------------------------------------------- #
-# constant-acceleration Kalman filter (trajectory tracking gold standard)
-# --------------------------------------------------------------------------- #
+# the constant-acceleration Kalman filter: trajectory tracking's gold standard
 class KalmanCA:
     """Per-axis constant-acceleration Kalman filter (position measurements).
 
@@ -290,11 +279,11 @@ class KalmanCA:
         self.x = [np.zeros((3, 1)) for _ in range(dim)]
         self.P = [np.eye(3) * 10.0 for _ in range(dim)]
         self._init = False
-        # Per-axis one-step innovations of the last update, and their fused
-        # normalized-innovation-squared (~chi-square(dim) under no maneuver).
-        # Lets an external detector apply the *same* self-calibrating adaptive
-        # re-arming to the Kalman baseline as to dtfit -- a fair maneuver-tracking
-        # comparison driven by identical machinery.
+        # Per-axis one-step innovations of the last update and their fused
+        # normalized-innovation-squared, ~chi-square(dim) while no maneuver is
+        # under way. An external detector can then drive the Kalman baseline
+        # with the identical adaptive re-arming it drives dtfit with, so the
+        # maneuver-tracking comparison runs on one piece of machinery.
         self.last_residuals_ = np.zeros(dim)
         self.last_nis_ = 0.0
 
@@ -325,7 +314,7 @@ class KalmanCA:
         return self.position()
 
     def inflate(self, factor):
-        """Inflate every axis' covariance -- the adaptive re-arming hook, mirror
+        """Inflate every axis' covariance: the adaptive re-arming hook, mirror
         of the dtfit filter's ``inflate``."""
         for d in range(self.dim):
             self.P[d] = self.P[d] * float(factor)
@@ -344,11 +333,9 @@ class KalmanCA:
         return out
 
 
-# --------------------------------------------------------------------------- #
-# additional classical forecasting baselines (the standard toolkit)
-# --------------------------------------------------------------------------- #
+# the rest of the standard classical forecasting toolkit
 def seasonal_naive_forecast(train, horizon, *, period):
-    """Repeat the last observed season -- the standard seasonal benchmark."""
+    """Repeat the last observed season: the standard seasonal benchmark."""
     train = np.asarray(train, dtype=float)
     if period <= 0 or train.size < period:
         return random_walk_forecast(train, horizon)
@@ -358,7 +345,7 @@ def seasonal_naive_forecast(train, horizon, *, period):
 
 
 def drift_forecast(train, horizon):
-    """Random walk *with drift*: extrapolate the average per-step change
+    """Random walk with drift: extrapolate the average per-step change
     (Hyndman's "drift method")."""
     train = np.asarray(train, dtype=float)
     if train.size < 2:
@@ -368,8 +355,8 @@ def drift_forecast(train, horizon):
 
 
 def poly_extrap_forecast(train, horizon, *, deg=2):
-    """Fit a global polynomial and extrapolate -- the surrogate-fit baseline
-    (no parametric structure; extrapolates by curvature only)."""
+    """Fit a global polynomial and extrapolate: the surrogate-fit baseline,
+    carrying no parametric structure and extrapolating by curvature alone."""
     train = np.asarray(train, dtype=float)
     t = np.arange(train.size)
     c = np.polyfit(t, train, deg)
@@ -378,8 +365,9 @@ def poly_extrap_forecast(train, horizon, *, deg=2):
 
 def ets_forecast(train, horizon, *, trend="add", seasonal=None, period=None,
                  damped=False):
-    """Holt-Winters exponential smoothing (statsmodels ``ExponentialSmoothing``)
-    -- the workhorse classical forecaster (level + optional trend + season)."""
+    """Holt-Winters exponential smoothing (statsmodels
+    ``ExponentialSmoothing``): the workhorse classical forecaster, a level plus
+    an optional trend and season."""
     if not HAVE_STATSMODELS:
         raise RuntimeError("statsmodels not available")
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
@@ -392,8 +380,8 @@ def ets_forecast(train, horizon, *, trend="add", seasonal=None, period=None,
 
 
 def theta_forecast(train, horizon, *, period=None):
-    """The Theta method (statsmodels ``ThetaModel``) -- the M3-competition
-    winner; a robust, widely-used decomposition forecaster."""
+    """The Theta method (statsmodels ``ThetaModel``): the M3-competition
+    winner, a robust and widely deployed decomposition forecaster."""
     if not HAVE_STATSMODELS:
         raise RuntimeError("statsmodels not available")
     from statsmodels.tsa.forecasting.theta import ThetaModel
@@ -405,20 +393,19 @@ def theta_forecast(train, horizon, *, period=None):
 
 
 def sarima_forecast(train, horizon, *, order=(1, 1, 1), seasonal_order=None):
-    """Seasonal ARIMA point forecast (statsmodels SARIMAX) -- ARIMA's seasonal
+    """Seasonal ARIMA point forecast (statsmodels SARIMAX): ARIMA's seasonal
     extension, the standard statistical model for seasonal series."""
     return arima_forecast(train, horizon, order=order,
                           seasonal_order=seasonal_order)
 
 
-# --------------------------------------------------------------------------- #
-# robust / nonparametric curve fitting baselines (parameter estimation)
-# --------------------------------------------------------------------------- #
+# robust and nonparametric curve fitting, for the parameter-estimation studies
 def robust_curve_fit(x, y, func, p0, *, bounds=None, loss="soft_l1",
                      f_scale=1.0, maxfev=20000):
-    """NLLS with a robust loss (scipy ``least_squares``) -- the standard way to
-    fit a known model in the presence of outliers (Huber/soft-L1 down-weights
-    large residuals; the established robust analog of ``curve_fit``)."""
+    """NLLS under a robust loss (scipy ``least_squares``): the standard way to
+    fit a known model when outliers are present. Huber and soft-L1 down-weight
+    large residuals, making this the established robust analog of
+    ``curve_fit``."""
     from scipy.optimize import least_squares
     x = np.asarray(x, float)
     y = np.asarray(y, float)
@@ -434,9 +421,10 @@ def robust_curve_fit(x, y, func, p0, *, bounds=None, loss="soft_l1",
 
 
 def gp_curve(x, y, x_eval, *, seed=0):
-    """Gaussian-process regression (sklearn) -- the standard nonparametric
-    Bayesian smoother; fits any smooth curve but recovers no physical parameters
-    (the nonparametric counterpart to dtfit's structured fit)."""
+    """Gaussian-process regression (sklearn): the standard nonparametric
+    Bayesian smoother. It fits any smooth curve and recovers no physical
+    parameters at all, which is the point of comparing it to a structured
+    fit."""
     from sklearn.gaussian_process import GaussianProcessRegressor
     from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel
     x = np.asarray(x, float).reshape(-1, 1)
@@ -449,29 +437,27 @@ def gp_curve(x, y, x_eval, *, seed=0):
     return gp.predict(np.asarray(x_eval, float).reshape(-1, 1))
 
 
-# --------------------------------------------------------------------------- #
-# the Western parameter-estimation lineage (the signal-processing / system-ID
-# foils a reviewer outside the Pukhov school would reach for)
+# The Western parameter-estimation lineage: the signal-processing / system-ID
+# foils a reviewer outside the Pukhov school reaches for. Each recovers the
+# same nonlinear parameters as dtfit's EAC/LSI (growth and decay rates,
+# frequencies, amplitudes) by a different classical route:
 #
-# These recover the *same* nonlinear parameters as dtfit's EAC/LSI -- growth /
-# decay rates, frequencies, amplitudes -- but by the classical Western routes:
+#   * Prony / Matrix Pencil / ESPRIT, the algebraic and subspace route. An
+#     exponential sum obeys a linear recurrence, so its modes are the roots of
+#     a characteristic polynomial (Prony) or the eigenvalues of a shift on the
+#     data's signal subspace (Matrix Pencil / ESPRIT). Closed form, no
+#     iteration.
+#   * Variable projection (Golub-Pereyra), the separable-NLLS route: eliminate
+#     the linearly-appearing amplitudes in closed form, then optimise over the
+#     nonlinear shape parameters alone.
+#   * Method of moments / GMM, the integral-moment route: match the model's
+#     integral moments to the data's. This is the unconditioned ancestor of
+#     LSI, since monomial moments form an ill-conditioned Hilbert system, which
+#     is the pathology LSI removes by switching to an orthogonal Legendre
+#     basis.
 #
-#   * Prony / Matrix Pencil / ESPRIT -- the algebraic & subspace route: an
-#     exponential sum obeys a linear recurrence, so its modes are the roots of a
-#     characteristic polynomial (Prony) or the eigenvalues of a shift on the
-#     data's signal subspace (Matrix Pencil / ESPRIT). Closed-form, non-iterative.
-#   * Variable projection (Golub-Pereyra) -- the separable-NLLS route: eliminate
-#     the linearly-appearing amplitudes in closed form and optimise only over the
-#     nonlinear shape parameters.
-#   * Method of moments / GMM -- the integral-moment route: match the model's and
-#     the data's integral moments. This is the *unconditioned* ancestor of LSI
-#     (monomial moments form an ill-conditioned Hilbert system -- exactly the
-#     pathology LSI removes by switching to an orthogonal Legendre basis).
-#
-# All are pure NumPy/SciPy (no new dependency) and expose a small uniform result
-# so the domain harness can score parameter recovery and prediction the same way
-# it scores dtfit.
-# --------------------------------------------------------------------------- #
+# All are pure NumPy/SciPy and return a small uniform result, so the domain
+# harnesses score their recovery and prediction just as they score dtfit.
 class ExpSumModel:
     """A recovered sum of complex exponentials ``y(t) ~= Re sum_i amp_i e^{rate_i (t - t0)}``.
 
@@ -511,17 +497,18 @@ def _exp_amplitudes(t, y, rate, t0) -> np.ndarray:
 
 
 def prony_fit(t, y, n_modes) -> ExpSumModel:
-    """Classical **Prony's method** (1795): fit a sum of ``n_modes`` exponentials.
+    """Prony's method (1795): fit a sum of ``n_modes`` exponentials.
 
     An exponential sum satisfies a linear recurrence, so the algorithm is two
-    linear steps: (1) solve the (overdetermined) recurrence for its coefficients;
-    (2) the roots of the characteristic polynomial are the discrete poles
-    ``z_i = e^{mu_i dt}``, from which the rates ``mu_i`` follow and the amplitudes
-    drop out of a Vandermonde least squares. Non-iterative and exact in the
-    noiseless case -- the original of the whole exponential-fitting lineage and the
-    algebraic counterpart to dtfit's integral EAC/LSI. Sensitive to noise (its
-    modern successors :func:`matrix_pencil_fit` add an SVD denoising step);
-    assumes (near-)uniform sampling. ``y`` may be real or complex.
+    linear steps. Solve the overdetermined recurrence for its coefficients; the
+    roots of the characteristic polynomial are then the discrete poles
+    ``z_i = e^{mu_i dt}``, from which the rates ``mu_i`` follow and the
+    amplitudes drop out of a Vandermonde least squares. Non-iterative and exact
+    without noise, it is the origin of the whole exponential-fitting lineage
+    and the algebraic counterpart to dtfit's integral EAC/LSI. It is
+    noise-sensitive (:func:`matrix_pencil_fit` adds the SVD denoising step that
+    fixes this) and assumes near-uniform sampling. ``y`` may be real or
+    complex.
     """
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -544,18 +531,17 @@ def prony_fit(t, y, n_modes) -> ExpSumModel:
 
 
 def matrix_pencil_fit(t, y, n_modes, *, pencil=None) -> ExpSumModel:
-    """**Matrix Pencil** method (Hua & Sarkar 1990) -- the SVD-robust successor of
-    Prony, in the same family as **ESPRIT** and **MUSIC**.
+    """Matrix Pencil (Hua & Sarkar 1990): the SVD-robust successor of Prony, in
+    the same family as ESPRIT and MUSIC.
 
-    Instead of rooting a noise-sensitive recurrence polynomial, it builds a Hankel
-    matrix from the samples, denoises it by truncating its SVD to the ``n_modes``
-    dominant singular vectors, and recovers the discrete poles ``z_i`` as the
-    eigenvalues of a one-row shift on the signal subspace. This subspace step is
-    what makes it markedly more noise-robust than classical Prony, and it is the
-    method a signal-processing reviewer would name for exponential/sinusoid
-    recovery ("how does this compare to ESPRIT?"). Assumes (near-)uniform
-    sampling. ``pencil`` is the pencil parameter ``L`` (defaults to ``N/2``, the
-    standard rank-robust choice).
+    Rather than root a noise-sensitive recurrence polynomial, it builds a
+    Hankel matrix from the samples, denoises it by truncating the SVD to the
+    ``n_modes`` dominant singular vectors, and recovers the discrete poles
+    ``z_i`` as the eigenvalues of a one-row shift on the signal subspace. That
+    subspace step is what makes it markedly more noise-robust than Prony, and
+    it is the method a signal-processing reviewer names for exponential or
+    sinusoid recovery. Assumes near-uniform sampling. ``pencil`` is the pencil
+    parameter ``L``, defaulting to ``N/2``, the standard rank-robust choice.
     """
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -598,17 +584,18 @@ class VarProModel:
 
 
 def varpro_fit(t, y, design, alpha0, *, bounds=None, maxfev=20000) -> VarProModel:
-    """**Variable projection** (Golub & Pereyra 1973) for a separable model.
+    """Variable projection (Golub & Pereyra 1973) for a separable model.
 
-    Many exponential / harmonic / basis models are linear in some parameters
-    (amplitudes ``c``) and nonlinear in the rest (rates / frequencies ``alpha``):
-    ``y ~= Phi(alpha; t) @ c``. VarPro eliminates ``c`` analytically -- for any
-    ``alpha`` the optimal ``c`` is ``Phi(alpha)^+ y`` -- and optimises only over the
-    smaller, better-conditioned nonlinear set, minimising the *projection*
-    residual ``(I - Phi Phi^+) y``. It is the standard modern method for
-    multi-exponential / Fourier fitting and converges far better than throwing all
-    parameters at joint NLLS. The structural cousin of dtfit's LSI, which is also
-    linear in an amplitude once the model is projected onto its basis.
+    Many exponential, harmonic and basis models are linear in some parameters
+    (the amplitudes ``c``) and nonlinear in the rest (rates or frequencies
+    ``alpha``): ``y ~= Phi(alpha; t) @ c``. VarPro eliminates ``c``
+    analytically, since for any ``alpha`` the optimal ``c`` is
+    ``Phi(alpha)^+ y``, and optimises only over the smaller, better-conditioned
+    nonlinear set by minimising the projection residual ``(I - Phi Phi^+) y``.
+    It is the standard modern method for multi-exponential and Fourier fitting,
+    converging far better than throwing every parameter at a joint NLLS. A
+    structural cousin of dtfit's LSI, which is likewise linear in an amplitude
+    once the model is projected onto its basis.
 
     Args:
         design: ``design(alpha, t) -> Phi`` building the ``(len(t), K)`` matrix of
@@ -637,19 +624,19 @@ def varpro_fit(t, y, design, alpha0, *, bounds=None, maxfev=20000) -> VarProMode
 
 def moment_match_fit(t, y, func, p0, *, bounds=None, n_moments=None,
                      maxfev=20000) -> np.ndarray:
-    """Classical **method of moments / GMM** with monomial integral moments.
+    """The classical method of moments / GMM, on monomial integral moments.
 
     Identify ``theta`` by demanding the model reproduce the data's first ``m``
-    integral moments: ``int t^k f(t; theta) dt = int t^k y dt`` for
-    ``k = 0 .. m-1`` (``m = #params`` by default), solved as least squares over
-    ``theta``. Like EAC/LSI it matches *integral functionals* of the model to the
-    data (so noise averages out), but with **monomial** test functions -- which
-    form an ill-conditioned, Hilbert-like moment system. That is exactly the
-    conditioning pathology the current LSI removes by projecting onto an
-    *orthogonal* Legendre basis, so this is the fair "what does the reconditioning
-    buy?" foil and the deterministic-fit cousin of Pearson's method of moments
-    (1894) / Hansen's GMM (1982). ``t`` is normalised to ``[0, 1]`` internally so
-    the high-order moments do not overflow.
+    integral moments, ``int t^k f(t; theta) dt = int t^k y dt`` for
+    ``k = 0 .. m-1`` (``m`` defaults to the parameter count), solved as least
+    squares over ``theta``. Like EAC/LSI it matches integral functionals of the
+    model to the data, so noise averages out, but its test functions are
+    monomials, which form an ill-conditioned Hilbert-like moment system. That
+    is the conditioning pathology LSI removes by projecting onto an orthogonal
+    Legendre basis, which makes this the fair foil for the question of what the
+    reconditioning buys, and the deterministic-fit cousin of Pearson's method
+    of moments (1894) and Hansen's GMM (1982). ``t`` is normalised to
+    ``[0, 1]`` internally so the high-order moments do not overflow.
     """
     from scipy.optimize import least_squares
     from scipy.integrate import simpson
@@ -674,17 +661,15 @@ def moment_match_fit(t, y, func, p0, *, bounds=None, n_moments=None,
     return np.asarray(sol.x, dtype=float)
 
 
-# --------------------------------------------------------------------------- #
-# online estimators (the established real-time / streaming baselines)
-# --------------------------------------------------------------------------- #
+# the established real-time / streaming baselines
 class RLSPredictor:
     """Recursive Least Squares one-step predictor on an AR(``order``) model.
 
-    The classical online system-identification / adaptive-filtering algorithm:
-    it tracks the linear predictor coefficients of the signal online with a
-    forgetting factor ``lam`` (so it adapts to drift). It yields one-step
-    predictions but, being a black-box AR model, **no physical parameters** --
-    the streaming counterpart of the MLP baseline.
+    The classical online system-identification and adaptive-filtering
+    algorithm. It tracks the signal's linear predictor coefficients online
+    under a forgetting factor ``lam``, so it adapts to drift, and yields
+    one-step predictions. Being a black-box AR model it recovers no physical
+    parameters, which makes it the streaming counterpart of the MLP baseline.
     """
 
     def __init__(self, order=2, lam=0.99, delta=100.0):
@@ -716,16 +701,16 @@ class RLSPredictor:
 
 
 class EKFParam:
-    """Extended Kalman Filter that estimates the parameters of a *known*
+    """Extended Kalman Filter that estimates the parameters of a known
     nonlinear model online.
 
-    This is the textbook established method for online nonlinear parameter
-    estimation: the parameters are a random-walk state, the measurement is
-    ``y = f(t; p)``, and the EKF linearizes ``f`` about the current estimate via
-    its parameter-Jacobian (``∂f/∂p``, compiled once with SymPy). It is the
-    fair, same-job baseline for dtfit's streaming equal-areas / Legendre filters
-    -- both track the model parameters online; they differ in the *measurement*
-    (a pointwise value here vs an integrated area / spectrum for dtfit).
+    The textbook method for online nonlinear parameter estimation: the
+    parameters are a random-walk state, the measurement is ``y = f(t; p)``, and
+    the EKF linearizes ``f`` about the current estimate through its
+    parameter-Jacobian, compiled once with SymPy. It is the same-job baseline
+    for dtfit's streaming equal-areas and Legendre filters, since both track
+    the model parameters online; what differs is the measurement, a pointwise
+    value here against an integrated area or spectrum for dtfit.
     """
 
     def __init__(self, expr, var, p0, *, q=1e-4, r=1.0, p_init=1.0):
@@ -770,19 +755,19 @@ class EKFParam:
 
 
 class CTEKFGyro:
-    """Gyro-aided coordinated-turn EKF -- the fair GPS+IMU recursive baseline.
+    """Gyro-aided coordinated-turn EKF: the fair GPS+IMU recursive baseline.
 
-    Planar state ``[x, vx, y, vy, omega]`` propagated by the *coordinated-turn*
-    motion model (the velocity vector rotates at turn-rate ``omega``); the vertical
-    channel ``z`` is a constant-acceleration sub-filter. GPS supplies the position
-    ``(x, y, z)``; the **gyro supplies a direct measurement of** ``omega`` -- so the
-    filter fuses exactly the same information (GPS + yaw-rate) as the windowed
-    gyro dead-reckoning fit, but recursively, and is the EKF a tracking
-    practitioner would actually deploy. The transition is nonlinear in ``omega``
-    (the rotation depends on the state), hence EKF: its Jacobian is formed by
-    finite differences for robustness. Exposes the same ``update`` / ``forecast`` /
-    ``inflate`` / ``last_residuals_`` surface as :class:`KalmanCA`, so the identical
-    adaptive maneuver detector drives both -- a like-for-like comparison.
+    Planar state ``[x, vx, y, vy, omega]`` propagated by the coordinated-turn
+    motion model, in which the velocity vector rotates at turn-rate ``omega``;
+    the vertical channel ``z`` is a constant-acceleration sub-filter. GPS
+    supplies the position ``(x, y, z)`` and the gyro measures ``omega``
+    directly, so the filter fuses the same information as the windowed gyro
+    dead-reckoning fit but recursively, and it is the EKF a tracking
+    practitioner actually deploys. The transition is nonlinear in ``omega``
+    because the rotation depends on the state, hence an EKF; its Jacobian comes
+    from finite differences for robustness. It exposes the ``update``,
+    ``forecast``, ``inflate`` and ``last_residuals_`` surface of
+    :class:`KalmanCA`, so one adaptive maneuver detector drives both.
     """
 
     def __init__(self, dt=0.1, r_gps=2.25, r_gyro=9e-4, q_acc=3.0, q_w=0.8,
@@ -854,10 +839,11 @@ class CTEKFGyro:
         return np.array([self.x[0], self.x[2], zpos])
 
     def coast(self, omega):
-        """Time-update with the gyro but *no* GPS (a dropout): dead-reckon one step.
-        The measured yaw-rate keeps steering the velocity; the vertical CA coasts on
-        its own dynamics. This is the IMU-aided coasting a real INS/GPS rig does in a
-        tunnel -- far better than holding position. Returns the new ``[x, y, z]``."""
+        """Time-update on the gyro with no GPS, dead-reckoning one step through
+        a dropout. The measured yaw-rate keeps steering the velocity and the
+        vertical CA coasts on its own dynamics, which is the IMU-aided coasting
+        a real INS/GPS rig does in a tunnel and is far better than holding
+        position. Returns the new ``[x, y, z]``."""
         if not self._init:
             return self.position()
         self.x[4] = float(omega)               # gyro pins the turn-rate

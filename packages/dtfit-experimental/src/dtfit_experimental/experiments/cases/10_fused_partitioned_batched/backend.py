@@ -1,34 +1,23 @@
-"""Backend infrastructure for the fused map-reduce + GEMM-batched LSI experiment.
+"""Drivers and estimators for the fused multi-channel big-data case study.
 
-This module is the **single source of truth for the multi-channel big-data drivers
-and estimators** behind ``10_fused_partitioned_batched.ipynb``; the notebook imports
-it and does all the presentation (tables, figures, narrative). Keeping the infra
-here means the channel generator, the fused/loop/whole-array projection drivers and
-the external baselines are defined once and the notebook stays a thin, rerunnable
-layer over them.
+``10_fused_partitioned_batched.ipynb`` imports this module and owns the
+presentation.
 
-The case studies ``PartitionedBatchLSI``, which **fuses** the two big-data levers
-that were previously separate:
+The subject is ``PartitionedBatchLSI``, which fuses two big-data levers the
+other cases exercise on their own. :class:`dtfit.PartitionedLSI` partitions by
+volume: flat ``O(order)`` memory and an exact one-pass reduce, but one channel
+at a time. :func:`dtfit.project_spectra` batches by channel: one matmul across
+all of them, GPU-pluggable, but the whole volume resident at ``O(N)``. Each
+covers the other's weakness, and the fused estimator is the claim that you can
+have both at once.
 
-* the **volume partition** of :class:`dtfit.PartitionedLSI` -- flat ``O(order)``
-  memory, exact one-pass reduce, but **one channel at a time**;
-* the **channel GEMM** of :func:`dtfit.project_spectra` -- one matmul over channels
-  (GPU-pluggable), but the **whole volume at once** (``O(N)`` memory).
-
-It provides:
-
-* the **channel generator** -- :func:`make_channels` (``B`` exponential-growth
-  channels on a shared grid);
-* the **projection drivers** -- :func:`fused_project` (chunked GEMM into a
-  ``(B, n_coef)`` accumulator), :func:`loop_project` (per-channel
-  ``PartitionedLSI`` loop), and the whole-array references from dtfit;
-* **accuracy / benchmark helpers** -- :func:`curvefit_all`, :func:`recon_r2`,
-  :func:`struct_recon`, :func:`r2_window`, :func:`time_best`, :func:`gpu_name`,
-  and the memory/perf sweep drivers :func:`perf_sweep`, :func:`mem_sweep`,
-  :func:`gpu_sweep`.
-
-Pure compute only: no matplotlib, no ReportWriter, no report.md. Functions return
-numbers / arrays / dicts; the notebook renders them.
+:func:`fused_project` folds each chunk's GEMM into a ``(B, n_coef)``
+accumulator; :func:`loop_project` runs the per-channel ``PartitionedLSI`` loop
+that it replaces; the whole-array reference comes straight from dtfit.
+:func:`perf_sweep` times all three against channel count while
+:func:`mem_sweep` watches peak memory as the volume grows. :func:`gpu_sweep`
+repeats the fused path on a GPU backend when one is present, and
+``curve_fit`` runs alongside as the nonlinear accuracy reference.
 """
 
 from __future__ import annotations
@@ -43,12 +32,12 @@ from dtfit import PartitionedBatchLSI, fit_lsi_batched
 from dtfit.scale import project_spectra
 from dtfit_experimental import available_backends, resolve_backend
 
-try:  # optional accuracy reference / external nonlinear baseline
+try:  # Optional: the external nonlinear accuracy reference.
     from scipy.optimize import curve_fit
 except Exception:  # pragma: no cover
     curve_fit = None
 
-try:  # optional metric; skipped gracefully when sklearn is absent
+try:  # Optional: sklearn's r2_score, else the NumPy fallback below.
     from sklearn.metrics import r2_score as _sk_r2_score
 except Exception:  # pragma: no cover
     _sk_r2_score = None
@@ -69,8 +58,8 @@ HAVE_SKLEARN = _sk_r2_score is not None
 
 
 def r2_score(y_true, y_pred):
-    """Coefficient of determination. Uses sklearn when present, else a plain
-    NumPy fallback so the notebook still runs without the optional dependency."""
+    """Coefficient of determination, from sklearn when it is installed and
+    from a plain NumPy fallback when it is not."""
     if _sk_r2_score is not None:
         return float(_sk_r2_score(y_true, y_pred))
     y_true = np.asarray(y_true, float)
@@ -94,8 +83,9 @@ def gpu_name() -> str:
 def make_channels(n, b_ch, *, seed=0, noise=0.02, dtype=np.float64):
     """``b_ch`` exponential-growth channels ``a_c·exp(b_c·t)`` on a shared grid.
 
-    Returns ``(x, Y, a, b)`` with ``Y`` of shape ``(n, b_ch)`` and the true
-    per-channel amplitudes ``a`` and rates ``b``."""
+    Returns ``(x, Y, a, b)``: ``Y`` has shape ``(n, b_ch)``, and ``a`` and
+    ``b`` are the true per-channel amplitudes and rates.
+    """
     rng = np.random.default_rng(seed)
     x = np.linspace(DOMAIN[0], DOMAIN[1], n)
     a = rng.uniform(0.5, 2.0, b_ch)
@@ -116,9 +106,12 @@ def time_best(fn, reps=3):
 
 
 def fused_project(x, Y, chunk, backend, *, domain=DOMAIN):
-    """Fused ``PartitionedBatchLSI``: each chunk's ``B``-channel partial integrals
-    are one backend GEMM folded into a ``(B, n_coef)`` accumulator -- flat memory
-    over volume *and* one matmul over channels in a single pass."""
+    """Fused ``PartitionedBatchLSI`` projection.
+
+    Each chunk's ``B``-channel partial integrals are one backend GEMM folded
+    into a ``(B, n_coef)`` accumulator, giving flat memory over the volume and
+    a single matmul over the channels in the same pass.
+    """
     acc = PartitionedBatchLSI(
         "a*exp(b*t)", "t", domain=domain, n_channels=Y.shape[1],
         order=ORDER, backend=backend)
@@ -128,8 +121,10 @@ def fused_project(x, Y, chunk, backend, *, domain=DOMAIN):
 
 
 def loop_project(x, Y, chunk, *, domain=DOMAIN):
-    """Per-channel ``PartitionedLSI`` loop: flat memory, but a Python loop over
-    channels -- the thing the fused GEMM replaces."""
+    """Per-channel ``PartitionedLSI`` loop, the thing the fused GEMM replaces.
+
+    Memory stays flat, but the channels are walked in a Python loop.
+    """
     accs = [PartitionedLSI("a*exp(b*t)", "t", domain=domain, order=ORDER)
             for _ in range(Y.shape[1])]
     for i in range(0, x.size, chunk):
@@ -140,9 +135,12 @@ def loop_project(x, Y, chunk, *, domain=DOMAIN):
 
 
 def curvefit_all(x, Y, *, p0=(1.0, 0.0), maxfev=4000):
-    """Per-channel ``scipy.optimize.curve_fit`` of ``a·exp(b·t)`` (gold-standard
-    nonlinear accuracy reference). Returns an ``(B, 2)`` array of ``(a, b)`` or
-    raises if scipy is unavailable."""
+    """Per-channel ``scipy.optimize.curve_fit`` of ``a·exp(b·t)``, the
+    gold-standard nonlinear accuracy reference.
+
+    Returns a ``(B, 2)`` array of ``(a, b)``, with a channel that failed to
+    converge left as NaN. Raises if scipy is unavailable.
+    """
     if curve_fit is None:  # pragma: no cover
         raise RuntimeError("scipy is required for curvefit_all")
     f = lambda t, a, b: a * np.exp(b * t)  # noqa: E731
@@ -174,11 +172,15 @@ def r2_window(Y, Yhat, idx):
 def perf_sweep(n_perf, Bs, chunk, *, seed=1, noise=0.03):
     """Projection throughput vs channel count ``B``.
 
-    For each ``B`` in ``Bs``, time (best of 3) projecting the whole ``n_perf``-sample
-    stream with the fused GEMM, the per-channel partitioned loop, and the whole-array
-    ``project_spectra``; time ``curve_fit`` once at the smallest ``B`` only (it does
-    not scale). Returns ``(perf, cf_perf)`` where ``perf`` maps method-name -> list of
-    times (seconds, aligned with ``Bs``) and ``cf_perf`` is a list of curve_fit times."""
+    For each ``B`` in ``Bs``, takes the best of three timings for projecting
+    the whole ``n_perf``-sample stream three ways: the fused GEMM, the
+    per-channel partitioned loop and the whole-array ``project_spectra``.
+    ``curve_fit`` is timed at the smallest ``B`` alone, since it does not
+    scale and timing it everywhere would dominate the run.
+
+    Returns ``(perf, cf_perf)``. ``perf`` maps each method name to a list of
+    seconds aligned with ``Bs``; ``cf_perf`` holds the curve_fit times.
+    """
     xp = np.linspace(DOMAIN[0], DOMAIN[1], n_perf)
     rng = np.random.default_rng(seed)
     perf = {"fused (GEMM, numpy)": [], "per-channel PartitionedLSI loop": [],
@@ -194,7 +196,7 @@ def perf_sweep(n_perf, Bs, chunk, *, seed=1, noise=0.03):
             time_best(lambda: loop_project(xp, Yb, chunk))[0])
         perf["whole-array project_spectra"].append(
             time_best(lambda: project_spectra(xp, Yb, order=ORDER, backend="numpy"))[0])
-        if B <= b_min and HAVE_SCIPY:  # curve_fit doesn't scale; smallest B only
+        if B <= b_min and HAVE_SCIPY:  # Smallest B only; see the docstring.
             f = lambda t, aa, bb: aa * np.exp(bb * t)  # noqa: E731
             cf_perf.append(time_best(
                 lambda: [curve_fit(f, xp, Yb[:, c], p0=[1.0, 0.0], maxfev=4000)[0]
@@ -203,11 +205,13 @@ def perf_sweep(n_perf, Bs, chunk, *, seed=1, noise=0.03):
 
 
 def mem_sweep(vols, chunk, *, b_mem=128, noise=0.03):
-    """Peak memory (``tracemalloc``) projecting ``b_mem`` channels as the volume grows.
+    """Peak ``tracemalloc`` memory over ``b_mem`` channels as the volume grows.
 
-    The fused path generates + consumes chunk-by-chunk (never materializing the full
-    ``Y``); the whole-array path must hold ``Y`` in RAM. Returns
-    ``(mem_fused, mem_whole)`` lists of peak MB aligned with ``vols``."""
+    The fused path generates and consumes chunk by chunk and never
+    materializes the full ``Y``; the whole-array path has to hold ``Y`` in RAM.
+    Showing that gap is the point of the sweep. Returns
+    ``(mem_fused, mem_whole)``, lists of peak MB aligned with ``vols``.
+    """
     rng = np.random.default_rng(7)
     a = rng.uniform(0.5, 2.0, b_mem); b = rng.uniform(-0.25, 0.25, b_mem)
     mem_fused, mem_whole = [], []
@@ -240,11 +244,12 @@ def mem_sweep(vols, chunk, *, b_mem=128, noise=0.03):
 
 
 def gpu_sweep(n_perf, b_gpu, chunk):
-    """Fused projection on numpy (CPU) vs the first available GPU backend.
+    """Fused projection on numpy (CPU) against the first available GPU backend.
 
-    Returns ``(gpu, rows)`` where ``gpu`` is the backend name (or ``None`` if no GPU
-    backend is present / usable) and ``rows`` is a list of
-    ``[dtype, t_cpu_ms, t_gpu_ms, speedup]``."""
+    Returns ``(gpu, rows)``: the backend name, or ``None`` when no GPU backend
+    is present or usable, and a list of
+    ``[dtype, t_cpu_ms, t_gpu_ms, speedup]``.
+    """
     backends = available_backends()
     gpu = next((bk for bk in ("cupy", "torch") if bk in backends), None)
     rows = []

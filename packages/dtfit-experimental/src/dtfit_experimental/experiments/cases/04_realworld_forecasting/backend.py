@@ -1,33 +1,23 @@
-"""Backend infrastructure for the real-world forecasting experiment.
+"""Loaders, forecasters and holdout scoring for the forecasting case study.
 
-This module is the **single source of truth for the data, forecasters and
-train/holdout evaluation** behind ``04_realworld_forecasting.ipynb``; the
-notebook imports it and does all the presentation (tables, figures, narrative).
-Keeping the infra here means the loaders/models/scoring are defined once and the
-notebook stays a thin, rerunnable layer over them.
+``04_realworld_forecasting.ipynb`` imports this module and owns the
+presentation.
 
-The study fits a structured dtfit model on the first 80% of four real series with
-distinct structure -- exponential growth (COVID-19 Ukraine), exponential
-depreciation (USD/UAH), an ~11-year cycle (sunspots) and trend+seasonality
-(Mauna Loa CO2) -- and forecasts the last 20%, comparing against the standard
-forecasters that can be run fairly (ARIMA, a scikit-learn MLP, a PyTorch LSTM and
-the random-walk benchmark).
+Four real series were picked for distinct structure: exponential growth
+(COVID-19 Ukraine), exponential depreciation (USD/UAH), an eleven-year cycle
+(sunspots) and trend plus seasonality (Mauna Loa CO2). Each gets a dtfit model
+matched to that structure, fitted on the first 80% and extrapolated across the
+last 20%, against the forecasters a practitioner would actually reach for on
+the same data: ARIMA, a scikit-learn MLP, a PyTorch LSTM and the random walk.
 
-It provides:
+:data:`DATASETS` binds each series to its loader, its dtfit model and its ARIMA
+order. :func:`run_one` does the split, the fits and the scoring, returning
+plain numbers and arrays.
 
-* the **data loaders** -> a 1-D series -- :func:`load_covid`, :func:`load_uah`,
-  :func:`load_sunspots`, :func:`load_co2`;
-* the **dtfit parametric forecasters** (fit train, predict full ``t``) --
-  :func:`dtfit_exp`, :func:`dtfit_sunspots`, :func:`dtfit_co2`, and the
-  :data:`DATASETS` registry binding each series to its loader / model / ARIMA
-  order;
-* the **train/holdout evaluation** -- :func:`run_one`, which fits every method on
-  the 80% train split, forecasts the 20% holdout, and returns the series, split,
-  predictions and per-method scores as plain numbers/arrays/dicts.
-
-dtfit is a *parametric* fit-then-extrapolate forecaster, so it shines where the
-series has clear nonlinear structure to extrapolate, while the general learners
-shine on complex/irregular dynamics. The evaluation reports it honestly.
+dtfit forecasts by fitting a parametric form and extrapolating it. That wins
+wherever a series carries clear nonlinear structure to extrapolate, and loses
+to the general learners wherever the dynamics are irregular. Both outcomes
+turn up in the results.
 """
 
 from __future__ import annotations
@@ -47,9 +37,7 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# data loaders -> a 1-D series
-# --------------------------------------------------------------------------- #
+# Loaders: each returns one 1-D series.
 def load_covid():
     import csv
     p = EXPERIMENTS_DIR / "data" / "covid_ukraine_confirmed.csv"
@@ -78,9 +66,7 @@ def load_co2():
     return s.to_numpy(float)[::4]  # thin weekly->~monthly for a shorter series
 
 
-# --------------------------------------------------------------------------- #
-# dtfit parametric forecasters per dataset (fit train, predict full t)
-# --------------------------------------------------------------------------- #
+# Forecasters: fit on the train split, predict over the full t.
 def dtfit_exp(t_tr, y_tr, t_all):
     y0 = y_tr[0]
     r = dt.fit_lsi(t_tr, y_tr / y0, "a*exp(b*x)", "x", bounds=[(0.1, 5), (0.05, 5)])
@@ -88,7 +74,7 @@ def dtfit_exp(t_tr, y_tr, t_all):
 
 
 def dtfit_sunspots(t_tr, y_tr, t_all):
-    # cyclic: c + A sin(w t + p), fitted via Fourier-basis LSI (adaptation #2)
+    # Adaptation #2: the Fourier basis expresses the periodic form directly.
     expr = "c + A*sin(w*x + p)"
     r = fit_lsi_basis(t_tr, y_tr, expr, "x", basis="fourier", order=8,
                       bounds=[(10, 120), (0, 200), (0.1, 1.5), (-np.pi, np.pi)])
@@ -96,7 +82,8 @@ def dtfit_sunspots(t_tr, y_tr, t_all):
 
 
 def dtfit_co2(t_tr, y_tr, t_all):
-    # trend + seasonal via stage-wise boosting (adaptation #5)
+    # Adaptation #5: stage-wise boosting fits the trend, then the seasonal
+    # term on what the trend left behind.
     bm = boosted_fit(t_tr, y_tr, [
         dict(expr="a0 + a1*x + a2*x**2", var="x", method="lsi",
              p0=[y_tr[0], 1.0, 0.0]),
@@ -117,15 +104,16 @@ DATASETS = {
 def run_one(name, loader, dtfit_fn, arima_kw, *, quick=True):
     """Fit every method on the 80% train split and forecast the 20% holdout.
 
-    Returns a dict with the series ``y`` / time axis ``t`` / split index ``n_tr``,
-    the per-method holdout ``preds``, the per-method ``scores`` (R2/RMSE/MAE/MAPE),
-    and the ``dtfit_label`` for the chosen parametric form.
+    Returns a dict with the series ``y``, the time axis ``t``, the split index
+    ``n_tr``, the per-method holdout ``preds``, the per-method ``scores``
+    (R2/RMSE/MAE/MAPE) and the ``dtfit_label`` naming the parametric form used.
 
     ``quick`` trims the heavy learners so the whole suite runs in a couple of
-    minutes: the MLP runs fewer iterations and the (slow) PyTorch **LSTM is
-    skipped**. Set ``quick=False`` to run the MLP to convergence and add the LSTM.
-    Any baseline whose optional dependency (statsmodels / sklearn / torch) is
-    missing is skipped gracefully (its forecast becomes NaN)."""
+    minutes: the MLP gets fewer iterations and the slow PyTorch LSTM is left
+    out entirely. ``quick=False`` runs the MLP to convergence and adds the
+    LSTM. A baseline whose optional dependency (statsmodels, sklearn, torch)
+    is missing forecasts NaN rather than raising.
+    """
     y = loader()
     n = y.size
     n_tr = int(n * 0.8)
@@ -140,7 +128,7 @@ def run_one(name, loader, dtfit_fn, arima_kw, *, quick=True):
     except Exception:
         preds["dtfit (failed)"] = np.full(h, np.nan)
         label = "dtfit (failed)"
-    # baselines forecast the next h points from the training array
+    # The baselines forecast the next h points from the training array alone.
     try:
         preds["ARIMA"] = bl.arima_forecast(y_tr, h, order=arima_kw["order"])
     except Exception:

@@ -1,31 +1,24 @@
-"""Backend infrastructure for the control-systems system-identification experiment.
+"""Simulation and estimation code for the control-systems case study.
 
-This module is the **single source of truth for the simulation and estimation
-code** behind ``01_control_systems.ipynb``; the notebook imports it and does all
-the presentation (tables, figures, narrative). Keeping the infra here means the
-scenarios/estimators/baselines are defined once and the notebook stays a thin,
-rerunnable layer over them.
+``01_control_systems.ipynb`` imports this module and owns the presentation.
 
-It provides, for the control-engineering task of recovering the physical
-parameters of a dynamic system from its noisy response:
+The task is the control engineer's: recover a plant's physical parameters from
+its noisy response. Two textbook scenarios stand in for the general case, an
+underdamped second-order free response and a first-order step. Each is
+identified by EAC and LSI against SciPy ``curve_fit``, the NLLS gold standard
+for exactly this job, and against an sklearn MLP, which fits the curve well but
+recovers no physical parameters at all. That contrast is the point of the
+comparison.
 
-* the **plant scenarios** -- :func:`scenario_damped` (underdamped second-order
-  free response) and :func:`scenario_first_order` (first-order step), each
-  returning ``(t, y, clean, true-params)``;
-* the **identification benches** -- :func:`damped_table` and
-  :func:`first_order_table` that run dtfit's EAC/LSI against the NLLS gold
-  standard (SciPy ``curve_fit``) and a black-box neural net (sklearn MLP),
-  returning recovered params / metrics / timings as plain dicts;
-* the **online / coupled adaptations** -- :func:`regime_change` (streaming
-  :class:`EACFilter` tracking a mid-run damping jump with drift detection) and
-  :func:`mimo_joint` (a shared-frequency MIMO plant identified with
-  ``fit_joint``);
-* the **scoring helper** :func:`param_err` (mean relative parameter-recovery
-  error) and the model exprs :data:`DAMP_EXPR` / :data:`FO_EXPR`.
+Two further benches exercise the adaptations rather than the base estimators.
+:func:`regime_change` runs an :class:`EACFilter` across a mid-run damping jump
+to see whether the online filter re-adapts and flags the break;
+:func:`mimo_joint` identifies a three-output plant whose channels share one
+natural frequency, jointly and then per channel for contrast.
 
-The optional baselines (SciPy ``curve_fit``, sklearn ``MLPRegressor``) are
-imported lazily inside :mod:`...common.baselines`; the notebook guards their use
-so a missing dependency only skips that row.
+The SciPy and sklearn baselines are imported lazily in
+:mod:`...common.baselines`, and the ``with_scipy`` / ``with_mlp`` flags let the
+notebook drop a row whose dependency is missing.
 """
 
 from __future__ import annotations
@@ -45,9 +38,9 @@ __all__ = [
     "damped_table", "first_order_table", "regime_change", "mimo_joint",
 ]
 
-# underdamped free response: y = A e^{-zwt} sin(w sqrt(1-z^2) t); params A,w,z
+# Underdamped free response; dtfit sorts the params, giving order A, w, z.
 DAMP_EXPR = "A*exp(-z*w*t)*sin(w*sqrt(1-z**2)*t)"
-# first-order step: y = K(1 - e^{-t/tau}); params K, tau
+# First-order step; param order K, tau.
 FO_EXPR = "K*(1-exp(-t/tau))"
 
 
@@ -77,14 +70,14 @@ def param_err(est: dict, true: dict) -> float:
 
 
 def damped_table(t, y, clean, true, *, with_scipy=True, with_mlp=True):
-    """Identify the damped second-order response with EAC, LSI, and (optionally)
-    the SciPy ``curve_fit`` NLLS gold standard and an sklearn MLP black-box.
+    """Identify the damped second-order response with EAC, LSI and baselines.
 
-    Returns ``(rows, preds)`` where ``rows`` is a list of dicts
-    (method / param-err-% / R2 / RMSE / fit-ms; param-err is ``None`` for the MLP
-    which recovers no physical parameters) and ``preds`` maps method -> fitted
-    curve. Set ``with_scipy`` / ``with_mlp`` to ``False`` to skip a baseline whose
-    optional dependency is unavailable."""
+    Returns ``(rows, preds)``. Each row carries method / param err % / R2 /
+    RMSE / fit (ms); the MLP's param error is ``None`` because it recovers no
+    physical parameters. ``preds`` maps each method name to its fitted curve.
+    Pass ``with_scipy=False`` or ``with_mlp=False`` to drop a baseline whose
+    optional dependency is missing.
+    """
     names = ["A", "w", "z"]
     p0, lo, hi = [1.0, 2.0, 0.1], [0.1, 1.0, 0.01], [5, 6, 0.9]
     rows, preds = [], {}
@@ -143,12 +136,13 @@ def first_order_table(t, y, clean, true, *, with_scipy=True, with_mlp=True):
 
 
 def regime_change(rng, n=900):
-    """Damping z jumps mid-run; the online filter should re-adapt + flag it.
+    """Damping z jumps mid-run; the online filter should re-adapt and flag it.
 
-    Returns ``(t, y, clean, track, z_hist, drift_idx, half)`` -- the time grid,
-    noisy response, clean signal, the filter's online track, its tracked damping
-    estimate, the sample indices it flagged as structural breaks, and the true
-    change index."""
+    Returns ``(t, y, clean, track, z_hist, drift_idx, half)``: the time grid,
+    the noisy response, the clean signal, the filter's online track, its
+    tracked damping estimate, the sample indices it flagged as structural
+    breaks, and the true change index.
+    """
     t = np.linspace(0, 18, n)
     half = n // 2
     z1, z2, A, w = 0.08, 0.30, 2.0, 2.5
@@ -175,9 +169,11 @@ def regime_change(rng, n=900):
 def mimo_joint(rng, n=200):
     """3-output plant sharing a natural frequency w; identify jointly.
 
-    Returns ``(w_true, amps, j, indep_w, chans, t)`` -- the true shared frequency,
-    the per-channel amplitudes, the :func:`fit_joint` result ``j``, the per-channel
-    independent-EAC frequency estimates, the channels, and the time grid."""
+    Returns ``(w_true, amps, j, indep_w, chans, t)``: the true shared
+    frequency, the per-channel amplitudes, the :func:`fit_joint` result ``j``,
+    the per-channel independent-EAC frequency estimates, the channels, and the
+    time grid.
+    """
     t = np.linspace(0, 6, n)
     w_true, z_true = 3.0, 0.12
     amps = [1.0, 2.0, 3.0]

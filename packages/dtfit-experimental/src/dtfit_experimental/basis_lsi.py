@@ -1,10 +1,11 @@
-"""Adaptation #2 -- pluggable orthogonal basis for LSI.
+"""Adaptation #2: pluggable orthogonal basis for LSI.
 
-``fit_lsi`` matches spectra on the Legendre basis. For a periodic signal the
-Legendre (polynomial) spectrum needs many high orders to express an oscillation,
-whereas a **Fourier** basis captures it in a couple of harmonics; for a pure
-decay a **Laguerre** basis is natural. :func:`fit_lsi_basis` keeps the exact LSI
-criterion (diagonal-weighted spectral match) but lets the caller pick the basis.
+``fit_lsi`` matches spectra on the Legendre basis. A polynomial spectrum needs
+many high orders before it can express one oscillation; a Fourier basis
+captures the same cycle in a couple of harmonics, while a pure decay sits
+naturally on a Laguerre basis. :func:`fit_lsi_basis` leaves the LSI criterion
+untouched, the diagonal-weighted spectral match; only the basis it runs on
+becomes the caller's choice.
 """
 
 from __future__ import annotations
@@ -36,16 +37,17 @@ def fit_lsi_basis(
         expr, var: Model expression and main variable.
         basis: ``"legendre"`` | ``"chebyshev"`` | ``"fourier"`` | ``"laguerre"``.
         order: Spectral order (number of harmonics K for ``"fourier"``).
-        filter_data: Savitzky-Golay pre-smoothing before projection. ``None``
-            (default) picks the right thing per basis: **off** for ``"fourier"``
-            (smoothing erases the very cycle a Fourier basis targets -- the same
-            reason :func:`dtfit.fit_lsi`'s oscillatory recipe disables it) and
-            **on** otherwise. Pass an explicit bool to override.
-        period: Fundamental period for ``"fourier"`` (defaults to the domain
-            length).
-        bounds: Optional per-parameter ``(min, max)`` bounds; supplying them
-            enables ``solve_spectral``'s global (differential-evolution) search,
-            needed for multimodal fits such as a free frequency.
+        filter_data: Savitzky-Golay pre-smoothing before projection. The
+            default ``None`` picks per basis: off for ``"fourier"``, because
+            smoothing erases the very cycle a Fourier basis targets (the
+            reason :func:`dtfit.fit_lsi`'s oscillatory recipe disables it too),
+            on everywhere else. Pass a bool to override.
+        period: Fundamental period for ``"fourier"``; defaults to the domain
+            length, one cycle across the window.
+        bounds: Optional per-parameter ``(min, max)``. A fully finite box puts
+            a differential-evolution fallback behind ``solve_spectral``'s
+            bounded local solve. A multimodal fit such as a free frequency
+            needs that fallback.
         p0: Optional initial guess.
 
     Returns:

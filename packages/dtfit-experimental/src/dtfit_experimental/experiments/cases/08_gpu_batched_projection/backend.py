@@ -1,30 +1,28 @@
-"""Backend infrastructure for the GEMM-batched projection throughput experiment.
+"""Benchmarks for the GEMM-batched projection case study.
 
-This module is the **single source of truth for the benchmarking and compute
-code** behind ``08_gpu_batched_projection.ipynb``; the notebook imports it and
-does all the presentation (tables, figures, narrative). Keeping the infra here
-means the data generator, timers and benchmark kernels are defined once and the
-notebook stays a thin, rerunnable layer over them.
+``08_gpu_batched_projection.ipynb`` imports this module and owns the
+presentation.
 
-The data side of LSI/EAC is an integral ``beta_j = integral y*phi_j dx`` that
-factors into a single matrix product ``beta = D^T*(w (x) y)`` (design matrix
-``D``, trapezoid weights ``w``). Stacking ``B`` channels that share a grid into
-the columns of ``Y`` makes the whole batch one GEMM ``S = D^T*(w (x) Y)`` -- the
-recommendation-#2 reframe. This module measures what that buys:
+The data side of LSI and EAC is an integral ``beta_j = integral y*phi_j dx``,
+and that integral factors exactly into one matrix product,
+``beta = D^T (w * y)``, for a design matrix ``D`` and trapezoid weights ``w``.
+Stack ``B`` channels that share a grid into the columns of ``Y`` and the whole
+batch collapses to a single GEMM, ``S = D^T (w * Y)``. This module measures
+what that reframing is worth.
 
-* the **data generator** -- :func:`make_data` (a bank of ``exp(b*t)`` channels);
-* the **roofline anchor** -- :func:`host_copy_bandwidth` (host memory copy GB/s);
-* the **CPU win** -- :func:`bench_loop_vs_batched` (one BLAS GEMM vs a per-channel
-  Python loop, with an exactness check);
-* the **precision sweep** -- :func:`bench_dtype` (fp32 vs fp64, bandwidth-bound);
-* the **honest GPU story** -- :func:`bench_resident_streamed` (every available
-  backend, timed resident vs streamed) plus :func:`gpu_name` for the device.
+:func:`bench_loop_vs_batched` puts one BLAS GEMM against a per-channel Python
+loop and reports how far apart their spectra land, so a speedup bought by
+cutting a corner would show up. :func:`bench_dtype` sweeps fp32 against fp64,
+where the kernel being bandwidth-bound predicts the outcome, and
+:func:`host_copy_bandwidth` supplies the CPU roofline those numbers are read
+against. :func:`bench_resident_streamed` times each backend twice, once with
+the arrays already on the device and once transferring them every call, which
+is the difference between a GPU win and a PCIe bill.
 
-The GPU rows are driven entirely by :func:`dtfit_experimental.available_backends`:
-on a CUDA box (``cupy`` / ``torch`` present and a device reachable) the
-resident/streamed columns are filled from measurement; with no usable GPU only
-the ``numpy`` (CPU) backend appears and the notebook reports the CPU numbers plus
-the PCIe-bound model -- so the notebook completes either way.
+The GPU rows come entirely from :func:`dtfit_experimental.available_backends`.
+On a CUDA box the resident and streamed columns are measured; with no usable
+GPU only the ``numpy`` backend appears and the notebook falls back to the CPU
+numbers and the PCIe-bound model, so it completes either way.
 """
 
 from __future__ import annotations
@@ -52,7 +50,7 @@ __all__ = [
     "fmt",
 ]
 
-ORDER = 6  # k = order + 1 = 7 coefficients
+ORDER = 6  # k = order + 1 = 7 spectral coefficients.
 
 
 def gpu_name() -> str:
@@ -75,8 +73,8 @@ def gpu_name() -> str:
 def has_gpu_backend() -> bool:
     """True iff a non-``numpy`` (GPU) backend is present and usable.
 
-    Tries every non-numpy backend with a tiny GEMM; if none resolves and runs we
-    are CPU-only and the GPU rows degrade to "n/a" in the notebook.
+    Every non-numpy backend gets a tiny GEMM. If none of them resolves and
+    runs, the host is CPU-only and the notebook's GPU rows read "n/a".
     """
     for name in available_backends():
         if name == "numpy":
@@ -111,21 +109,21 @@ def make_data(N: int, B: int, seed: int = 0):
 
 
 def host_copy_bandwidth(nbytes: int = 256 << 20, reps: int = 5) -> float:
-    """Reference host memory copy bandwidth (GB/s) -- the CPU roofline anchor."""
+    """Host memory copy bandwidth in GB/s, the CPU roofline anchor."""
     a = np.ones(nbytes // 8, dtype=np.float64)
     b = np.empty_like(a)
     t = _time(lambda: np.copyto(b, a), reps)
     return 2.0 * a.nbytes / t / 1e9  # read + write
 
 
-# --- 1. batched GEMM vs per-channel loop --------------------------------- #
 def bench_loop_vs_batched(N, Bs, reps):
     """Per-channel Python loop vs a single batched GEMM through NumPy/BLAS.
 
-    Returns a list of rows ``[B, loop_ms, batched_ms, speedup, Melem/s, GB/s,
-    max|delta|]`` (numeric strings via :func:`fmt`). ``max|delta|`` is the largest
-    difference between the batched and looped spectra -- ~machine-epsilon proves
-    the batched path is exact, not a corner cut.
+    Returns rows ``[B, loop_ms, batched_ms, speedup, Melem/s, GB/s,
+    max|delta|]``, numbers formatted by :func:`fmt`. ``max|delta|`` is the
+    largest spectrum difference between the two paths over a capped sample of
+    channels; it is reported, not asserted on, and lands near machine epsilon
+    when the batched path is doing the same arithmetic as the loop.
     """
     rows = []
     for B in Bs:
@@ -135,10 +133,10 @@ def bench_loop_vs_batched(N, Bs, reps):
                         for i in range(B)]
         batch = lambda: project_spectra(x, Y, order=ORDER, backend="numpy")  # noqa: E731
         loop(); batch()  # warm
-        t_loop = _time(loop, max(2, reps // 2))  # loop is slow + stable
+        t_loop = _time(loop, max(2, reps // 2))  # Slow but stable; fewer reps.
         t_batch = _time(batch, reps)
-        # correctness: batched must equal the loop (no corner cut). Check a
-        # capped subset of channels so this stays cheap at large B.
+        # The batched result has to match the loop. Only a capped subset of
+        # channels is checked; the full comparison is not cheap at large B.
         nchk = min(B, 32)
         sb = np.atleast_2d(np.asarray(batch()))[:nchk]
         sl = np.array([b.integral_to_spectrum(b.project_integral(x, Y[:, i]))
@@ -151,15 +149,17 @@ def bench_loop_vs_batched(N, Bs, reps):
     return rows
 
 
-# --- 2. fp32 vs fp64 ----------------------------------------------------- #
 def bench_dtype(N, B, reps):
-    """Same batched projection in fp64 vs fp32. Returns rows ``[dtype, time_ms,
-    Melem/s, GB/s]``. The kernel is bandwidth-bound, so halving the bytes per
-    element should lift throughput roughly proportionally."""
+    """The same batched projection in fp64 and fp32.
+
+    Returns rows ``[dtype, time_ms, Melem/s, GB/s]``. Halving the bytes per
+    element should lift throughput roughly in proportion, because the kernel
+    is bandwidth-bound rather than compute-bound.
+    """
     x, Y0 = make_data(N, B)
     rows = []
     for dt in ["float64", "float32"]:
-        Y = Y0.astype(dt)  # data *stored* in the target precision (no in-loop cast)
+        Y = Y0.astype(dt)  # Stored in the target precision, not cast later.
         bk = resolve_backend("numpy", dtype=dt)
         run = lambda: project_spectra(x, Y, order=ORDER, backend=bk)  # noqa: E731
         run()
@@ -169,21 +169,23 @@ def bench_dtype(N, B, reps):
     return rows
 
 
-# --- 3. backend resident vs streamed (per dtype) ------------------------- #
 def bench_resident_streamed(N, B, reps):
-    """The same GEMM per **available** backend, timed two ways: **resident**
-    (arrays already on the device -- only the matmul is timed) and **streamed**
-    (arrays transferred in every call, as for host/disk-resident data).
+    """The same GEMM on every available backend, timed two ways.
+
+    Resident means the arrays already live on the device and only the matmul
+    is timed. Streamed means they are transferred on every call, the real
+    cost of host- or disk-resident data.
 
     Returns rows ``[backend, dtype, resident_ms, streamed_ms,
-    streamed/resident, Melem/s(resident)]``. On a CPU-only host only ``numpy``
-    appears (resident == streamed, no transfer); on a CUDA box the GPU backends
-    fill in too. Any backend that fails to run is skipped, so the notebook never
-    errors on a missing GPU."""
+    streamed/resident, Melem/s(resident)]``. A CPU-only host yields ``numpy``
+    alone, where the two timings coincide because nothing is transferred; a
+    CUDA box fills in the GPU backends as well. A backend that fails to run is
+    dropped, not raised, so a missing GPU cannot break the notebook.
+    """
     x, Y0 = make_data(N, B)
     b = make_basis("legendre", ORDER, (float(x[0]), float(x[-1])))
     D, w = b._gemm_factors(x)
-    Dw0 = np.ascontiguousarray(w[:, None] * D)  # weights folded into small design
+    Dw0 = np.ascontiguousarray(w[:, None] * D)  # Fold w into the small D once.
     rows = []
     for name in available_backends():
         try:
@@ -195,10 +197,10 @@ def bench_resident_streamed(N, B, reps):
                 bk = resolve_backend(name, dtype=dt)
                 Dw = Dw0.astype(dt); Y = Y0.astype(dt)
 
-                def streamed(bk=bk, Dw=Dw, Y=Y):  # transfer big Y each call, GEMM, fetch
+                def streamed(bk=bk, Dw=Dw, Y=Y):  # Send Y, GEMM, fetch back.
                     return bk.to_host(bk.asarray(Dw).T @ bk.asarray(Y))
 
-                Dd = bk.asarray(Dw); Yd = bk.asarray(Y)  # resident: transfer once
+                Dd = bk.asarray(Dw); Yd = bk.asarray(Y)  # Transferred once.
 
                 def resident(bk=bk, Dd=Dd, Yd=Yd):
                     return bk.to_host(Dd.T @ Yd)

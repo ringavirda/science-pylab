@@ -1,32 +1,22 @@
-"""Backend infrastructure for the parallel-scaling / architecture-adaptability experiment.
+"""Benchmark code for the parallel-scaling case study.
 
-This module is the **single source of truth for the benchmark code** behind
-``07_parallel_scaling.ipynb``; the notebook imports it and does all the
-presentation (tables, figures, narrative). Keeping the infra here means the
-workloads, parallel drivers and scaling/speedup measurements are defined once
-and the notebook stays a thin, rerunnable layer over them.
+``07_parallel_scaling.ipynb`` imports this module and owns the presentation.
 
-The experiment quantifies how dtfit turns a multi-core box into throughput --
-the **acceleration factor vs the rank of parallelism** ``P`` -- measured three
-ways, each honest about its bottleneck:
+The question is how much of a multi-core box dtfit can actually turn into
+throughput, measured as speedup against the rank of parallelism ``P``. Three
+routes are timed. Each hits a different ceiling; the ceilings are the
+interesting part.
 
-* **Compiled-kernel threading** -- :func:`kernel_scaling`. The native numeric
-  kernels release the GIL, so many concurrent threads run the compiled
-  Simpson/Legendre loops truly in parallel; cache-resident data makes it
-  compute-bound and near-linearly scaling -- the clean validation of the
-  GIL-release refactor.
-* **``fit_many`` process backend** -- :func:`fitmany_scaling`. Embarrassingly
-  parallel independent fits via loky; per-task dispatch/spawn overhead and the
-  per-fit SymPy lambdify cap the practical speedup of fine-grained fits.
-* **Threaded map-reduce streaming** -- :func:`mapreduce_scaling` (``PartitionedLSI``,
-  adaptation #1). Numpy releases the GIL on the bulk array ops, so partitions
-  run concurrently, but the workload is memory-bandwidth-bound, which caps the
-  speedup.
-
-Plus the :func:`amdahl_serial_fraction` fit for the kernel curve and a small
-:func:`_timed` helper. Functions submitted to the ``fit_many`` process pool stay
-picklable because the loky backend handles them; the work closures in the
-threaded benchmarks are local (threads, no pickling needed).
+:func:`kernel_scaling` runs the native numeric kernels under P threads. They
+release the GIL and the data is cache-resident, so the work is compute-bound
+and scales close to linearly; this is the best case, and
+:func:`amdahl_serial_fraction` fits the serial fraction implied by its curve.
+:func:`fitmany_scaling` fans independent fits across loky processes. The fits
+themselves are embarrassingly parallel, but per-task dispatch and the per-fit
+SymPy lambdify put a ceiling on fine-grained work. :func:`mapreduce_scaling`
+threads a ``PartitionedLSI`` stream (adaptation #1): NumPy drops the GIL on the
+bulk array ops so the partitions genuinely overlap, yet the workload is
+memory-bandwidth-bound and the speedup flattens there instead.
 """
 
 from __future__ import annotations
@@ -53,8 +43,8 @@ HAVE_NATIVE = _kernels.HAVE_NATIVE
 
 
 def amdahl_serial_fraction(Ps, speedups):
-    """Fit Amdahl's serial fraction ``s`` to an observed speedup curve, i.e. the
-    ``s`` for which ``1 / (s + (1 - s)/P)`` best matches the measured speedups."""
+    """Fit Amdahl's serial fraction ``s`` to an observed speedup curve: the
+    ``s`` for which ``1 / (s + (1 - s)/P)`` best matches the measurements."""
     from scipy.optimize import least_squares
     Ps = np.asarray(Ps, float)
     sp = np.asarray(speedups, float)
@@ -63,14 +53,15 @@ def amdahl_serial_fraction(Ps, speedups):
     return float(sol.x[0])
 
 
-# --- 1. compiled-kernel threaded throughput (weak scaling) --------------- #
 def kernel_scaling(Ps, rep_per_thread=4000):
     """Weak-scaling throughput of the native Simpson kernel under P threads.
 
-    Each of ``P`` threads runs ``rep_per_thread`` native ``simpson_windows`` calls
-    on cache-resident data (compute-bound). Because the kernels release the GIL,
-    P threads do P x the work in nearly the same wall time. Returns
-    ``({P: throughput-multiplier}, {P: wall-time})``."""
+    Each of ``P`` threads runs ``rep_per_thread`` native ``simpson_windows``
+    calls on cache-resident data, keeping the loop compute-bound. The
+    kernels release the GIL, so P threads should get through P times the work
+    in close to the same wall time. Returns
+    ``({P: throughput-multiplier}, {P: wall-time})``.
+    """
     from dtfit._core import _native
     x = np.ascontiguousarray(np.linspace(0, 10, 40_000))
     y = np.ascontiguousarray(np.sin(x))
@@ -91,16 +82,17 @@ def kernel_scaling(Ps, rep_per_thread=4000):
 
     run(1)  # warm
     times = {P: run(P) for P in Ps}
-    # weak scaling: P threads do P x the calls; throughput multiplier vs 1 thread
+    # Weak scaling: P threads issue P times the calls, so the throughput
+    # multiplier is P * t(1) / t(P) rather than t(1) / t(P).
     return {P: (P * times[1]) / times[P] for P in Ps}, times
 
 
-# --- 2. fit_many process strong scaling ---------------------------------- #
 def fitmany_scaling(Ps, n_problems):
     """Strong-scaling speedup of ``fit_many`` (EAC) across loky processes.
 
-    Builds ``n_problems`` independent ``a*exp(b*t)`` fits and times them at each
-    worker count ``P``. Returns ``({P: speedup vs P=1}, {P: wall-time})``."""
+    Builds ``n_problems`` independent ``a*exp(b*t)`` fits and times them at
+    each worker count ``P``. Returns ``({P: speedup vs P=1}, {P: wall-time})``.
+    """
     rng = np.random.default_rng(0)
     probs = []
     for i in range(n_problems):
@@ -108,18 +100,18 @@ def fitmany_scaling(Ps, n_problems):
         y = (1 + 0.2 * (i % 5)) * np.exp((0.6 + 0.05 * (i % 7)) * x) + rng.normal(0, 0.03, 400)
         probs.append(FittingProblem(x=x, y=y, expr="a*exp(b*t)", var="t",
                                 method="eac", kwargs={"p0": [1.0, 1.0]}))
-    fit_many(probs[:16], n_jobs=max(Ps), backend="loky")  # warm pool
+    fit_many(probs[:16], n_jobs=max(Ps), backend="loky")  # Pay the spawn cost.
     times = {P: _timed(lambda: fit_many(probs, n_jobs=P, backend="loky")) for P in Ps}
     return {P: times[1] / times[P] for P in Ps}, times
 
 
-# --- 3. threaded map-reduce streaming ------------------------------------ #
 def mapreduce_scaling(Ps, total):
-    """Strong-scaling speedup of a threaded ``PartitionedLSI`` map-reduce stream.
+    """Strong-scaling speedup of a threaded ``PartitionedLSI`` map-reduce.
 
-    A ``total``-sample exponential stream is split into ``P`` partitions, each
-    processed by a thread (numpy releases the GIL on the bulk ops). Returns
-    ``({P: speedup vs P=1}, {P: wall-time})``."""
+    A ``total``-sample exponential stream is split into ``P`` partitions, one
+    thread each, relying on NumPy to drop the GIL over the bulk ops. Returns
+    ``({P: speedup vs P=1}, {P: wall-time})``.
+    """
     def work(args):
         t0, t1, n, seed = args
         rng = np.random.default_rng(seed)

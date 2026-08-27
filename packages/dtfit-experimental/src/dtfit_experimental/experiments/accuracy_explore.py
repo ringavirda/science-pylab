@@ -1,13 +1,14 @@
 """Exploration harness: recovery accuracy across the whole model catalogue.
 
-For every :data:`SCENARIOS` family, over a noise sweep, fit via the realistic
-user path -- ``Model.fit()`` self-seeded, exactly as the examples do it --
-and a ``scipy.curve_fit`` baseline seeded the same way, and report parameter
-recovery (max relative error) and curve quality (R^2 vs the clean signal).
+Every :data:`SCENARIOS` family is fitted over a noise sweep along the realistic
+user path, a self-seeded ``Model.fit()`` exactly as the examples call it, and
+against a ``scipy.curve_fit`` baseline started from the same data-driven guess.
+Each cell reports parameter recovery as the max relative error and curve
+quality as R^2 against the clean signal, not against the noisy samples.
 
-This is the Phase-0 lever: it turns "methods sometimes look worse than expected"
-into numbers, so the Phase-1 gate thresholds and the docs caveats are grounded in
-measurement rather than anecdote.
+The sweep exists to turn "the methods sometimes look worse than expected" into
+numbers. Phase-1 gate thresholds and the caveats in the docs are set from what
+it measures rather than from anecdote.
 
 Run::
 
@@ -22,8 +23,8 @@ from pathlib import Path
 
 import numpy as np
 
-# Make the accuracy corpus importable (it lives under dtfit's tests/, the single
-# source of truth for ground-truth scenarios shared with the Phase-1 gate).
+# The accuracy corpus lives under dtfit's tests/, one source of truth for the
+# ground-truth scenarios, shared with the Phase-1 gate. Put it on the path.
 _TESTS = Path(__file__).resolve()
 for _p in _TESTS.parents:
     if (_p / "packages" / "dtfit" / "tests").is_dir():
@@ -49,7 +50,7 @@ def run() -> int:
         names = _ordered_params(scn)
         for noise in NOISE_LEVELS:
             x, y, clean = scn.make(noise, seed=0)
-            # realistic path: self-seeded Model.fit (what the docs use)
+            # the realistic path: self-seeded Model.fit, as the docs use it
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")

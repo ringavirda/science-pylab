@@ -1,7 +1,8 @@
-"""Experimental EAC/LSI adaptations -- each recovers parameters on a fitting case.
+"""Experimental EAC/LSI adaptations, each on a case where the truth is known.
 
-The promoted map-reduce estimators (PartitionedLSI / PartitionedEAC) live in
-``dtfit`` now and are tested in the stable suite (``tests/test_partitioned.py``).
+The ``#n`` labels are the adaptation index from the ``dtfit_experimental``
+docstring. The map-reduce estimators PartitionedLSI and PartitionedEAC live in
+``dtfit``; the stable suite covers them in ``tests/scale/test_partitioned.py``.
 """
 
 import numpy as np
@@ -31,7 +32,7 @@ def sine():
     return t, y, (2.0, 1.5)
 
 
-# --- #2 pluggable basis ---------------------------------------------------- #
+# #2 pluggable basis
 def test_fourier_basis_lsi_recovers_sine(sine):
     t, y, (A, w) = sine
     r = fit_lsi_basis(t, y, "A*sin(w*x)", "x", basis="fourier", order=8,
@@ -53,11 +54,11 @@ def test_unknown_basis_raises():
                       basis="nope")
 
 
-# --- #3 ensemble: promoted to dtfit; tested in the stable suite
-#     (tests/methods/test_ensemble.py, tests/validation/test_outlier_robustness.py)
+# #3, the ensemble, is in dtfit: tests/methods/test_ensemble.py and
+# tests/validation/test_outlier_robustness.py in the stable suite.
 
 
-# --- #4 joint multi-channel ------------------------------------------------ #
+# #4 joint multi-channel
 def test_joint_shares_frequency_across_channels():
     rng = np.random.default_rng(2)
     t = np.linspace(0, 4 * np.pi, 300)
@@ -70,7 +71,7 @@ def test_joint_shares_frequency_across_channels():
     np.testing.assert_allclose(amps, [1.0, 2.0, 3.0], atol=0.2)
 
 
-# --- #5 boosting ----------------------------------------------------------- #
+# #5 boosting
 def test_boosted_fit_composite_improves_fit():
     rng = np.random.default_rng(3)
     t = np.linspace(0, 3, 300)

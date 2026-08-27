@@ -1,12 +1,12 @@
-"""The **classical twin** of ``dtfit.stochastic`` -- the same unified stochastic
+"""The classical twin of ``dtfit.stochastic``: the same unified stochastic
 characterization, built entirely from textbook (non-dtfit) estimators.
 
 ``dtfit.fit_stochastic`` recovers a process's second-order structure by fitting
-the *deterministic functionals* of the series (its ACF, spectrum, aggregated
+the deterministic functionals of the series (its ACF, spectrum, aggregated
 variance, trend/cycle) with dtfit's own LSI/EAC integral fitters. To answer
-"*does the dtfit route actually improve on what a practitioner already uses?*"
-this module re-implements the **same model** -- the same regime gates, the same
-parameters, the same forecast routing -- but swaps every estimator for its
+whether the dtfit route actually improves on what a practitioner already uses,
+this module re-implements the same model, with the same regime gates, the same
+parameters and the same forecast routing, but swaps every estimator for its
 established classical counterpart:
 
 ================  ==========================  ===============================
@@ -21,12 +21,12 @@ vol persistence   LSI exp fit to |resid| ACF   GARCH(1,1) Gaussian QMLE
 vol-cluster gate  ACF significance            ``statsmodels`` ARCH-LM test
 ================  ==========================  ===============================
 
-:func:`fit_classical_stochastic` returns a :class:`ClassicalStochasticModel` with
-the *same public surface* as :class:`dtfit.stochastic.StochasticModel` (``regime``,
-``components``, the ``has_*`` flags, the recovered parameters and a ``forecast``),
-so the two drop into the same comparison harness. Everything is pure
-NumPy/SciPy + ``statsmodels`` (already a suite dependency); GARCH is fit by a
-compact in-house QMLE so no ``arch`` package is required.
+:func:`fit_classical_stochastic` returns a :class:`ClassicalStochasticModel`
+carrying the same public surface as :class:`dtfit.stochastic.StochasticModel`
+(``regime``, ``components``, the ``has_*`` flags, the recovered parameters and
+a ``forecast``), so both drop into one comparison harness. Everything is pure
+NumPy/SciPy plus ``statsmodels``, already a suite dependency; GARCH is fit by a
+compact in-house QMLE, so no ``arch`` package is required.
 """
 
 from __future__ import annotations
@@ -51,13 +51,11 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# the individual classical estimators (each the standard counterpart of a dtfit
-# stochastic functional)
-# --------------------------------------------------------------------------- #
+# the individual classical estimators, each the standard counterpart of one
+# dtfit stochastic functional
 def ols_ar1(x) -> float:
-    """AR(1) coefficient by **OLS** regression ``x_t ~ x_{t-1}`` on the centred
-    series -- the textbook (Yule-Walker / least-squares) estimator that dtfit
+    """AR(1) coefficient by OLS regression ``x_t ~ x_{t-1}`` on the centred
+    series: the textbook Yule-Walker / least-squares estimator that dtfit
     replaces with an LSI exponential fit to the ACF."""
     x = np.asarray(x, dtype=float)
     x = x - x.mean()
@@ -68,8 +66,8 @@ def ols_ar1(x) -> float:
 
 def periodogram_period(y, *, min_period: int = 4) -> tuple[float, float]:
     """``(period, strength)`` of the dominant FFT-periodogram peak of a
-    linearly-detrended series -- the standard spectral cycle estimator (the E5
-    baseline). ``strength`` is the peak's share of detrended power in ``[0, 1]``."""
+    linearly-detrended series: the standard spectral cycle estimator.
+    ``strength`` is the peak's share of detrended power in ``[0, 1]``."""
     y = np.asarray(y, dtype=float)
     n = y.size
     if n < 2 * min_period:
@@ -89,10 +87,9 @@ def periodogram_period(y, *, min_period: int = 4) -> tuple[float, float]:
 
 
 def classical_decompose(t, y, *, trend_deg: int = 1) -> dict[str, float]:
-    """Textbook trend+cycle decomposition: an **OLS polynomial trend** plus the
-    **FFT-periodogram** period of the detrended residual -- the classical
-    counterpart of dtfit's ``decompose_trend_cycle`` (LSI trend + oscillatory
-    cycle)."""
+    """Textbook trend+cycle decomposition: an OLS polynomial trend plus the
+    FFT-periodogram period of the detrended residual. The classical counterpart
+    of dtfit's ``decompose_trend_cycle`` (LSI trend, oscillatory cycle)."""
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
     c = np.polyfit(t, y, trend_deg)
@@ -103,11 +100,11 @@ def classical_decompose(t, y, *, trend_deg: int = 1) -> dict[str, float]:
 
 
 def garch_mle_persistence(r, *, maxlen: int = 3000) -> float:
-    """GARCH(1,1) persistence ``alpha + beta`` by Gaussian **quasi-MLE** -- the
-    standard volatility-model estimator (here in a dependency-free NumPy/SciPy
-    form: the conditional-variance recursion is run as a one-pole IIR filter, so
-    each likelihood evaluation is O(n)). The classical counterpart of dtfit's LSI
-    exponential fit to the ACF of ``|returns|``.
+    """GARCH(1,1) persistence ``alpha + beta`` by Gaussian quasi-MLE: the
+    standard volatility-model estimator, here in a dependency-free NumPy/SciPy
+    form that runs the conditional-variance recursion as a one-pole IIR filter,
+    so each likelihood evaluation is O(n). The classical counterpart of dtfit's
+    LSI exponential fit to the ACF of ``|returns|``.
     """
     from scipy.optimize import minimize
     from scipy.signal import lfilter
@@ -163,10 +160,8 @@ def _has_arch(resid: np.ndarray, *, alpha: float = 0.05) -> bool:
     return ac1 > 2.0 / np.sqrt(max(resid.size, 1))
 
 
-# --------------------------------------------------------------------------- #
-# classical regime-appropriate forecasters (the same routing dtfit uses, built
-# from OLS / persistence instead of LSI)
-# --------------------------------------------------------------------------- #
+# the regime-appropriate forecasters, on dtfit's routing but built from OLS and
+# persistence instead of LSI
 def _fc_rw(tr: np.ndarray, h: int) -> np.ndarray:
     return np.full(h, float(tr[-1]))
 
@@ -213,15 +208,12 @@ def _make_seasonal_fc(period: float, with_trend: bool, n_harm: int = 3):
     return fc
 
 
-# --------------------------------------------------------------------------- #
-# the model
-# --------------------------------------------------------------------------- #
 @dataclass
 class ClassicalStochasticModel:
     """The classical-estimator counterpart of
-    :class:`dtfit.stochastic.StochasticModel` -- same public surface (regime,
-    components, ``has_*`` flags, parameters and :meth:`forecast`), produced by
-    :func:`fit_classical_stochastic`."""
+    :class:`dtfit.stochastic.StochasticModel`, with the same public surface
+    (regime, components, ``has_*`` flags, parameters and :meth:`forecast`).
+    Produced by :func:`fit_classical_stochastic`."""
 
     n: int
     level: float
@@ -273,13 +265,13 @@ def fit_classical_stochastic(
     mr_phi: float = 0.15,
     vol_persist: float = 0.60,
 ) -> ClassicalStochasticModel:
-    """Characterize ``y`` with the **same gated routing as
-    :func:`dtfit.fit_stochastic`**, but using the classical estimators throughout
-    (ADF unit-root test, OLS trend/AR(1), FFT periodogram cycle, DFA Hurst,
-    GARCH-QMLE volatility persistence). Returns a
-    :class:`ClassicalStochasticModel` mirroring dtfit's model so the two can be
-    scored head-to-head. The detection gates are identical to ``fit_stochastic``'s
-    so the comparison isolates *the estimator*, not the routing."""
+    """Characterize ``y`` on the gated routing of :func:`dtfit.fit_stochastic`
+    but with the classical estimators throughout: an ADF unit-root test, an OLS
+    trend and AR(1), an FFT-periodogram cycle, a DFA Hurst and a GARCH-QMLE
+    volatility persistence. Returns a :class:`ClassicalStochasticModel`
+    mirroring dtfit's, so the two can be scored head-to-head. The detection
+    gates match ``fit_stochastic``'s exactly; the estimator is then the only
+    difference the comparison measures."""
     y = np.asarray(y, dtype=float)
     n = y.size
     t = np.arange(n, dtype=float) if t is None else np.asarray(t, dtype=float)
@@ -411,7 +403,7 @@ def fit_classical_stochastic(
     else:
         regime = "white noise / random walk"
 
-    # regime-appropriate classical forecaster (same routing as dtfit).
+    # regime-appropriate classical forecaster, on dtfit's routing
     if has_cycle:
         fname = ("trend+seasonal" if has_trend else "seasonal")
         fc = _make_seasonal_fc(per, has_trend)

@@ -1,28 +1,24 @@
-"""Backend infrastructure for the noise & robustness sweep experiment.
+"""Data generator, sweeps and baselines for the noise-robustness case study.
 
-This module is the **single source of truth for the simulation and estimation
-code** behind ``03_noise_robustness.ipynb``; the notebook imports it and does all
-the presentation (tables, figures, narrative). Keeping the infra here means the
-data generator, sweeps and baselines are defined once and the notebook stays a
-thin, rerunnable layer over them.
+``03_noise_robustness.ipynb`` imports this module and owns the presentation.
 
-The experiment maps fitting accuracy across noise level, outlier fraction and
-sample size for four model families, against the established methods a curve-
-fitter reaches for. It provides:
+The study maps fitting accuracy along three axes, noise level, outlier fraction
+and sample size, for four model families that between them cover the shapes a
+curve fitter runs into: a pure exponential, a transcendental arctangent, an
+oscillation, and an additive mix of polynomial and exponential terms. Every
+method is scored against the clean signal, not the noisy samples: the reward
+is for recovering the truth, never for chasing the noise.
 
-* the **model families** -- :data:`FAMILIES` (expr / true params / clean signal /
-  ``curve_fit`` func / ``x``-grid) and the noisy-data generator :func:`_noisy`;
-* the **scorer** -- :func:`r2_clean` (R-squared against the *clean* signal);
-* the **sweeps** -- :func:`noise_sweep` (R2 vs Gaussian noise per family),
-  :func:`outlier_sweep` (stock vs the robust overlapping-window ensemble #3 and
-  the soft-L1 loss under gross outliers) and :func:`param_grid_parallel` (median
-  EAC parameter-recovery error over a noise x size grid, fanned via
-  :func:`dtfit.fit_many`).
+:func:`noise_sweep` walks Gaussian noise levels. :func:`outlier_sweep` adds
+gross outliers and stands the stock fits beside the two robustness routes, the
+overlapping-window ensemble (#3) and the soft-L1 loss.
+:func:`param_grid_parallel` reports median EAC parameter-recovery error over a
+noise-by-size grid, fanned out through :func:`dtfit.fit_many`.
 
-The dtfit integral fits (:func:`dtfit.fit_eac`, :func:`dtfit.fit_lsi`) are scored
-against SciPy ``curve_fit``, ``numpy.polyfit`` and a scikit-learn MLP. SciPy and
-scikit-learn are optional: the relevant baseline yields ``nan`` (and the caller
-skips it) when the dependency is missing.
+The dtfit integral fits are scored against SciPy ``curve_fit``, a degree-5
+``numpy.polyfit`` and a scikit-learn MLP. SciPy and scikit-learn are optional;
+a missing one surfaces as ``nan`` in that method's column instead of aborting
+the sweep.
 """
 
 from __future__ import annotations
@@ -30,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 
 import dtfit as dt
-from dtfit import FittingProblem, fit_many, ensemble_fit  # ensemble_fit promoted
+from dtfit import FittingProblem, fit_many, ensemble_fit
 
 from dtfit_experimental.experiments.common import metrics
 from dtfit_experimental.experiments.common import baselines as bl
@@ -43,7 +39,8 @@ __all__ = [
     "param_grid_parallel",
 ]
 
-# family: expr, var, true params (name->val), clean signal fn, curve_fit func, p0
+# Each family carries the dtfit expr plus a NumPy twin ``f`` with the
+# (x, *params) signature curve_fit wants, so both see the identical model.
 FAMILIES = {
     "exponential": dict(
         expr="a*exp(b*x)", var="x", true={"a": 1.0, "b": 1.2},
@@ -121,7 +118,7 @@ def noise_sweep(fam, noises, n=120, seeds=4):
 
 
 def outlier_sweep(fam, fracs, n=120, seeds=5):
-    """R2-vs-clean under outliers: stock EAC vs the robust ensemble (#3)."""
+    """R2-vs-clean under outliers: stock fits vs the two robust routes."""
     methods = ["EAC", "LSI", "curve_fit", "EAC-ensemble", "EAC-softl1"]
     out = {m: [] for m in methods}
     for fr in fracs:

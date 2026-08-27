@@ -1,50 +1,46 @@
-"""Backend infrastructure for the big-data (batch / streaming / distributed) domain.
+"""Compute for the big-data domain: batch, streaming and distributed.
 
-This module is the **single source of truth for the computation** behind
-``big_data.ipynb``; the notebook imports it as ``B`` and does all the
-presentation (tables, figures, narrative). Keeping the infra here means the
-estimators / panels / baselines / benchmarks are defined once and the notebook
-stays a thin, rerunnable layer over them. It is **pure compute**: no
-``matplotlib``, no report writing -- every function returns numbers / arrays /
-dicts the notebook can render.
+``big_data.ipynb`` imports this module as ``B`` and does the presentation. Pure
+compute here, with no ``matplotlib``: every function returns numbers, arrays or
+dicts the notebook renders.
 
-It tests dtfit's map-reduce estimators end to end against the **established
-big-data toolkit a practitioner actually reaches for**, on the concerns that
-decide whether an estimator survives at scale:
+It tests dtfit's map-reduce estimators end to end against the big-data toolkit
+a practitioner actually reaches for, on the concerns that decide whether an
+estimator survives at scale:
 
-* **exactness & accuracy** across execution routes and model families;
-* **throughput & memory scaling** vs the established batched / streaming methods;
-* **numerical stability** of the additive streaming reduction (naive float32 vs
-  float64 vs compensated Kahan) -- the concern that bites at 10^8-10^9 samples;
-* **robustness & mergeability** -- order-independent, variable-chunk,
-  missing-data reduces (what distributed/fault-tolerant pipelines require);
-* **online cost** of the streaming *filter* vs the established online estimators
-  (recursive least squares, an incremental SGD net).
+* exactness and accuracy across execution routes and model families;
+* throughput and memory scaling against the established batched and streaming
+  methods;
+* numerical stability of the additive streaming reduction, naive float32
+  against float64 against compensated Kahan, the concern that bites at
+  10^8-10^9 samples;
+* robustness and mergeability: the order-independent, variable-chunk,
+  missing-data reduces a distributed or fault-tolerant pipeline requires;
+* the online cost of the streaming filter against the established online
+  estimators, recursive least squares and an incremental SGD net.
 
-------------------------------------------------------------------------------
-METHODS UNDER TEST (dtfit)
-------------------------------------------------------------------------------
-The empirical LSI spectrum ``int y*phi_j`` is **linear across channels** (B
-channels project in one GEMM ``S = D^T*(w*Y)``) and **additive over the domain**
-(a stream reduces chunk-by-chunk). The estimators exploit both:
+The dtfit methods under test exploit two properties of the empirical LSI
+spectrum ``int y*phi_j``: it is linear across channels, so B channels project
+in one GEMM ``S = D^T*(w*Y)``, and additive over the domain, so a stream
+reduces chunk by chunk.
 
-* **whole-array GEMM** (:func:`fit_resident` via ``fit_lsi_batched`` /
-  ``project_spectra``) -- all B channels' spectra in one BLAS matmul; maximal
-  throughput, O(N*B) memory (data resident).
-* **fused streaming map-reduce** (:func:`fit_streaming` via
-  ``PartitionedBatchLSI``) -- folds each chunk's ``(B, n_coef)`` partial
-  integrals into an accumulator: one pass, **flat O(B*order) memory**, exact,
-  handles streams larger than RAM.
-* **distributed reduce** (:func:`fit_distributed` via
-  ``PartitionedBatchLSI.merge``) -- per-partition accumulators combined by an
+* whole-array GEMM (:func:`fit_resident`, through ``fit_lsi_batched`` and
+  ``project_spectra``): all B channels' spectra in one BLAS matmul, for maximal
+  throughput at O(N*B) memory with the data resident.
+* fused streaming map-reduce (:func:`fit_streaming`, through
+  ``PartitionedBatchLSI``): folds each chunk's ``(B, n_coef)`` partial
+  integrals into an accumulator. One pass, flat O(B*order) memory, exact, and
+  it handles streams larger than RAM.
+* distributed reduce (:func:`fit_distributed`, through
+  ``PartitionedBatchLSI.merge``): per-partition accumulators combined by an
   associative, order-independent ``merge``.
-* **streaming filter** (``EACFilter``) -- the online twin: an O(1)/sample
+* the streaming filter (``EACFilter``), the online twin: an O(1)-per-sample
   recursive update tracking a model's parameters in bounded memory.
 
-The established baselines are per-channel SciPy NLLS (:func:`fit_per_channel_nlls`),
-vectorised polynomial lstsq (:func:`poly_lstsq_batched`), scikit-learn
-``SGDRegressor.partial_fit`` (:func:`sgd_incremental`) and recursive least
-squares (``bl.RLSPredictor``).
+The established baselines are per-channel SciPy NLLS
+(:func:`fit_per_channel_nlls`), vectorised polynomial lstsq
+(:func:`poly_lstsq_batched`), scikit-learn ``SGDRegressor.partial_fit``
+(:func:`sgd_incremental`) and recursive least squares (``bl.RLSPredictor``).
 """
 
 from __future__ import annotations
@@ -84,10 +80,8 @@ except Exception:
     HAS_SKLEARN = False
 
 
-# --------------------------------------------------------------------------- #
-# multi-channel scenarios -- realistic big-data panels, each a different model
-# shape and a different "concern" it represents.
-# --------------------------------------------------------------------------- #
+# Multi-channel scenarios: realistic big-data panels, each carrying a different
+# model shape and standing for a different concern.
 def _g_exp(x, a, b):
     return a[None, :] * np.exp(np.outer(x, b))
 
@@ -121,7 +115,8 @@ SCENARIOS = [
 
 
 class Panel:
-    """A B-channel panel for one scenario, generated/consumable chunk-by-chunk."""
+    """A B-channel panel for one scenario, generated and consumed chunk by
+    chunk."""
 
     def __init__(self, sc, n, b_channels, n_chunks, *, noise=0.01, seed=0):
         self.sc = sc
@@ -152,9 +147,7 @@ def _coeffs(results):
     return np.array([r.coeffs for r in results], dtype=float)
 
 
-# --------------------------------------------------------------------------- #
-# dtfit routes (generic over the scenario's model)
-# --------------------------------------------------------------------------- #
+# the dtfit routes, generic over the scenario's model
 def fit_resident(panel, *, order=6):
     x, Y = panel.resident()
     return _coeffs(fit_lsi_batched(x, Y, panel.sc["expr"], "t", order=order,
@@ -191,11 +184,10 @@ def fit_distributed(panel, *, n_workers=4, order=6, n_threads=1, chunk_order=Non
     return _coeffs(root.fit(p0=panel.sc["p0"]))
 
 
-# --------------------------------------------------------------------------- #
-# established big-data baselines
-# --------------------------------------------------------------------------- #
+# the established big-data baselines
 def fit_per_channel_nlls(panel):
-    """The obvious baseline: loop SciPy curve_fit over channels (gold accuracy)."""
+    """The obvious baseline: loop SciPy curve_fit over the channels, at gold
+    accuracy."""
     x, Y = panel.resident()
     f = scenario_func(panel.sc)
     out = np.full((panel.B, 2), np.nan)
@@ -213,21 +205,23 @@ def scenario_func(sc):
 
 
 def poly_lstsq_batched(x, Y, deg=6):
-    """Established *batched* surrogate: one vectorised polynomial least-squares
-    over all channels (`np.linalg.lstsq`). Fast, but fits a surrogate (no physical
-    parameters) and extrapolates poorly."""
+    """The established batched surrogate: one vectorised polynomial
+    least-squares over all channels through `np.linalg.lstsq`. Fast, but it
+    fits a surrogate that carries no physical parameters and extrapolates
+    poorly."""
     V = np.vander(x, deg + 1)
     C = np.linalg.lstsq(V, Y, rcond=None)[0]
     return V, C
 
 
 def _legendre_projection_operator(x, order):
-    """The exact linear operator ``M`` (n x n_coef) of dtfit's empirical Legendre
-    projection, built once in plain NumPy: ``M = diag(w) @ P @ diag((2j+1)/n)``
-    where ``P`` is the raw-Legendre design on ``x`` mapped to [-1, 1] and ``w`` is
-    the trapezoidal-rule weight. ``spectra = M.T @ Y`` then reproduces
-    ``project_spectra(x, Y, order)`` to machine precision -- so a single matmul is
-    a *fair* vectorised per-channel comparator (see :func:`numpy_projection_vectorised`)."""
+    """The exact linear operator ``M`` (n x n_coef) of dtfit's empirical
+    Legendre projection, built once in plain NumPy as
+    ``M = diag(w) @ P @ diag((2j+1)/n)``, where ``P`` is the raw-Legendre
+    design on ``x`` mapped to [-1, 1] and ``w`` is the trapezoidal-rule weight.
+    ``spectra = M.T @ Y`` then reproduces ``project_spectra(x, Y, order)`` to
+    machine precision. A single matmul is therefore a fair vectorised
+    per-channel comparator (see :func:`numpy_projection_vectorised`)."""
     from numpy.polynomial import legendre as L
     x = np.asarray(x, float)
     n = x.size
@@ -241,13 +235,14 @@ def _legendre_projection_operator(x, order):
 
 
 def numpy_projection_vectorised(x, Y, order=6):
-    """The **fair vectorised-NumPy per-channel baseline** for the projection: build
-    the Legendre projection operator once (plain NumPy) and apply it to all
-    channels in a single matmul. This is what a competent practitioner writes -- it
-    isolates dtfit's contribution to its optimised batched-GEMM / backend dispatch,
-    rather than crediting dtfit for beating a per-channel *Python loop* that
-    needlessly rebuilds the basis every iteration. It is the honest comparator used
-    in :func:`realdata_projection`. Reproduces ``project_spectra`` to ~1e-15."""
+    """The fair vectorised-NumPy per-channel baseline for the projection: build
+    the Legendre projection operator once in plain NumPy, then apply it to
+    every channel in a single matmul. This is what a competent practitioner
+    writes, and comparing against it narrows dtfit's contribution to its
+    optimised batched-GEMM and backend dispatch, rather than crediting dtfit
+    for beating a per-channel Python loop that needlessly rebuilds the basis
+    every iteration. It is the honest comparator :func:`realdata_projection`
+    uses, and it reproduces ``project_spectra`` to about 1e-15."""
     Y = np.asarray(Y)
     M = _legendre_projection_operator(x, order)      # (n, n_coef)
     single = Y.ndim == 1
@@ -256,9 +251,10 @@ def numpy_projection_vectorised(x, Y, order=6):
 
 
 def sgd_incremental(x, Y, deg=6, chunk=2048):
-    """Established *streaming* surrogate: scikit-learn ``SGDRegressor.partial_fit``
-    on polynomial features, fed chunk-by-chunk -- the canonical incremental-ML
-    baseline. One model per channel (the standard usage)."""
+    """The established streaming surrogate: scikit-learn
+    ``SGDRegressor.partial_fit`` on polynomial features, fed chunk by chunk,
+    the canonical incremental-ML baseline. One model per channel, as it is
+    normally used."""
     from sklearn.linear_model import SGDRegressor
     V = np.vander(x, deg + 1)
     Vn = (V - V.mean(0)) / (V.std(0) + 1e-12)
@@ -271,7 +267,6 @@ def sgd_incremental(x, Y, deg=6, chunk=2048):
     return pred
 
 
-# --------------------------------------------------------------------------- #
 def param_err(coef, panel):
     true = panel.true()
     return float(np.nanmean(np.abs(coef - true) / np.abs(true)) * 100)
@@ -283,12 +278,10 @@ def time_call(fn):
     return out, time.perf_counter() - t0
 
 
-# --------------------------------------------------------------------------- #
-# 2. throughput & memory scaling figure data
-# --------------------------------------------------------------------------- #
+# 2. throughput and memory scaling: the figure's data
 def scaling_memory(panel, *, n_levels=None):
-    """Peak memory of resident vs streaming as N grows (data for the scaling
-    figure). Returns ``(Ns, resident_mb, streaming_mb)``."""
+    """Peak memory of the resident and streaming routes as N grows, for the
+    scaling figure. Returns ``(Ns, resident_mb, streaming_mb)``."""
     if n_levels is None:
         n_levels = [panel.n // 4, panel.n // 2, panel.n]
     rm, sm = [], []
@@ -300,15 +293,13 @@ def scaling_memory(panel, *, n_levels=None):
     return list(n_levels), rm, sm
 
 
-# --------------------------------------------------------------------------- #
-# 2b. GB-scale memory wall (resident vs streaming)
-# --------------------------------------------------------------------------- #
+# 2b. the GB-scale memory wall: resident against streaming
 def memory_wall(Ns, *, B=64, order=6, chunk=100_000, scenario=None):
-    """GB-scale memory-wall demonstration. The resident whole-array route holds
-    the full ``(N, B)`` matrix in memory -- O(N*B) that climbs into the GBs --
-    while the streaming reduce processes the identical computation chunk-by-chunk
-    in flat O(B*order) memory. Returns ``(rows, res_mb, str_mb)`` where ``rows``
-    is a list of dicts ready for a DataFrame."""
+    """The GB-scale memory wall. The resident whole-array route holds the full
+    ``(N, B)`` matrix in memory, an O(N*B) that climbs into the gigabytes,
+    while the streaming reduce runs the identical computation chunk by chunk in
+    flat O(B*order) memory. Returns ``(rows, res_mb, str_mb)``, ``rows`` being
+    a list of dicts ready for a DataFrame."""
     sc = SCENARIOS[0] if scenario is None else scenario
     rng = np.random.default_rng(0)
     a = rng.uniform(*sc["arange"], B)
@@ -346,15 +337,15 @@ def memory_wall(Ns, *, B=64, order=6, chunk=100_000, scenario=None):
     return rows, res_mb, str_mb
 
 
-# --------------------------------------------------------------------------- #
-# 3. structured vs surrogate (the extrapolation trap)
-# --------------------------------------------------------------------------- #
+# 3. structured against surrogate: the extrapolation trap
 def surrogate_trap(panel):
-    """Fit each channel on the **first half** of the domain and predict the
-    held-out **second half**, isolating *what each approach buys*. Returns
-    ``(results, fit_idx, ext_idx)`` where ``results`` maps a method label to a
-    dict with ``in_window`` / ``extrapolation`` mean-R2 (and ``kind`` / ``recovers``).
-    The SGD surrogate row is skipped if scikit-learn is unavailable."""
+    """Fit each channel on the first half of the domain and predict the
+    held-out second half. Only that extrapolation separates what each
+    approach actually buys. Returns ``(results, fit_idx, ext_idx)``, where
+    ``results`` maps a
+    method label to a dict carrying ``in_window`` and ``extrapolation`` mean-R2
+    along with ``kind`` and ``recovers``. The SGD surrogate row is skipped when
+    scikit-learn is unavailable."""
     x, Y = panel.resident()
     split = int(0.5 * x.size)
     xf, Yf = x[:split], Y[:split]
@@ -402,10 +393,11 @@ def surrogate_trap(panel):
             pred=Yh_poly),
     }
 
-    # established streaming surrogate: SGD partial_fit on poly features (tuned for
-    # a fair in-window fit -- standardized target, adaptive LR, multiple
-    # incremental epochs -- so its extrapolation collapse is the honest point, not
-    # under-fitting). Skipped gracefully if sklearn is missing.
+    # The established streaming surrogate: SGD partial_fit on poly features,
+    # tuned for a fair in-window fit with a standardized target, an adaptive
+    # learning rate and several incremental epochs, so that its extrapolation
+    # collapse is the honest point rather than under-fitting. It needs
+    # sklearn, and is skipped without it.
     if HAS_SKLEARN:
         from sklearn.linear_model import SGDRegressor
         Vfull = np.vander(x, 7)
@@ -429,13 +421,12 @@ def surrogate_trap(panel):
     return results, fit_idx, ext_idx
 
 
-# --------------------------------------------------------------------------- #
 # 4. numerical stability of the streaming reduction
-# --------------------------------------------------------------------------- #
 def _reduce_errors(integrand, N, chunk_counts):
-    """Chunked additive reduce of ``integrand`` in naive float32 / float64 / Kahan,
-    vs an exact ``math.fsum`` reference. Returns ``(rows_partial, f32, f64, kahan)``
-    where the lists are max relative error per chunk-count."""
+    """Chunked additive reduce of ``integrand`` in naive float32, float64 and
+    Kahan, against an exact ``math.fsum`` reference. Returns
+    ``(rows_partial, f32, f64, kahan)``, the three lists holding the relative
+    error at each chunk-count."""
     exact = math.fsum(integrand.tolist())
     rows, f32c, f64c, kahc = [], [], [], []
     for k in chunk_counts:
@@ -463,11 +454,12 @@ def _reduce_errors(integrand, N, chunk_counts):
 def _integrand(N, kind):
     """The reduce-test integrand ``y*phi`` on ``N`` samples over :data:`DOMAIN`.
 
-    ``kind="adversarial"`` -> the high-dynamic-range ``exp(2.5 x) cos(12 x)``
-    (values span ~e^3.75), the pathological case that stresses the additive
-    reduce. ``kind="realistic"`` -> an O(1)-magnitude ``cos(12 x) + 1.5``, the
-    well-scaled operating point of the streaming / **embedded** routes (ENU-metre
-    / normalised signals)."""
+    ``kind="adversarial"`` gives the high-dynamic-range
+    ``exp(2.5 x) cos(12 x)``, whose values span about e^3.75: the pathological
+    case that stresses the additive reduce. ``kind="realistic"`` gives an
+    O(1)-magnitude ``cos(12 x) + 1.5``, the well-scaled operating point of the
+    streaming and embedded routes, whose signals are ENU metres or
+    normalised."""
     x = np.linspace(*DOMAIN, N)
     phi = (2 * (x - DOMAIN[0]) / (DOMAIN[1] - DOMAIN[0]) - 1)        # P1 Legendre
     if kind == "realistic":
@@ -476,18 +468,18 @@ def _integrand(N, kind):
 
 
 def numerics(N, chunk_counts, *, kind="adversarial"):
-    """Accumulate the projection integral ``int y*phi`` in a growing number of
-    chunks, comparing naive **float32**, the dtfit **float64** additive reduce, and
-    a compensated **Kahan** sum against an exact (``math.fsum``) reference. Returns
-    ``(rows, f32, f64, kahan)`` -- max relative error per chunk-count.
+    """Accumulate the projection integral ``int y*phi`` over a growing number
+    of chunks, comparing naive float32, dtfit's float64 additive reduce and a
+    compensated Kahan sum against an exact ``math.fsum`` reference. Returns
+    ``(rows, f32, f64, kahan)``, the relative error at each chunk-count.
 
     ``kind`` selects the integrand (see :func:`_integrand`): the default
-    **adversarial** high-dynamic-range case (where naive float32 visibly degrades
-    -- the "float32 is unsafe at scale" demo), or the **realistic** O(1)-magnitude
-    case. Pair them via :func:`numerics_both` to scope the claim honestly and keep
-    it consistent with the embedded domain's *float32 deployment* (float32 is
-    unsafe for pathological dynamic range, safe for the well-scaled magnitudes the
-    on-MCU filter actually runs on)."""
+    adversarial high-dynamic-range case, where naive float32 visibly degrades,
+    or the realistic O(1)-magnitude case. Pairing them through
+    :func:`numerics_both` scopes the float32 claim honestly and keeps it
+    consistent with the embedded domain deploying float32: float32 is unsafe
+    for pathological dynamic range and safe for the well-scaled magnitudes the
+    on-MCU filter actually runs on."""
     integrand = _integrand(N, kind)
     rows, f32c, f64c, kahc = _reduce_errors(integrand, N, chunk_counts)
     header = f"# chunks (over {N:,} samples)"
@@ -497,30 +489,30 @@ def numerics(N, chunk_counts, *, kind="adversarial"):
 
 
 def numerics_both(N, chunk_counts):
-    """Run :func:`numerics` for BOTH the adversarial and the realistic integrand,
-    so the notebook can show the float32-instability claim side by side with its
-    honest scope. Returns ``{"adversarial": (rows, f32, f64, kahan),
-    "realistic": (rows, f32, f64, kahan)}``. The realistic curve demonstrates that
-    naive float32 stays accurate on well-scaled data -- consistent with the
-    embedded domain shipping float32."""
+    """Run :func:`numerics` on both the adversarial and the realistic
+    integrand, so the notebook can put the float32-instability claim beside its
+    honest scope. Returns one :func:`numerics` tuple per kind, keyed
+    ``"adversarial"`` and ``"realistic"``. The realistic curve shows naive
+    float32 staying accurate on well-scaled data; that is why the embedded
+    domain can ship float32 at all."""
     return {kind: numerics(N, chunk_counts, kind=kind)
             for kind in ("adversarial", "realistic")}
 
 
-# --------------------------------------------------------------------------- #
-# 5. robustness & mergeability at scale
-# --------------------------------------------------------------------------- #
+# 5. robustness and mergeability at scale
 def robustness(panel):
     """Test the three distributed-pipeline guarantees the additive structure
-    provides, against the in-order whole-array reference: merge-order
-    independence, uneven contiguous shards, and 20% missing data. Returns a list
-    of DataFrame-ready dicts (condition / max |delta| vs reference / param err %)."""
+    provides against the in-order whole-array reference: merge-order
+    independence, uneven contiguous shards, and 20% missing data. Returns a
+    list of DataFrame-ready dicts of condition, max |delta| against the
+    reference and parameter error in percent."""
     c_ref = fit_resident(panel)
     rng = np.random.default_rng(7)
     ids = np.arange(panel.n_chunks)
 
-    # (a) merge-order independence: 4 contiguous partitions, merged in two
-    # different orders -> identical (associative merge, the distributed guarantee).
+    # (a) merge-order independence: 4 contiguous partitions merged in two
+    # different orders must come out identical, the associative-merge guarantee
+    # a distributed pipeline rests on.
     def merge_in(order):
         parts = [_build_partition(panel, c, 6) for c in np.array_split(ids, 4)]
         root = parts[order[0]]
@@ -561,16 +553,15 @@ def robustness(panel):
     ]
 
 
-# --------------------------------------------------------------------------- #
-# 6. online streaming filter vs the established online estimators
-# --------------------------------------------------------------------------- #
+# 6. the online streaming filter against the established online estimators
 def online_filter(n):
-    """Track a sinusoid with a **mid-stream frequency jump** one sample at a time,
-    comparing dtfit's ``EACFilter`` against the established online toolkit
-    (recursive least squares; an incremental SGD net if sklearn is present) on
-    per-sample cost, memory, one-step prediction error, and whether the
-    **physical frequency** is recovered. Returns ``(rows, t, w_hist, half)`` where
-    ``rows`` is DataFrame-ready and ``(t, w_hist, half)`` feed the tracking figure."""
+    """Track a sinusoid through a mid-stream frequency jump one sample at a
+    time, comparing dtfit's ``EACFilter`` against the established online
+    toolkit (recursive least squares, plus an incremental SGD net where sklearn
+    is present) on per-sample cost, memory, one-step prediction error and
+    whether the physical frequency is recovered at all. Returns
+    ``(rows, t, w_hist, half)``: ``rows`` is DataFrame-ready and the rest feed
+    the tracking figure."""
     import tracemalloc
     rng = np.random.default_rng(0)
     t = np.linspace(0, 40, n)
@@ -580,7 +571,7 @@ def online_filter(n):
     phase = np.cumsum(w_seq * dt_)
     y = 3.0 * np.sin(phase) + rng.normal(0, 0.3, n)
 
-    # dtfit EACFilter -- tracks the physical model A*sin(w*t)
+    # dtfit EACFilter, tracking the physical model A*sin(w*t)
     flt = EACFilter("A*sin(w*t)", "t", p0=[2.0, 1.0], window_size=50,
                     q_diag=[1e-3, 5e-4], r=5.0, n_sub=2, adapt_r=True)
     costs, w_hist, pred_eaf = [], [], np.full(n, np.nan)
@@ -597,8 +588,9 @@ def online_filter(n):
     us_eaf = float(np.mean(costs[200:]))
     w_hist = np.array(w_hist)
 
-    # established: RLS one-step predictor (AR(6), no forgetting -- a forgetting
-    # factor < 1 causes covariance windup / blow-up on this oversampled signal).
+    # established: an RLS one-step predictor, AR(6) with no forgetting, since a
+    # forgetting factor below 1 winds the covariance up and blows the filter
+    # out on a signal this oversampled.
     rls = bl.RLSPredictor(order=6, lam=1.0, delta=1000.0)
     pred_rls = np.full(n, np.nan)
     t0 = time.perf_counter()
@@ -624,7 +616,7 @@ def online_filter(n):
          "recovers physics": "no (black-box AR)"},
     ]
 
-    # established: incremental SGD net on lagged features (optional dependency)
+    # established: an incremental SGD net on lagged features (optional)
     if HAS_SKLEARN:
         from sklearn.linear_model import SGDRegressor
         lag = 8
@@ -648,13 +640,11 @@ def online_filter(n):
     return rows, t, w_hist, half
 
 
-# --------------------------------------------------------------------------- #
-# 7. real data -- 321-channel electricity load (LTSF)
-# --------------------------------------------------------------------------- #
+# 7. real data: the 321-channel electricity load from LTSF
 def load_electricity(rows):
-    """Load the last ``rows`` timesteps of the 321-channel electricity LTSF panel.
-    Returns ``(x, Y, full)`` (``full`` is the un-sliced array for example plots)
-    or raises if the data is unavailable."""
+    """Load the last ``rows`` timesteps of the 321-channel electricity LTSF
+    panel. Returns ``(x, Y, full)``, ``full`` being the un-sliced array the
+    example plots want, or raises when the data is unavailable."""
     data = ltsf.load("electricity")
     Y = np.ascontiguousarray(data[-rows:, :], dtype=float)
     x = np.linspace(*DOMAIN, Y.shape[0])
@@ -662,25 +652,28 @@ def load_electricity(rows):
 
 
 def realdata_projection(x, Y, *, order=6, n_chunks=12):
-    """Project all real channels several ways (batched GEMM, the FAIR vectorised-
-    NumPy per-channel baseline, streaming accumulator) plus the polynomial lstsq
-    surrogate for scale. They must all agree. Returns a list of DataFrame-ready
-    dicts and the per-method timings dict (for the bar figure).
+    """Project all the real channels several ways, by batched GEMM, by the fair
+    vectorised-NumPy per-channel baseline and through the streaming
+    accumulator, plus the polynomial lstsq surrogate for scale. They must all
+    agree. Returns a list of DataFrame-ready dicts and the per-method timings
+    dict the bar figure draws.
 
-    The headline speed-up is dtfit's batched GEMM vs the **fair vectorised
-    baseline** (build the projection operator once, one matmul -- what a competent
-    practitioner writes). We deliberately do NOT report against a naive per-channel
-    Python loop that rebuilds the basis every channel: that comparator inflates the
-    speed-up with loop overhead any vectorised implementation would remove, and does
-    not change the verdict. If dtfit's optimised GEMM and the fair vectorised
-    baseline land at near-parity, that is the honest result -- dtfit's win here is
-    exactness across routes, not beating a competently vectorised matmul."""
+    The headline speed-up is dtfit's batched GEMM against the fair vectorised
+    baseline, which builds the projection operator once and does one matmul, as
+    a competent practitioner would. It is deliberately not reported against a
+    naive per-channel Python loop that rebuilds the basis every channel: that
+    comparator inflates the speed-up with loop overhead any vectorised
+    implementation would remove, and it does not change the verdict. Should
+    dtfit's optimised GEMM and the fair vectorised baseline land at
+    near-parity, that is the honest result, because dtfit's win here is
+    exactness across routes rather than beating a competently vectorised
+    matmul."""
     B = Y.shape[1]
 
     spec_res, t_res = time_call(lambda: project_spectra(x, Y, order=order))
     _, mem_res = peak_memory(lambda: project_spectra(x, Y, order=order))
 
-    # fair comparator: one plain-NumPy vectorised projection over all channels
+    # the fair comparator: one vectorised NumPy projection, all channels
     spec_vec, t_vec = time_call(lambda: numpy_projection_vectorised(x, Y, order=order))
     _, mem_vec = peak_memory(lambda: numpy_projection_vectorised(x, Y, order=order))
 
@@ -716,6 +709,6 @@ def realdata_projection(x, Y, *, order=6, n_chunks=12):
     ]
     timings = dict(batched=t_res, vectorised=t_vec, streaming=t_str,
                    poly=t_poly, B=B,
-                   # the HEADLINE fair number: fair vectorised NumPy / batched GEMM.
+                   # the headline: fair NumPy over batched GEMM
                    ratio_fair=t_vec / t_res)
     return rows, timings

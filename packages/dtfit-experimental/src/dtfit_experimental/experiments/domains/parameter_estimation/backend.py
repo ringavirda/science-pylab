@@ -1,36 +1,31 @@
-"""Backend infrastructure for the model-parameter-estimation experiment.
+"""Model families and estimation code for the parameter-estimation experiment.
 
-This module is the **single source of truth for the model families and the
-estimation code** behind ``parameter_estimation.ipynb``; the notebook imports it
-and does all the presentation (tables, figures, narrative). Keeping the infra
-here means the model families, the dtfit estimators and the baselines are defined
-once and the notebook stays a thin, rerunnable layer over them.
+``parameter_estimation.ipynb`` imports this module and does the presentation.
+The job it sets up: given the noisy response of a system whose parametric form
+is known, recover the physical parameters as accurately as the NLLS gold
+standard, where a black-box learner recovers none. What it provides:
 
-The job: given a noisy response of a system with a *known* parametric form,
-recover the physical parameters as accurately as the NLLS gold standard while a
-black-box learner recovers none. It provides:
+* the model families, :data:`MODELS`, sixteen families nonlinear in their
+  parameters across mechanics, electronics, spectroscopy, kinetics, biology,
+  reliability and signal processing, with their per-family closure functions;
+* the data generator :func:`gen`, driving the noise, outlier and sparse sweeps;
+* the dtfit estimators :func:`est_lsi`, :func:`est_eac`, :func:`est_adaptive`,
+  :func:`est_ensemble` and :func:`est_merged`, plus the joint multi-channel fit
+  through :func:`dtfit_experimental.fit_joint`, each returning a
+  ``{name: value}`` dict;
+* the established baselines :func:`est_nlls` (SciPy ``curve_fit``) and
+  :func:`est_robust_nlls` (soft-L1 ``least_squares``), and the no-parameter
+  learners :func:`mlp_curve` and :func:`gp_curve`, re-exported from
+  ``experiments.common.baselines``;
+* the scoring and sweep helpers :func:`param_err`, :func:`safe` and a
+  re-exported :func:`metrics`, the sweep drivers :func:`noise_sweep`,
+  :func:`outlier_sweep` and :func:`learner_curve_fit`, the special-regime
+  helpers :func:`regime_rows` and :func:`joint_channels`, and the real-data
+  loader :func:`load_data`.
 
-* the **model families** -- :data:`MODELS` (sixteen nonlinear-in-parameters
-  families across mechanics, electronics, spectroscopy, kinetics, biology,
-  reliability and signal processing) and the per-family closure functions;
-* the **data generator** -- :func:`gen` (noise / outlier / sparse sweeps);
-* the **dtfit estimators** -- :func:`est_lsi`, :func:`est_eac`,
-  :func:`est_adaptive`, :func:`est_ensemble`, :func:`est_merged` (and the joint
-  multi-channel fit through :func:`dtfit_experimental.fit_joint`), each returning
-  a ``{name: value}`` dict;
-* the **established baselines** -- :func:`est_nlls` (SciPy ``curve_fit``),
-  :func:`est_robust_nlls` (soft-L1 ``least_squares``) and the no-parameter
-  learners (:func:`dtfit_experimental...baselines.mlp_curve` /
-  :func:`...gp_curve`, re-exported as :func:`mlp_curve` / :func:`gp_curve`);
-* **scoring / sweep** helpers -- :func:`param_err`, :func:`safe`, :func:`metrics`
-  (re-exported), the noise / outlier sweep drivers (:func:`noise_sweep`,
-  :func:`outlier_sweep`, :func:`learner_curve_fit`), the special-regime helpers
-  (:func:`regime_rows`, :func:`joint_channels`), and the real-data loader
-  :func:`load_data`.
-
-LSI coefficients come back in sympy name-sorted order, so the estimators zip them
-against ``sorted(names)``; the baselines keep the declared ``names`` order. This
-module carries **no** plotting, no ``ReportWriter`` and no ``report.md`` writing.
+LSI coefficients come back in sympy's name-sorted order, so the estimators zip
+them against ``sorted(names)``; the baselines keep the declared ``names``
+order.
 """
 
 from __future__ import annotations
@@ -39,7 +34,7 @@ from __future__ import annotations
 import numpy as np
 
 import dtfit as dt
-from dtfit import fit_eac, ensemble_fit  # promoted to dtfit
+from dtfit import fit_eac, ensemble_fit
 from dtfit_experimental import fit_joint
 
 from dtfit_experimental.experiments.common import EXPERIMENTS_DIR, metrics
@@ -68,9 +63,7 @@ def param_err(est, true):
     return float(np.mean([abs(est[k] - true[k]) / abs(true[k]) for k in true]) * 100)
 
 
-# --------------------------------------------------------------------------- #
-# model families (nonlinear in parameters), each from a real domain
-# --------------------------------------------------------------------------- #
+# the model families, nonlinear in their parameters, each from a real domain
 def _f_damped(t, A, w, z):
     return A * np.exp(-z * w * t) * np.sin(w * np.sqrt(1 - z ** 2) * t)
 
@@ -136,15 +129,16 @@ def _f_hill(t, K, Vmax, nh):
     return Vmax * t ** nh / (K ** nh + t ** nh)
 
 
-# A public alias used directly by the notebook for the real-data exponential fit.
+# A public alias the notebook calls directly for its real-data exponential fit.
 f_expgrow = _f_expgrow
 
 
-# Each model: key, domain, sympy expr, names (any order -- LSI results are
-# matched to sympy's name-sorted layout in the estimators), func (signature in
-# `names` order), true params, t-range, p0/bounds (in `names` order), and an
-# optional ``osc`` = the frequency parameter name (-> fit with smoothing off,
-# high order, an FFT frequency seed).
+# Each model carries: key, domain, sympy expr, names in any order (the
+# estimators match LSI results to sympy's name-sorted layout), func with its
+# signature in `names` order, the true params, the t-range, p0 and bounds in
+# `names` order, and optionally ``osc``, naming the frequency parameter, which
+# routes the fit through the oscillatory recipe: smoothing off, high order, an
+# FFT frequency seed.
 MODELS = [
     dict(key="damped", domain="mechanical / control", shape="oscillatory",
          expr="A*exp(-z*w*t)*sin(w*sqrt(1-z**2)*t)", names=["A", "w", "z"],
@@ -219,10 +213,10 @@ MODELS = [
 
 
 def gen(model, rng, *, n=220, noise=0.05, outliers=0.0, sparse=False):
-    """Simulate one noisy response of ``model``: a clean curve over the family's
-    t-range plus Gaussian noise scaled to the signal. ``outliers`` injects a
-    fraction of ~8σ spikes; ``sparse`` keeps an irregular subset of samples.
-    Returns ``(t, y, clean)``."""
+    """Simulate one noisy response of ``model``: a clean curve over the
+    family's t-range plus Gaussian noise scaled to the signal. ``outliers``
+    injects that fraction of spikes at about 8 sigma; ``sparse`` keeps an
+    irregular subset of the samples. Returns ``(t, y, clean)``."""
     t = np.linspace(model["t"][0], model["t"][1], n)
     clean = model["func"](t, *[model["true"][k] for k in model["names"]])
     scale = clean.std() + 1e-9
@@ -237,21 +231,21 @@ def gen(model, rng, *, n=220, noise=0.05, outliers=0.0, sparse=False):
 
 
 def _scipy_bounds(b):
-    """Pair-list -> scipy ``(lo_list, hi_list)`` for the *baseline* fitters
-    (curve_fit-style). dtfit's own fitters take the pair list directly as of
-    v0.2 -- do NOT route their bounds through this (a 2-parameter family's
-    tuple is ambiguous and now reads as per-parameter pairs)."""
+    """Pair list to scipy's ``(lo_list, hi_list)``, the shape the
+    curve_fit-style baseline fitters want. dtfit's own fitters take the pair
+    list directly, so do not route their bounds through this: a 2-parameter
+    family's tuple is ambiguous and reads there as per-parameter pairs."""
     return ([x[0] for x in b], [x[1] for x in b]) if b else None
 
 
-# --------------------------------------------------------------------------- #
-# dtfit estimators -> uniform (label, est_dict) interface. LSI coeffs come back
-# in sympy name-sorted order, so we zip against ``sorted(names)``.
-# --------------------------------------------------------------------------- #
+# The dtfit estimators, behind a uniform (label, est_dict) interface. LSI
+# coeffs come back in sympy name-sorted order, so each zips against
+# ``sorted(names)``.
 def est_lsi(m, t, y):
-    # Oscillatory families use the promoted oscillatory recipe built into
-    # ``fit_lsi`` (``freq_param=`` -> smoothing off, FFT-seeded frequency, raised
-    # spectral order); ``m["osc"]`` names the angular-frequency parameter.
+    # Oscillatory families take the oscillatory recipe built into ``fit_lsi``:
+    # passing ``freq_param`` turns smoothing off, seeds the frequency from an
+    # FFT and raises the spectral order. ``m["osc"]`` names the angular
+    # frequency.
     p0 = list(m["p0"]) if m.get("p0") else [(lo + hi) / 2 for lo, hi in m["bounds"]]
     r = dt.fit_lsi(t, y, m["expr"], "t", p0=p0, bounds=m["bounds"],
                    freq_param=m.get("osc") or None)
@@ -279,11 +273,10 @@ def est_ensemble(m, t, y):
 
 
 def est_merged(m, t, y):
-    """The merged selector, delegated to the promoted high-level entry point
-    :func:`dtfit.auto_estimate`: it routes oscillatory families to the LSI
-    oscillatory recipe (``freq_param``) and otherwise keeps the better of LSI /
-    EAC by in-sample fit. (The dedicated regime variants #3/#4/#6 are exercised
-    in Part C.)"""
+    """The merged selector, delegated to :func:`dtfit.auto_estimate`: it routes
+    an oscillatory family to the LSI oscillatory recipe through ``freq_param``
+    and otherwise keeps whichever of LSI and EAC fits better in-sample. Part C
+    exercises the dedicated regime variants #3, #4 and #6."""
     r = dt.auto_estimate(t, y, m["expr"], "t", shape="auto",
                          freq_param=m.get("osc") or None,
                          p0=m.get("p0"), bounds=m.get("bounds"))
@@ -302,12 +295,13 @@ def est_robust_nlls(m, t, y):
 
 
 def est_moment(m, t, y):
-    """Method of moments / GMM (monomial integral moments) -- the *unconditioned*
-    integral-projection baseline. It matches the model's integral moments to the
-    data's exactly as EAC/LSI match areas/spectra, but with monomial (not
-    orthogonal) test functions, so it carries the Hilbert-matrix ill-conditioning
-    that LSI's Legendre reconditioning removes -- the fair "what does the
-    reconditioning buy?" foil across every family."""
+    """Method of moments / GMM on monomial integral moments: the unconditioned
+    integral-projection baseline. It matches the model's integral moments to
+    the data's exactly as EAC/LSI match areas and spectra, but its test
+    functions are monomials rather than orthogonal, so it carries the
+    Hilbert-matrix ill-conditioning that LSI's Legendre reconditioning removes.
+    That makes it the fair foil, across every family, for what the
+    reconditioning buys."""
     p = bl.moment_match_fit(t, y, m["func"], m["p0"],
                             bounds=_scipy_bounds(m["bounds"]))
     return dict(zip(m["names"], p))
@@ -315,43 +309,42 @@ def est_moment(m, t, y):
 
 def safe(fn, m, t, y):
     """Run estimator ``fn`` and return its mean relative parameter-recovery error
-    in % (NaN if it raises) -- the uniform cell the tables/sweeps fill."""
+    in percent, or NaN if it raises: the uniform cell the tables and sweeps
+    fill."""
     try:
         return param_err(fn(m, t, y), m["true"])
     except Exception:
         return np.nan
 
 
-# --------------------------------------------------------------------------- #
-# Part A -- recovery across families: the method set + the applicability verdict
-# --------------------------------------------------------------------------- #
+# Part A, recovery across families: methods and applicability verdict
 A_METHODS = [("dtfit LSI", est_lsi), ("dtfit EAC", est_eac),
              ("dtfit adaptive-EAC (#6)", est_adaptive),
              ("dtfit merged", est_merged), ("SciPy NLLS (gold)", est_nlls),
-             # The unconditioned integral-moment ancestor of LSI -- included as
-             # the honest "what does the Legendre reconditioning buy?" foil (it
-             # is expected to trail on the higher-parameter families).
+             # The unconditioned integral-moment ancestor of LSI, in as the
+             # honest foil for what the Legendre reconditioning buys. It is
+             # expected to trail on the higher-parameter families.
              ("Method of moments", est_moment)]
-# The per-method dtfit *diagnostic* breakdown -- the estimators whose min is the
-# honest "best explicit dtfit method". ``est_merged`` is a SELECTOR OVER these
-# (LSI/EAC by in-sample fit); pooling it into the same min would double-count its
-# own inputs and flatter the "best dtfit" number (a min-over-4 that includes the
-# min-over-2 of two of the four). So ``merged`` is reported *separately* as the
-# single deployable answer -- see :func:`family_recovery_row`.
+# The per-method dtfit diagnostic breakdown: the estimators whose minimum is
+# the honest best explicit dtfit method. ``est_merged`` is a selector over
+# these two of them, keeping whichever of LSI and EAC fits better in-sample, so
+# pooling it into the same minimum would double-count its own inputs and
+# flatter the "best dtfit" number, a min-over-4 containing the min-over-2 of
+# two of the four. ``merged`` is reported separately instead, as the single
+# deployable answer; see :func:`family_recovery_row`.
 DT_DIAGNOSTIC_LABELS = ["dtfit LSI", "dtfit EAC", "dtfit adaptive-EAC (#6)"]
-# Back-compat alias (the min-pool for "best dtfit"); now excludes the selector so
-# it is no longer double-counted. (Was [LSI, EAC, adaptive, merged].)
+# Back-compat alias: the min-pool for "best dtfit".
 DT_LABELS = DT_DIAGNOSTIC_LABELS
 
 
 def applicability_verdict(best_dt_err, nlls_err):
     """Categorical verdict comparing the best dtfit error against NLLS.
 
-    The tie band is deliberately tight (~1.15x the NLLS error, not the earlier
-    generous 1.5x): "ties" should mean genuinely comparable, not "within 50%".
-    A dtfit error between 1.15x and 2x NLLS is reported as the mild loss it is;
-    beyond 2x is a clear NLLS win. The numeric ratio ``dtfit_err/nlls_err`` is the
-    quantitative version and is surfaced directly by :func:`family_recovery_row`.
+    The tie band is deliberately tight, 1.15x the NLLS error, so that a tie
+    means genuinely comparable rather than merely within half again. A dtfit
+    error between 1.15x and 2x NLLS is reported as the mild loss it is, and
+    beyond 2x is a clear NLLS win. :func:`family_recovery_row` surfaces the
+    quantitative version, the ratio ``dtfit_err/nlls_err``, alongside this.
     """
     if nlls_err <= 0:
         return "dtfit ties/beats NLLS" if best_dt_err <= 1e-9 else "NLLS wins"
@@ -364,15 +357,15 @@ def applicability_verdict(best_dt_err, nlls_err):
 
 
 def family_recovery_row(err_row, method_names):
-    """Per-family recovery summary from one row of the ``err`` matrix (aligned to
-    ``method_names`` = the labels of :data:`A_METHODS`).
+    """Per-family recovery summary from one row of the ``err`` matrix, aligned
+    to ``method_names``, the labels of :data:`A_METHODS`.
 
-    Returns a dict that (1) reports each explicit dtfit method's error so the
-    reader sees *which single method wins* rather than only the min-over-methods,
-    (2) reports the ``merged`` selector's error *separately* as the single
-    deployable answer (not pooled into the diagnostic min -- see
-    :data:`DT_DIAGNOSTIC_LABELS`), and (3) surfaces the numeric
-    ``dtfit/NLLS`` ratio alongside the categorical verdict. NaN-safe.
+    The returned dict reports each explicit dtfit method's error, so a reader
+    sees which single method wins rather than only the minimum over them; the
+    ``merged`` selector's error separately, as the single deployable answer and
+    not pooled into the diagnostic minimum (see :data:`DT_DIAGNOSTIC_LABELS`);
+    and the numeric ``dtfit/NLLS`` ratio beside the categorical verdict.
+    NaN-safe.
     """
     idx = {nm: j for j, nm in enumerate(method_names)}
 
@@ -398,15 +391,12 @@ def family_recovery_row(err_row, method_names):
         "dtfit/NLLS ratio": ratio,
         "verdict": applicability_verdict(best_dt, nlls),
     }
-    # the per-method diagnostic breakdown (which explicit method wins)
     for lbl in DT_DIAGNOSTIC_LABELS:
         row[f"{lbl} err %"] = per_method[lbl]
     return row
 
 
-# --------------------------------------------------------------------------- #
-# Part B -- robustness sweeps + the no-parameter learners
-# --------------------------------------------------------------------------- #
+# Part B: the robustness sweeps and the no-parameter learners
 def noise_sweep(model, fn, noise_levels, *, n=240, seeds=3):
     """Mean parameter-recovery error of estimator ``fn`` on ``model`` across the
     given Gaussian-noise levels (averaged over ``seeds``). Returns a list aligned
@@ -432,12 +422,11 @@ def outlier_sweep(model, fn, fracs, *, n=300, noise=0.05, seeds=3):
 
 
 def learner_curve_fit(model, rng, *, n=300, noise=0.30):
-    """Curve-accuracy (not parameter) comparison at one heavy-noise condition:
-    dtfit EAC and SciPy NLLS (which recover parameters) against the black-box
-    sklearn MLP and Gaussian process (which recover none). Missing sklearn skips
-    the learner gracefully (its row carries NaN scores). Returns
-    ``(t, y, clean, rows)`` where each row is
-    ``{"method", "R2", "RMSE"}``."""
+    """Compare curve accuracy, not parameter accuracy, at one heavy-noise
+    condition: dtfit EAC and SciPy NLLS, which recover parameters, against the
+    black-box sklearn MLP and Gaussian process, which recover none. A missing
+    sklearn skips the learner and leaves its row carrying NaN scores. Returns
+    ``(t, y, clean, rows)``, each row being ``{"method", "R2", "RMSE"}``."""
     t, y, clean = gen(model, rng, n=n, noise=noise)
     rows = []
 
@@ -464,20 +453,19 @@ def learner_curve_fit(model, rng, *, n=300, noise=0.30):
     return t, y, clean, rows
 
 
-# --------------------------------------------------------------------------- #
-# Part C -- special regimes the merged selector routes
-# --------------------------------------------------------------------------- #
+# Part C: the special regimes the merged selector routes
 def _model(key):
     return next(mm for mm in MODELS if mm["key"] == key)
 
 
 def regime_rows(rng):
-    """C1-C3 single-channel regimes: concentrated transient, sparse sampling and
-    short record. Returns a list of ``{"regime", "adaptive_EAC", "EAC", "NLLS",
-    "note"}`` rows (errors in %)."""
+    """The C1-C3 single-channel regimes: a concentrated transient, sparse
+    sampling and a short record. Returns a list of
+    ``{"regime", "adaptive_EAC", "EAC", "NLLS", "note"}`` rows, the errors in
+    percent."""
     rows = []
 
-    # C1 concentrated transient (fast rise, long flat tail) -> adaptive-EAC (#6)
+    # C1, a concentrated transient: fast rise, long flat tail
     fo = _model("firstorder")
     fo_t = dict(fo, t=(0, 8), true={"K": 3.0, "tau": 0.4})
     t, y, _ = gen(fo_t, rng, n=400, noise=0.04)
@@ -487,7 +475,7 @@ def regime_rows(rng):
                  "NLLS": safe(est_nlls, fo_t, t, y),
                  "note": "adaptive-EAC (#6) -- curvature windows on the transient"})
 
-    # C2 sparse / irregular sampling
+    # C2, sparse and irregular sampling
     dm = _model("damped")
     t, y, _ = gen(dm, rng, n=300, noise=0.05, sparse=True)
     rows.append({"regime": f"sparse sampling ({t.size} pts)",
@@ -496,7 +484,7 @@ def regime_rows(rng):
                  "NLLS": safe(est_nlls, dm, t, y),
                  "note": "EAC -- area criterion tolerant of irregular spacing"})
 
-    # C3 short record (few points)
+    # C3, a short record of very few points
     gm = _model("gauss")
     t, y, _ = gen(gm, rng, n=18, noise=0.05)
     rows.append({"regime": "short record (18 pts, gaussian)",
@@ -508,9 +496,10 @@ def regime_rows(rng):
 
 
 def joint_channels(rng):
-    """C4 multi-channel shared parameter -> joint (#4): a shared decay rate across
-    SHORT, NOISY channels where each channel alone constrains tau poorly. Returns
-    ``{"joint_err", "indep_err", "indep_scatter"}`` (errors in %)."""
+    """C4, the multi-channel shared parameter that the joint fit (#4) exists
+    for: one decay rate shared across short, noisy channels, none of which
+    constrains tau well alone. Returns
+    ``{"joint_err", "indep_err", "indep_scatter"}``, the errors in percent."""
     tau_true, ks = 1.2, [3.0, 2.0, 4.0, 2.5]
     tt = np.linspace(0, 6, 30)
     chans = [(tt, K * (1 - np.exp(-tt / tau_true)) + rng.normal(0, 0.18 * K, tt.size))
@@ -533,14 +522,14 @@ def joint_channels(rng):
             "indep_scatter": indep_scatter}
 
 
-# --------------------------------------------------------------------------- #
-# Part C2 -- the Western signal-parameter lineage head-to-head
-# (Prony / Matrix Pencil / ESPRIT, the comparison a signal-processing reviewer
-# outside the Pukhov school asks for). Scoped to the two textbook, offset-clean
-# tasks where a subspace mode maps unambiguously to one physical quantity.
-# --------------------------------------------------------------------------- #
+# Part C2: the head-to-head against the Western signal-parameter lineage,
+# Prony, Matrix Pencil and ESPRIT, which is the comparison a signal-processing
+# reviewer outside the Pukhov school asks for. Scoped to the two textbook,
+# offset-clean tasks where a subspace mode maps unambiguously onto one physical
+# quantity.
 def _dominant_mode_rate(model) -> float:
-    """Real part (growth/decay rate) of the highest-amplitude recovered mode."""
+    """Real part, the growth or decay rate, of the highest-amplitude recovered
+    mode."""
     i = int(np.argmax(np.abs(model.amp)))
     return float(model.rate[i].real)
 
@@ -555,19 +544,20 @@ def _dominant_mode_frequency(model) -> float:
 
 
 def subspace_rate_recovery(rng, *, n=400, noise=0.03):
-    """dtfit vs the Western signal-parameter lineage on the tasks the subspace
-    methods were built for.
+    """dtfit against the Western signal-parameter lineage on the tasks the
+    subspace methods were built for.
 
-    Compares dtfit LSI, gold-standard SciPy NLLS, classical **Prony** and the
-    SVD-robust **Matrix Pencil / ESPRIT** on recovering:
+    Compares dtfit LSI, gold-standard SciPy NLLS, classical Prony and the
+    SVD-robust Matrix Pencil / ESPRIT on recovering:
 
-    * a single exponential's **growth rate** ``b`` (``expgrow``);
-    * a sinusoid's **angular frequency** ``w`` (``sine``, mean-removed so the
+    * a single exponential's growth rate ``b`` (``expgrow``);
+    * a sinusoid's angular frequency ``w`` (``sine``, mean-removed so the
       subspace sees one clean conjugate pair).
 
-    These two families are where a Prony-family mode maps to exactly one physical
-    quantity, so the head-to-head is apples-to-apples. Returns a list of
-    ``{"task", "quantity", "true", "<method>": err% ...}`` rows.
+    These two families are where a Prony-family mode maps onto exactly one
+    physical quantity. Only there is the head-to-head apples for apples.
+    Returns a list of ``{"task", "quantity", "true", "<method>": err% ...}``
+    rows.
     """
     def err(est_val, true_val):
         return float(abs(est_val - true_val) / abs(true_val) * 100)
@@ -602,26 +592,25 @@ def subspace_rate_recovery(rng, *, n=400, noise=0.03):
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# Part D -- real-data recovery (no ground truth -> agreement + fit)
-# --------------------------------------------------------------------------- #
+# Part D: real-data recovery, where there is no ground truth, so validity has
+# to come from methods agreeing with each other and fitting well
 def load_data(name, col=1):
-    """Load a column from a bundled real-data CSV (under ``experiments/data``)."""
+    """Load one column of a bundled CSV under ``experiments/data``."""
     import csv
     rows = list(csv.reader((EXPERIMENTS_DIR / "data" / name).open()))[1:]
     return np.array([float(r[col]) for r in rows])
 
 
 def load_puromycin():
-    """Load the canonical **Puromycin** enzyme-kinetics dataset (Bates & Watts
-    1988, *treated* group) bundled as ``experiments/data/puromycin.csv``.
+    """Load the canonical Puromycin enzyme-kinetics dataset (Bates & Watts
+    1988, the treated group), bundled as ``experiments/data/puromycin.csv``.
 
-    Twelve measurements (six substrate concentrations, in replicate) of the
-    initial reaction velocity of an enzyme with vs. without puromycin. This is a
-    textbook Michaelis-Menten dataset -- *real*, sparse and replicated -- native
-    to the ``mm``/``hill`` families (unlike the COVID / FX growth-rate curves in
-    D1/D2, which only exercise the exponential form). Returns
-    ``(conc, velocity)`` as float arrays (header ``conc,velocity``)."""
+    Twelve measurements, six substrate concentrations in replicate, of an
+    enzyme's initial reaction velocity with and without puromycin. It is a
+    textbook Michaelis-Menten dataset, real, sparse and replicated, and native
+    to the ``mm`` and ``hill`` families, where the COVID and FX growth-rate
+    curves of D1/D2 only exercise the exponential form. Returns
+    ``(conc, velocity)`` as float arrays, from a ``conc,velocity`` header."""
     import csv
     rows = list(csv.reader((EXPERIMENTS_DIR / "data" / "puromycin.csv").open()))[1:]
     conc = np.array([float(r[0]) for r in rows])
@@ -633,16 +622,17 @@ def real_puromycin():
     """Fit the Michaelis-Menten law ``Vmax*t/(Km+t)`` (the ``mm`` family) to the
     real Puromycin data with dtfit LSI, dtfit EAC and SciPy NLLS.
 
-    There is no ground-truth parameter vector for real data, so validity is shown
-    by the methods *agreeing* on ``{Vmax, Km}`` and fitting well. The reported
-    ``RMSE`` is the *in-sample* curve residual (velocity units); ``R2`` its
-    normalised twin. The wide bounds/seed below suit the actual scale of the data
-    (conc in [0.02, 1.1] mM, velocity up to ~210), unlike the synthetic ``mm``
-    entry in :data:`MODELS`. Returns a list of
-    ``{"method", "Vmax", "Km", "RMSE", "R2"}`` rows."""
+    Real data carries no ground-truth parameter vector, so validity has to show
+    up as the methods agreeing on ``{Vmax, Km}`` and fitting well. The reported
+    ``RMSE`` is the in-sample curve residual in velocity units and ``R2`` its
+    normalised twin. The wide bounds and seed below suit the actual scale of
+    this data, concentration in [0.02, 1.1] mM and velocity up to about 210,
+    where the synthetic ``mm`` entry in :data:`MODELS` does not. Returns a list
+    of ``{"method", "Vmax", "Km", "RMSE", "R2"}`` rows."""
     conc, velocity = load_puromycin()
-    # A Puromycin-scaled copy of the ``mm`` family: same expr/func/name layout,
-    # data-appropriate seed and bounds (Vmax ~ max velocity, Km ~ mid-range conc).
+    # A Puromycin-scaled copy of the ``mm`` family: the same expr, func and
+    # name layout, on a seed and bounds this data's scale supports, with Vmax
+    # near the maximum velocity and Km near a mid-range concentration.
     mmr = dict(_model("mm"),
                true={"Km": 0.1, "Vmax": 210.0}, t=(conc.min(), conc.max()),
                p0=[0.1, 200.0], bounds=[(1e-3, 5.0), (50.0, 500.0)])
@@ -661,16 +651,16 @@ def real_puromycin():
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# Part E -- model-mismatch negative control. Fit the WRONG structural model to
-# data from a known generator to show (a) NO estimator rescues a mis-specified
-# model -- both dtfit AND NLLS degrade sharply -- and (b) an in-sample goodness
-# stat (R2) flags the mismatch, which is what a blind selector would key on.
-# --------------------------------------------------------------------------- #
+# Part E, the model-mismatch negative control. Fit the wrong structural model
+# to data from a known generator, and two things follow: no estimator rescues a
+# mis-specified model, both dtfit and NLLS degrading sharply, and an in-sample
+# goodness statistic (R2) flags the mismatch, which is what a blind selector
+# keys on.
 def _fit_rmse_r2(model, fn, t, y):
     """Fit ``model`` to ``(t, y)`` with estimator ``fn`` and return the in-sample
-    curve ``(RMSE, R2)`` (NaN on failure). Curve accuracy, not param accuracy --
-    the only comparable currency when the fitted model is the wrong structure."""
+    curve ``(RMSE, R2)``, NaN on failure. Curve accuracy rather than parameter
+    accuracy: it is the only comparable currency once the fitted model has the
+    wrong structure."""
     try:
         est = fn(model, t, y)
         pred = model["func"](t, *[est[k] for k in model["names"]])
@@ -680,10 +670,11 @@ def _fit_rmse_r2(model, fn, t, y):
         return float("nan"), float("nan")
 
 
-# The negative-control cases: data generated from ``true`` fitted with both the
-# CORRECT structure and a structurally WRONG one. Each wrong model must accept the
-# same 1-D ``t`` support as the truth. ``param`` names a physical quantity present
-# (and comparable) in both models, for a param-error column; ``None`` if none is.
+# The negative-control cases: data generated from ``true``, fitted with both
+# the correct structure and a structurally wrong one. Each wrong model must
+# accept the same 1-D ``t`` support as the truth. ``param`` names a physical
+# quantity present and comparable in both models, for a parameter-error column,
+# or None where no such quantity exists.
 _MISMATCH_CASES = [
     dict(name="biexp truth, fitted as single-exp decay",
          true="biexp", correct="biexp", wrong="decay_offset", param=None,
@@ -698,14 +689,14 @@ _MISMATCH_CASES = [
 
 
 def exp_model_mismatch(seeds=5):
-    """Model-mismatch **negative control**: fit the wrong structural model and
+    """The model-mismatch negative control: fit the wrong structural model and
     show that no estimator rescues it.
 
-    For each case in :data:`_MISMATCH_CASES` the same data (from a known
-    generator) is fitted with the CORRECT structure and a structurally WRONG one,
-    for both dtfit-LSI and SciPy NLLS. It reports the in-sample curve
-    ``RMSE``/``R2`` of correct vs wrong for each estimator, and the **R2 gap**
-    (correct minus wrong) that a blind selector would use to flag the mismatch.
+    For each case in :data:`_MISMATCH_CASES`, the same data from a known
+    generator is fitted with the correct structure and with a structurally
+    wrong one, by both dtfit-LSI and SciPy NLLS. It reports each estimator's
+    in-sample curve ``RMSE`` and ``R2`` for correct against wrong, and the R2
+    gap, correct minus wrong, that a blind selector would flag the mismatch by.
     Averaged over ``seeds``. Returns a list of one dict per case::
 
         {"case", "correct model", "wrong model",
@@ -736,8 +727,9 @@ def exp_model_mismatch(seeds=5):
         def _m(key):
             return float(np.nanmean(acc[key]))
 
-        # correct/wrong RMSE from whichever estimator fits the wrong model best --
-        # the honest worst case for the "a good estimator rescues it" claim.
+        # Take the correct and wrong RMSE from whichever estimator fits the
+        # wrong model best: the honest worst case for a claim that a good
+        # estimator rescues a mis-specified model.
         wrong_rmse = min(_m("lsi_w_rmse"), _m("nlls_w_rmse"))
         correct_rmse = min(_m("lsi_c_rmse"), _m("nlls_c_rmse"))
         ratio = (wrong_rmse / correct_rmse
@@ -761,10 +753,8 @@ def exp_model_mismatch(seeds=5):
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# applicability map: per-family (best dtfit method, reasoning) -- kept here so the
-# notebook can render it as a table; the prose lives in the notebook's markdown.
-# --------------------------------------------------------------------------- #
+# The applicability map, per family: the best dtfit method and the reasoning.
+# It lives here so the notebook can render it as a table.
 FAMILY_REASON = {
     "damped": ("EAC / LSI",
                "Oscillation -- the frequency lives in the spectrum/area; fitted "

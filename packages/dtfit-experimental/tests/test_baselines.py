@@ -1,8 +1,9 @@
-"""The Western parameter-estimation baselines (the signal-processing / system-ID
-foils): Prony, Matrix Pencil / ESPRIT, variable projection, method of moments.
+"""The Western parameter-estimation baselines: Prony, Matrix Pencil / ESPRIT,
+variable projection, method of moments.
 
-Each must recover the same nonlinear parameters dtfit targets -- rates,
-frequencies, amplitudes -- on synthetic data where the truth is known.
+These are the signal-processing and system-ID foils dtfit is scored against.
+Each has to recover the nonlinear parameters dtfit targets, the rates,
+frequencies and amplitudes, on synthetic data where the truth is known.
 """
 
 import numpy as np
@@ -17,13 +18,13 @@ from dtfit_experimental.experiments.common.baselines import (
 )
 
 
-# --- Prony (the algebraic original) ---------------------------------------- #
+# Prony, the algebraic original
 def test_prony_recovers_single_exponential():
     rng = np.random.default_rng(0)
     t = np.linspace(0, 4, 400)
     y = 1.5 * np.exp(0.6 * t) + rng.normal(0, 1e-3, t.size)
     m = prony_fit(t, y, n_modes=1)
-    # one real mode: rate ~ 0.6, amplitude ~ 1.5
+    # a pure exponential is one real mode, no conjugate pair
     assert m.rate.size == 1
     assert m.rate[0].real == pytest.approx(0.6, abs=0.05)
     assert float(np.real(m.amp[0])) == pytest.approx(1.5, abs=0.1)
@@ -35,13 +36,13 @@ def test_prony_needs_enough_samples():
         prony_fit(np.linspace(0, 1, 4), np.ones(4), n_modes=3)
 
 
-# --- Matrix Pencil / ESPRIT (the SVD-robust successor) --------------------- #
+# Matrix Pencil / ESPRIT, the SVD-robust successor
 def test_matrix_pencil_recovers_biexponential_rates():
     rng = np.random.default_rng(1)
     t = np.linspace(0, 6, 500)
     y = 2.0 * np.exp(-2.0 * t) + 1.0 * np.exp(-0.3 * t) + rng.normal(0, 2e-3, t.size)
     m = matrix_pencil_fit(t, y, n_modes=2)
-    damping = np.sort(m.damping)  # -Re(rate); the two decay rates 0.3 and 2.0
+    damping = np.sort(m.damping)  # -Re(rate); the truth is 0.3 and 2.0
     assert damping[0] == pytest.approx(0.3, abs=0.05)
     assert damping[1] == pytest.approx(2.0, abs=0.2)
     assert r2_score(y, m.predict(t)) > 0.99
@@ -51,13 +52,13 @@ def test_matrix_pencil_recovers_sinusoid_frequency():
     rng = np.random.default_rng(2)
     t = np.linspace(0, 4 * np.pi, 400)
     y = 2.0 * np.sin(1.5 * t) + rng.normal(0, 5e-3, t.size)
-    m = matrix_pencil_fit(t, y, n_modes=2)  # one conjugate pair
+    m = matrix_pencil_fit(t, y, n_modes=2)  # real sinusoid: one conjugate pair
     freq = m.frequency[m.frequency > 0]
     assert float(np.max(freq)) == pytest.approx(1.5, abs=0.05)
     assert r2_score(y, m.predict(t)) > 0.99
 
 
-# --- Variable projection (Golub-Pereyra separable NLLS) -------------------- #
+# variable projection, Golub-Pereyra separable NLLS
 def test_varpro_recovers_biexponential():
     rng = np.random.default_rng(3)
     t = np.linspace(0, 6, 400)
@@ -75,7 +76,7 @@ def test_varpro_recovers_biexponential():
     assert r2_score(y, m.predict(t)) > 0.99
 
 
-# --- Method of moments / GMM (the unconditioned LSI ancestor) -------------- #
+# method of moments / GMM
 def test_moment_match_recovers_exponential_growth():
     rng = np.random.default_rng(4)
     t = np.linspace(0, 4, 300)
@@ -90,12 +91,13 @@ def test_moment_match_recovers_exponential_growth():
     assert b == pytest.approx(0.6, abs=0.05)
 
 
-# --- the domain head-to-head wiring ---------------------------------------- #
+# the domain head-to-head wiring
 def test_subspace_rate_recovery_head_to_head():
-    """The parameter-estimation domain helper: dtfit, NLLS and the SVD-robust
-    Matrix Pencil / ESPRIT all recover the rate/frequency; classical Prony holds
-    up on the clean exponential but degrades on the noisy sinusoid (the textbook
-    reason the subspace methods superseded it)."""
+    """Every method the domain helper reports stays inside its error budget: 2
+    percent for dtfit LSI, SciPy NLLS and Matrix Pencil / ESPRIT on both tasks,
+    10 percent for classical Prony and only on the clean exponential. On the
+    noisy sinusoid Prony is asked for nothing but a finite number, which is the
+    textbook reason the subspace methods replaced it."""
     from dtfit_experimental.experiments.domains.parameter_estimation.backend import (
         subspace_rate_recovery,
     )
@@ -104,8 +106,8 @@ def test_subspace_rate_recovery_head_to_head():
     for row in rows:
         for method in ("dtfit LSI", "SciPy NLLS", "Matrix Pencil/ESPRIT"):
             assert row[method] < 2.0, (row["task"], method, row[method])
-    # Prony stays accurate on the (clean) exponential rate...
+    # Prony is held to a number only on rows[0], the clean exponential
     assert rows[0]["Prony"] < 10.0
-    # ...and every method returns a finite error (no crash) on both tasks.
+    # nothing crashes: every method returns a finite error on both tasks
     assert all(np.isfinite(row[m]) for row in rows for m in
                ("dtfit LSI", "SciPy NLLS", "Prony", "Matrix Pencil/ESPRIT"))

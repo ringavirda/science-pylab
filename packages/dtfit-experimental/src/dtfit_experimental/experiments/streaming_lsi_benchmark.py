@@ -1,32 +1,36 @@
-"""Streaming LSI vs streaming EAC -- head-to-head filter benchmark.
+"""Streaming LSI vs streaming EAC: head-to-head filter benchmark.
 
-Compares :class:`dtfit.streaming.LSIFilter` (online integral
-least-squares, the streaming counterpart of ``fit_lsi``) against the existing
-:class:`dtfit.streaming.EACFilter` (online equal-areas) on two synthetic
-streams with a known ground truth and a mid-stream parameter drift:
+Puts :class:`dtfit.streaming.LSIFilter` (online integral least squares, the
+streaming counterpart of ``fit_lsi``) against
+:class:`dtfit.streaming.EACFilter` (online equal areas) on two synthetic
+streams, each with a known ground truth and a mid-stream parameter drift:
 
-  * Scenario A -- exponential growth ``y = a·exp(b·t)`` with a jump in the growth
-    rate ``b``. This is the *area* filter's home turf (monotone signal, net
-    area highly informative); we expect rough parity.
-  * Scenario B -- sine ``y = A·sin(w·t)`` with a jump in the frequency ``w``.
-    A sine's net area over a window is ~0, so equal areas are nearly blind to
-    frequency; the Legendre spectrum resolves the oscillation, so we expect the
-    spectral filter to win on parameter tracking and 1-step-ahead prediction.
+  * Scenario A, exponential growth ``y = a·exp(b·t)`` with a jump in the growth
+    rate ``b``. This is the area filter's home turf, a monotone signal whose
+    net area is highly informative, and the expectation is rough parity.
+  * Scenario B, sine ``y = A·sin(w·t)`` with a jump in the frequency ``w``. A
+    sine's net area over a window is ~0, leaving equal areas nearly blind to
+    frequency, while the Legendre spectrum resolves the oscillation. The
+    spectral filter should win on parameter tracking and on 1-step-ahead
+    prediction.
 
-For each filter/scenario we report, against the known truth:
-  * param RMSE      -- RMS error of the tracked parameters after warm-up;
-  * 1-step pred RMSE-- RMS one-step-ahead forecast error (vs a random walk);
-  * conv. steps     -- samples until the tracked params first stay within 10 %
-                       of truth (lower is faster observability);
-  * drift lag       -- samples between the true drift and its detection;
-  * us/step         -- mean per-sample wall-clock cost (hot-path budget).
+Every filter/scenario pair is scored against the known truth:
+
+  * param RMSE: relative RMS error of the tracked parameters, measured away
+    from the warm-up and the post-drift transient;
+  * 1-step pred RMSE: RMS one-step-ahead forecast error, quoted next to a
+    random walk;
+  * conv. steps: samples until the tracked params first stay within 10 % of
+    truth (lower is faster observability);
+  * drift lag: samples between the true drift and its detection;
+  * us/step: mean per-sample wall-clock cost, the hot-path budget.
 
 Run:
 
     python -m dtfit_experimental.experiments.streaming_lsi_benchmark
 
-Synthetic data only (known ground truth); reseeded per scenario so the two
-filters see identical samples.
+Synthetic data only, with a known ground truth, reseeded per scenario so the
+two filters see identical samples.
 """
 
 from __future__ import annotations
@@ -39,9 +43,6 @@ import numpy as np
 from dtfit.streaming import EACFilter, LSIFilter
 
 
-# --------------------------------------------------------------------------- #
-# scenarios: (t, y, param-truth-over-time, true drift index, model expr/var)
-# --------------------------------------------------------------------------- #
 @dataclass
 class Scenario:
     name: str
@@ -99,9 +100,6 @@ def scenario_sine(n: int = 1200) -> Scenario:
     )
 
 
-# --------------------------------------------------------------------------- #
-# run one filter over a scenario, collecting tracking history
-# --------------------------------------------------------------------------- #
 def run_filter(make_filter, sc: Scenario) -> dict:
     flt = make_filter(sc)
     n = sc.t.size
@@ -112,7 +110,8 @@ def run_filter(make_filter, sc: Scenario) -> dict:
 
     prev_ready = False
     for i in range(n):
-        # one-step-ahead: predict y[i] from the estimate *before* ingesting it
+        # one-step-ahead: predict y[i] from the estimate as it stands before
+        # the sample is ingested
         if prev_ready:
             pred1[i] = float(flt.predict(np.array([sc.t[i]]))[0])
         t0 = time.perf_counter()
@@ -134,16 +133,13 @@ def run_filter(make_filter, sc: Scenario) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# metrics from a tracking history vs the ground truth
-# --------------------------------------------------------------------------- #
 def evaluate(res: dict, sc: Scenario) -> dict:
     p_hist, truth = res["p_hist"], sc.truth
     n = sc.t.size
     valid = ~np.isnan(p_hist[:, 0])
 
-    # Settled regions: skip a warm-up margin after the start and after the
-    # drift so we score tracking, not transient re-adaptation.
+    # Settled regions: skip a warm-up margin after the start and another after
+    # the drift, to score tracking rather than transient re-adaptation.
     margin = sc.drift_idx // 4
     settled = np.zeros(n, dtype=bool)
     settled[margin:sc.drift_idx] = True
@@ -190,7 +186,7 @@ def evaluate(res: dict, sc: Scenario) -> dict:
 
 
 def make_eac(sc: Scenario) -> EACFilter:
-    # n_sub=2 gives the area filter a vector measurement -- its fairest config.
+    # n_sub=2 gives the area filter a vector measurement, its fairest config.
     return EACFilter(
         sc.expr, sc.var, p0=sc.p0, window_size=50,
         q_diag=sc.q_diag, r=sc.r, n_sub=2, adapt_r=True,

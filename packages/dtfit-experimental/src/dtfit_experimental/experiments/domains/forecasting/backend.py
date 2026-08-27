@@ -1,51 +1,47 @@
-"""Backend infrastructure for the forecasting domain cross-method study.
+"""Data, models and forecasting code for the forecasting domain's cross-method
+study.
 
-This module is the **single source of truth for the data, models and forecasting
-code** behind ``forecasting.ipynb``; the notebook imports it as ``B`` and does all
-the presentation (tables, figures, narrative). Keeping the infra here means the
-loaders / model specs / dtfit fitters / baselines / per-series evaluation are
-defined once and the notebook stays a thin, rerunnable layer over them.
+``forecasting.ipynb`` imports this module as ``B`` and does the presentation.
+Pure compute here, with no ``matplotlib``: every function returns numbers,
+arrays or dicts the notebook renders.
 
-This is the *domain* study (broader than case Experiment 4, which hand-picked one
-dtfit form per series and compared a handful of baselines). Here we:
+This is the domain study, broader than case Experiment 4, which hand-picked one
+dtfit form per series and compared a handful of baselines. Here it:
 
-* test **every dtfit forecasting method** that applies to each series -- the two
-  base fitters (LSI, EAC) and the two structural adaptations (#2 Fourier-basis
-  LSI, #5 stage-wise boosting), plus the auto-composed **merged** pipeline that
+* tests every dtfit forecasting method that applies to each series, the two
+  base fitters LSI and EAC, the two structural adaptations (#2 Fourier-basis
+  LSI, #5 stage-wise boosting), and the auto-composed merged pipeline that
   picks the structure itself;
-* compare against the **standard forecasting toolkit** a practitioner would
-  actually reach for -- random walk, seasonal-naive, drift, polynomial
-  extrapolation, Holt-Winters exponential smoothing (ETS), the Theta method,
-  (S)ARIMA, an MLP and an LSTM;
-* across **twelve series** spanning growth, currency, climate, solar, hydrology,
-  energy-load and physics / signal-processing-waveform domains, at **two
-  horizons** (short and long), so the comparison covers structure type *and*
-  extrapolation distance.
+* compares them against the forecasting toolkit a practitioner would actually
+  reach for: a random walk, seasonal naive, drift, polynomial extrapolation,
+  Holt-Winters exponential smoothing (ETS), the Theta method, (S)ARIMA, an MLP
+  and an LSTM;
+* over twelve series spanning growth, currency, climate, solar, hydrology,
+  energy-load and physics or signal-processing waveforms, at a short and a long
+  horizon, so the comparison covers both structure type and extrapolation
+  distance.
 
-dtfit is a parametric fit-then-extrapolate forecaster: it wins where the series
-has real, extrapolable nonlinear structure and is reported honestly where the
-general learners win.
+dtfit is a parametric fit-then-extrapolate forecaster. It wins where a series
+has real, extrapolable nonlinear structure, and the cases where the general
+learners win are reported as such.
 
-It provides:
+What the module provides:
 
-* the **real-data + physics-waveform loaders** -- :func:`load_covid`,
-  :func:`load_uah`, ... :func:`load_chirp`, driven by the :data:`SERIES` table;
-* the **model spec builders** -- :func:`_trend_spec` and the seed/frequency
-  detectors that pick the structurally-correct dtfit model per series;
-* the **dtfit forecasters** -- :func:`dtfit_lsi`, :func:`dtfit_eac`,
-  :func:`dtfit_fourier`, :func:`dtfit_boosted`, :func:`merged_forecaster`
-  (collected in :data:`DTFIT_METHODS`);
-* the **established baselines** -- :func:`baseline_preds` (random walk / drift /
-  poly / seasonal-naive / ETS / Theta / (S)ARIMA / MLP / LSTM), each guarded so a
-  missing optional dependency (statsmodels / sklearn / torch) skips that baseline
-  rather than crashing;
-* the **per-series evaluation** -- :func:`evaluate_series`, plus the
-  :func:`win_summary` / :func:`series_overview` / :func:`multi_horizon` /
-  :func:`reading` analysis helpers the notebook renders, and the narrative
-  constants (:data:`MODEL_RATIONALE`, ...).
-
-No ``matplotlib``, no ``ReportWriter``, no ``report.md`` -- functions return
-numbers / arrays / dicts the notebook renders.
+* the real-data and physics-waveform loaders, :func:`load_covid`,
+  :func:`load_uah` through :func:`load_chirp`, driven by the :data:`SERIES`
+  table;
+* the model spec builders, :func:`_trend_spec` and the seed and frequency
+  detectors that pick the structurally correct dtfit model for each series;
+* the dtfit forecasters :func:`dtfit_lsi`, :func:`dtfit_eac`,
+  :func:`dtfit_fourier`, :func:`dtfit_boosted` and :func:`merged_forecaster`,
+  collected in :data:`DTFIT_METHODS`;
+* the established baselines behind :func:`baseline_preds`, each guarded so that
+  a missing optional dependency (statsmodels, sklearn, torch) skips that
+  baseline rather than crashing the run;
+* the per-series evaluation :func:`evaluate_series`, the analysis helpers
+  :func:`win_summary`, :func:`series_overview`, :func:`multi_horizon` and
+  :func:`reading` that the notebook renders, and the narrative constants such
+  as :data:`MODEL_RATIONALE`.
 """
 
 from __future__ import annotations
@@ -79,9 +75,7 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# real-data loaders -> a 1-D series
-# --------------------------------------------------------------------------- #
+# the real-data loaders, each returning a 1-D series
 def _csv(name, col=1, start_row=1):
     import csv
     rows = list(csv.reader((EXPERIMENTS_DIR / "data" / name).open()))[start_row:]
@@ -124,13 +118,12 @@ def load_ltsf(name, channel=0, tail=1500):
     return ltsf.load(name)[-tail:, channel]
 
 
-# --------------------------------------------------------------------------- #
-# physics / signal-processing waveforms -- generated from their governing
-# equations plus measurement noise (legitimate physical-process forecasting:
-# an RLC transient, an AC power waveform, an AM carrier, a chirp). These are
-# *physical processes*, not measured economic/medical datasets, and exercise the
-# methods on the electrical-wave / signal-processing regime.
-# --------------------------------------------------------------------------- #
+# The physics and signal-processing waveforms, generated from their governing
+# equations plus measurement noise: an RLC transient, an AC power waveform, an
+# AM carrier, a chirp. Predicting a physical process is legitimate
+# forecasting, and these are physical processes rather than measured economic
+# or medical datasets, so they exercise the methods on the electrical-wave and
+# signal-processing regime.
 def _sig(seed, n, f):
     rng = np.random.default_rng(seed)
     t = np.linspace(0.0, 1.0, n)
@@ -138,7 +131,7 @@ def _sig(seed, n, f):
 
 
 def load_rlc_transient():
-    """Damped oscillation -- an RLC circuit / mechanical ring-down transient:
+    """A damped oscillation: an RLC circuit or mechanical ring-down transient,
     y = e^{-sigma t}*sin(2 pi f t). dtfit's damped model is its exact structural
     form."""
     t, _, rng = _sig(11, 360, None)
@@ -157,28 +150,29 @@ def load_ac_harmonics():
 
 
 def load_am_signal():
-    """Amplitude-modulated carrier: (1 + m*cos 2 pi f_m t)*sin 2 pi f_c t
-    (communications / vibration envelope)."""
+    """An amplitude-modulated carrier, (1 + m*cos 2 pi f_m t)*sin 2 pi f_c t: a
+    communications signal or a vibration envelope."""
     t, _, rng = _sig(13, 400, None)
     y = (1 + 0.6 * np.cos(2 * np.pi * 1.5 * t)) * np.sin(2 * np.pi * 9.0 * t)
     return y + rng.normal(0, 0.03, t.size)
 
 
 def load_chirp():
-    """Linear chirp -- a frequency sweep sin(2 pi(f0 + k t)t) (radar/sonar). The
-    instantaneous frequency changes, so a fixed-frequency fit is honestly hard."""
+    """A linear chirp: the frequency sweep sin(2 pi(f0 + k t)t) of radar and
+    sonar. Its instantaneous frequency changes, so a fixed-frequency fit is
+    honestly hard."""
     t, _, rng = _sig(14, 400, None)
     inst = 2.0 + 6.0 * t
     y = np.sin(2 * np.pi * inst * t)
     return y + rng.normal(0, 0.03, t.size)
 
 
-# series config: (loader, trend kind, seasonal?, period in samples, label)
-# The *trend kind* names the dtfit model fitted to that series -- chosen per
-# series as the structurally correct form (see the "Best model per series"
-# section for the data-driven reasoning). It is independent of the ``seasonal?``
-# / period fields, which only configure the *baselines* (seasonal naive,
-# ETS/SARIMA) and the merged pipeline's FFT seasonal gate.
+# Series config: (loader, trend kind, seasonal?, period in samples, label).
+# The trend kind names the dtfit model fitted to that series, chosen per
+# series as the structurally correct form; the "Best model per series" section
+# carries the data-driven reasoning. It is independent of the ``seasonal?``
+# and period fields, which configure only the baselines (seasonal naive, ETS,
+# SARIMA) and the merged pipeline's FFT seasonal gate.
 # trend kinds:
 #   exp                a*e^{bx}                      pure exponential growth
 #   logistic           L/(1+e^{-k(x-x0)})           saturating (epidemic/diffusion)
@@ -202,8 +196,8 @@ SERIES = [
      "transformer temp"),
     ("Weather LTSF", lambda: load_ltsf("weather", 0), "transient_seasonal", True,
      144, "weather sensor"),
-    # physics / signal-processing waveforms (each fitted with its *correct*
-    # physical model, not a generic single sine)
+    # the physics and signal-processing waveforms, each fitted with its own
+    # correct physical model rather than a generic single sine
     ("RLC transient", load_rlc_transient, "damped", False, None,
      "physics: electrical ring-down"),
     ("AC + harmonics", load_ac_harmonics, "fourier_series", True, 60,
@@ -214,33 +208,36 @@ SERIES = [
      "physics: frequency sweep"),
 ]
 
-# how many harmonics the Fourier-series model carries (covers up to 5th harmonic
-# of the fundamental -- the AC waveform's content).
+# how many harmonics the Fourier-series model carries: enough for the 5th
+# harmonic of the fundamental, which is the AC waveform's content
 N_HARMONICS = 5
-# Model classes that contain a sinusoid: fitted at a high Fourier-basis order and
-# WITHOUT the Savitzky-Golay pre-smoothing (which would erase the cycle/harmonics).
-# Also the kinds for which the #2 Fourier-basis method is meaningful.
+# The model classes containing a sinusoid. These are fitted at a high
+# Fourier-basis order and without the Savitzky-Golay pre-smoothing, which would
+# erase the cycle and its harmonics. They are also the kinds for which the #2
+# Fourier-basis method means anything.
 SINUSOIDAL_KINDS = {"sine", "fourier_series", "am", "chirp", "linear_wave",
                     "poly_seasonal", "linear_seasonal", "transient_seasonal"}
 OSC_KINDS = SINUSOIDAL_KINDS
-# Of the sinusoidal kinds, the ones whose seed (a polyfit trend + the FFT
-# frequency) is reliable enough to fit by *local* optimization (from p0, no
-# bounds) instead of a global differential-evolution search -- ~200x faster for
-# an identical fit. The pure-cycle kinds ("sine" sunspots, "am") keep the global
-# search: their amplitude/phase / (wc, wm) landscape is multimodal and a local
-# fit lands in a bad minimum (sunspots: 66 local vs 44 global).
+# Of the sinusoidal kinds, those whose seed (a polyfit trend plus the FFT
+# frequency) is reliable enough to fit by local optimization from p0 without
+# bounds, instead of a global differential-evolution search: about 200x faster
+# for an identical fit. The pure-cycle kinds, "sine" for sunspots and "am",
+# keep the global search, since their amplitude/phase and (wc, wm) landscape is
+# multimodal and a local fit lands in a bad minimum: on sunspots, 66 local
+# against 44 global.
 LOCAL_FIT_KINDS = {"fourier_series", "chirp", "linear_wave", "poly_seasonal",
                    "linear_seasonal", "transient_seasonal"}
-# Trended-seasonal kinds -> the (trend-only base, has-seasonal) used by the
-# staged #5 booster, which contrasts the staged trend+season fit against the
+# The trended-seasonal kinds mapped to their trend-only base, as the staged #5
+# booster needs, so it can contrast a staged trend-then-season fit against the
 # joint LSI model of the same series.
 BASE_TREND = {"poly_seasonal": "poly", "linear_seasonal": "linear",
               "linear_wave": "linear", "transient_seasonal": "linear"}
 
 
 def _fit_bounds(spec, kind):
-    """Bounds to pass to the LSI fitters: ``None`` (local optimization from p0)
-    for the seed-reliable high-cost models, else the spec's bounds (global DE)."""
+    """Bounds to pass to the LSI fitters: ``None``, meaning local optimization
+    from p0, for the seed-reliable high-cost models, and otherwise the spec's
+    own bounds, meaning a global differential-evolution search."""
     return None if kind in LOCAL_FIT_KINDS else spec.get("bounds")
 
 
@@ -252,9 +249,7 @@ def _stage(spec, kind):
     return spec
 
 
-# --------------------------------------------------------------------------- #
-# dtfit forecasters (each returns a prediction over t_all, or raises)
-# --------------------------------------------------------------------------- #
+# the dtfit forecasters: each returns a prediction over t_all, or raises
 def _dx(t_tr):
     return float(t_tr[-1] - t_tr[0]) / max(t_tr.size - 1, 1)
 
@@ -262,14 +257,14 @@ def _dx(t_tr):
 def _w0_from(y_tr, t_tr, period_hint=None):
     """Angular frequency of the dominant cycle, in the x-coordinate of ``t_tr``.
 
-    Derived from the dominant *sample* period times the actual sample spacing
-    ``dx`` -- so the seed is correct regardless of how many samples the training
-    window holds (the earlier bug used full-domain span with the training count)."""
+    It comes from the dominant sample period times the actual sample spacing
+    ``dx``, which keeps the seed correct however many samples the training
+    window holds."""
     dx = _dx(t_tr)
     period_samp, strength = dominant_period(y_tr)
-    # accept a dominant period up to half the window (>=2 observed cycles); the
-    # ``<=`` matters at the exact edge (a slow ~N/2 cycle, e.g. the weather
-    # sensor, otherwise silently fell through to the wrong fallback frequency).
+    # Accept a dominant period up to half the window, so at least two observed
+    # cycles. The ``<=`` admits a cycle of exactly N/2, which the weather
+    # sensor has; a strict ``<`` sends it to the wrong fallback frequency.
     if not (np.isfinite(period_samp) and strength > 0.03
             and period_samp <= y_tr.size / 2):
         period_samp = period_hint if period_hint else y_tr.size / 6
@@ -277,8 +272,8 @@ def _w0_from(y_tr, t_tr, period_hint=None):
 
 
 def _detect_modulation(y_tr, t_tr):
-    """AM modulation (envelope) angular frequency via the analytic-signal
-    envelope's dominant cycle."""
+    """The AM modulation (envelope) angular frequency, from the dominant cycle
+    of the analytic-signal envelope."""
     try:
         from scipy.signal import hilbert
         env = np.abs(hilbert(y_tr - y_tr.mean()))
@@ -291,19 +286,18 @@ def _detect_modulation(y_tr, t_tr):
 
 
 def _detect_chirp(y_tr, t_tr):
-    """Linear-chirp start angular frequency ``w0`` and sweep rate ``k`` for the
-    model ``sin(w0*x + k*x^2 + p)`` (instantaneous angular frequency
-    ``omega(x)=w0+2k*x``).
+    """The linear-chirp start angular frequency ``w0`` and sweep rate ``k`` for
+    the model ``sin(w0*x + k*x^2 + p)``, whose instantaneous angular frequency
+    is ``omega(x) = w0 + 2k*x``.
 
-    The estimate comes from the **analytic-signal (Hilbert) instantaneous
-    phase**: for a linear chirp the unwrapped phase is exactly the quadratic
-    ``phi(x)=p + w0*x + k*x^2``, so a degree-2 polynomial fit of the unwrapped
-    phase reads ``w0`` and ``k`` off directly (Hilbert phase is the standard
-    instantaneous-frequency estimator). The earlier first-half / second-half FFT
-    estimate returned an averaged frequency (and tripped a period==N/2 fallback
-    that injected a spurious high frequency), giving the wrong magnitude *and
-    sign* of the sweep -- the chirp's whole failure; a coarse zero-crossing count
-    saturates at the low-frequency end and cannot resolve the sweep either."""
+    The estimate comes from the analytic-signal (Hilbert) instantaneous phase.
+    For a linear chirp the unwrapped phase is exactly the quadratic
+    ``phi(x) = p + w0*x + k*x^2``, so a degree-2 polynomial fit of that phase
+    reads ``w0`` and ``k`` off directly. Hilbert phase is the standard
+    instantaneous-frequency estimator, and it is the only route here that
+    resolves the sweep at all: an FFT peak returns a frequency averaged over
+    the window, which loses both the magnitude and the sign of ``k``, and a
+    coarse zero-crossing count saturates at the low-frequency end."""
     try:
         from scipy.signal import hilbert
         phase = np.unwrap(np.angle(hilbert(y_tr - float(np.mean(y_tr)))))
@@ -317,9 +311,10 @@ def _detect_chirp(y_tr, t_tr):
 
 
 def _spec_from(expr, pmap, *, method="lsi", **extra):
-    """Build a fit spec with bounds/p0 ordered to match SymPy's name-sorted
-    parameter layout (the convention ``fit_lsi`` uses), from a ``{name: (p0, lo,
-    hi)}`` map -- so the ordering can never be wrong by hand."""
+    """Build a fit spec from a ``{name: (p0, lo, hi)}`` map, with bounds and p0
+    ordered to match SymPy's name-sorted parameter layout, the convention
+    ``fit_lsi`` uses. Going through the map removes any chance of getting
+    that ordering wrong by hand."""
     import sympy as sp
     syms = sorted((s for s in sp.sympify(expr).free_symbols if str(s) != "x"),
                   key=str)
@@ -331,30 +326,33 @@ def _spec_from(expr, pmap, *, method="lsi", **extra):
 
 
 def _osc_order(w0, t_tr, n_cycles_mult=1.0):
-    """Fourier-basis order to resolve ``n_cycles_mult`` x the fundamental's cycle
-    count over the *training* x-span."""
+    """The Fourier-basis order that resolves ``n_cycles_mult`` times the
+    fundamental's cycle count over the training x-span."""
     cycles = w0 * float(t_tr[-1] - t_tr[0]) / (2 * np.pi)
     return int(1.4 * n_cycles_mult * cycles) + 10
 
 
 def _poly_seed(y_tr, t_tr, deg):
-    """Seed coefficients ``[a0, a1, ..., a_deg]`` (ascending powers of x) from a
-    plain polynomial least-squares fit, so the joint trend+seasonal models can
-    fit *locally* from a good starting point instead of a global search."""
+    """Seed coefficients ``[a0, a1, ..., a_deg]`` in ascending powers of x,
+    from a plain polynomial least-squares fit. From a good starting point
+    the joint trend+seasonal models fit locally instead of by global
+    search."""
     pc = np.polyfit(t_tr, y_tr, deg)             # numpy: highest power first
     return [float(pc[deg - i]) for i in range(deg + 1)]
 
 
 def _trend_spec(kind, y_tr, t_tr, period_hint=None):
-    """Return ``(stage_spec, scale)``. For sinusoidal model classes the spec
-    carries ``k_star`` (high spectral order) and ``filter_data=False`` so the
-    cycle/harmonics survive; the Fourier-basis order is the same ``k_star``."""
+    """Return ``(stage_spec, scale)``. For a sinusoidal model class the spec
+    carries ``k_star``, a high spectral order, and ``filter_data=False``, so
+    that the cycle and its harmonics survive; the Fourier-basis order is that
+    same ``k_star``."""
     if kind == "exp":                                    # params [a, b]
         return dict(expr="a*exp(b*x)", var="x", method="lsi",
                     bounds=[(0.05, 20), (-10, 10)], p0=[1.0, 1.0]), float(y_tr[0])
     if kind == "logistic":                               # params [L, k, x0]
-        # epidemic / diffusion growth saturates -- pure exp compounds and badly
-        # overshoots the deceleration; the logistic captures the carrying limit L.
+        # Epidemic and diffusion growth saturates. A pure exponential
+        # compounds and badly overshoots the deceleration; the logistic
+        # captures the carrying limit L.
         ylast = float(y_tr[-1])
         xspan = float(t_tr[-1] - t_tr[0]) or 1.0
         return dict(expr="L/(1 + exp(-k*(x - x0)))", var="x", method="lsi",
@@ -365,9 +363,10 @@ def _trend_spec(kind, y_tr, t_tr, period_hint=None):
         s = _poly_seed(y_tr, t_tr, 1)
         return dict(expr="a0 + a1*x", var="x", method="lsi", p0=s), 1.0
     if kind == "linear_wave":                            # a0+a1 x+a2 sin+a3 cos
-        # a level/slope plus ONE slow cycle (one period over the training span) --
-        # captures a rise-peak-settle "wave" (e.g. a currency crash + partial
-        # recovery) that a monotone trend cannot.
+        # A level and slope plus one slow cycle, a single period over the
+        # training span. It captures the rise-peak-settle wave of, say, a
+        # currency crash and its partial recovery, which no monotone
+        # trend can.
         xspan = float(t_tr[-1] - t_tr[0]) or 1.0
         w = 2 * np.pi / xspan
         a0, a1 = _poly_seed(y_tr, t_tr, 1)
@@ -390,11 +389,11 @@ def _trend_spec(kind, y_tr, t_tr, period_hint=None):
         return _spec_from(f"{pterms} + A*sin(w*x + p)", pmap,
                           k_star=_osc_order(w0, t_tr), filter_data=False), 1.0
     if kind == "transient_seasonal":                     # settling trend + cycle
-        # a SATURATING (rise-and-decay) trend term `a1*x*e^{-c*x}` that absorbs a
-        # training-period excursion and returns to a stable level a0, plus the
-        # cycle. For a mean-reverting / settling oscillation (the weather sensor)
-        # this forecasts "stable level + cycle" instead of extrapolating a local
-        # slope that runs the whole forecast off-level.
+        # A saturating rise-and-decay trend term `a1*x*e^{-c*x}`, which absorbs
+        # a training-period excursion and returns to the stable level a0, plus
+        # the cycle. For a mean-reverting, settling oscillation such as the
+        # weather sensor, this forecasts a stable level plus a cycle instead of
+        # extrapolating a local slope that runs the whole forecast off-level.
         s0 = float(np.mean(y_tr))
         w0 = _w0_from(y_tr, t_tr, period_hint)
         amp = float(np.std(y_tr)) + 1e-3
@@ -460,8 +459,8 @@ def _trend_spec(kind, y_tr, t_tr, period_hint=None):
 
 
 def _seasonal_stage(y_tr, t_tr, period_hint):
-    """A boosting seasonal stage ``A*sin(w*x + p)`` (params name-sorted
-    [A, p, w]); ``None`` if no dominant cycle is found."""
+    """A boosting seasonal stage ``A*sin(w*x + p)``, its params name-sorted to
+    [A, p, w], or ``None`` when no dominant cycle is found."""
     n = y_tr.size
     period_samp, strength = dominant_period(y_tr)
     if not (np.isfinite(period_samp) and strength > 0.05 and period_samp < n / 2):
@@ -488,7 +487,7 @@ def dtfit_lsi(cfg, t_tr, y_tr, t_all):
 
 def dtfit_eac(cfg, t_tr, y_tr, t_all):
     """Base EAC (equal-areas) on the series' structural model. The local-fit
-    kinds drop their bounds (EAC then refines locally from the seed)."""
+    kinds drop their bounds, leaving EAC to refine locally from the seed."""
     spec, scale = _trend_spec(cfg["trend"], y_tr, t_tr, cfg["period"])
     bnds = None if cfg["trend"] in LOCAL_FIT_KINDS else spec.get("bounds")
     eac_b = ([b[0] for b in bnds], [b[1] for b in bnds]) if bnds else None
@@ -498,11 +497,12 @@ def dtfit_eac(cfg, t_tr, y_tr, t_all):
 
 
 def dtfit_fourier(cfg, t_tr, y_tr, t_all):
-    """#2 Fourier-basis LSI -- the natural method only for periodic / oscillatory
-    structure. It fits the series' *structural* (sinusoidal) model on a Fourier
-    basis whose order resolves the highest harmonic. For non-periodic series
-    (pure trend: exp / logistic / linear / poly) a Fourier basis is the wrong tool
-    and the method declines (no column) rather than diverging."""
+    """#2 Fourier-basis LSI, the natural method for periodic or oscillatory
+    structure and for nothing else. It fits the series' structural, sinusoidal
+    model on a Fourier basis whose order resolves the highest harmonic. On a
+    non-periodic series, a pure exp, logistic, linear or poly trend, a Fourier
+    basis is the wrong tool, so the method declines and leaves no column rather
+    than diverging."""
     kind = cfg["trend"]
     if kind not in SINUSOIDAL_KINDS:
         raise RuntimeError("Fourier basis applies only to periodic structure")
@@ -514,12 +514,12 @@ def dtfit_fourier(cfg, t_tr, y_tr, t_all):
 
 
 def dtfit_boosted(cfg, t_tr, y_tr, t_all):
-    """#5 boosting: a structured **trend** stage then a separate **seasonal**
-    stage fitted to the residual -- the *staged* counterpart of the joint
-    trend+seasonal LSI model. For pure-cycle / physics kinds the single
+    """#5 boosting: a structured trend stage, then a separate seasonal stage
+    fitted to its residual. This is the staged counterpart of the joint
+    trend+seasonal LSI model. On a pure-cycle or physics kind the single
     structural stage already carries all the periodic content, so no extra stage
-    is added; the staged-vs-joint gap on the trended-seasonal series (CO2,
-    electricity) is exactly the cost of decoupling the two."""
+    is added; on the trended-seasonal series, CO2 and electricity, the gap
+    between staged and joint is exactly the cost of decoupling the two."""
     kind = cfg["trend"]
     base = BASE_TREND.get(kind, kind)
     spec, scale = _trend_spec(base, y_tr, t_tr, cfg["period"])
@@ -542,25 +542,27 @@ def _looks_like_growth(y):
 
 
 def _diverges(pred, y_tr, k=5.0):
-    """True if a forecast leaves a generous band around the training range -- the
-    signature of an unsupported quadratic curvature extrapolating off to infinity."""
+    """True if a forecast leaves a generous band around the training range, the
+    signature of an unsupported quadratic curvature running off to infinity."""
     rng = float(np.ptp(y_tr)) or 1.0
     lo, hi = float(y_tr.min()) - k * rng, float(y_tr.max()) + k * rng
     return not np.all((pred >= lo) & (pred <= hi))
 
 
-# Physics classes the merged router can detect BLIND (from the data alone), so it
-# does not read the ``cfg["trend"]`` label for them. The classes we cannot yet
-# separate blind (a single ``sine`` vs a multi-harmonic ``fourier_series`` vs a
-# trend+cycle ``linear_wave``) are listed in ``_ORACLE_ONLY_KINDS`` and still read
-# the label -- flagged so a reviewer knows those merged rows remain oracle-fed.
+# The merged router detects the physics classes blind, from the data alone, so
+# it never reads the ``cfg["trend"]`` label for them. The classes that cannot
+# yet be separated blind, a single ``sine`` against a multi-harmonic
+# ``fourier_series`` against a trend+cycle ``linear_wave``, are listed here and
+# do still read the label. They are named so a reviewer knows those merged rows
+# remain oracle-fed.
 _ORACLE_ONLY_KINDS = {"fourier_series", "sine", "linear_wave"}
 
 
 def _has_decaying_envelope(y_tr):
-    """True if the analytic-signal envelope of an oscillation trends *down* over
-    the window -- the signature of a damped ring-down (vs a steady oscillation).
-    Data-driven: compares the mean envelope of the first vs the last third."""
+    """True if the analytic-signal envelope of an oscillation trends downward
+    over the window, the signature of a damped ring-down as against a steady
+    oscillation. It is data-driven, comparing the mean envelope of the first
+    third against the last."""
     try:
         from scipy.signal import hilbert
         env = np.abs(hilbert(y_tr - float(np.mean(y_tr))))
@@ -572,21 +574,21 @@ def _has_decaying_envelope(y_tr):
 
 
 def _detect_physics_class(y_tr, t_tr):
-    """Blind physics-class router from the data (no ``cfg`` label). Returns one of
-    ``chirp`` / ``am`` / ``damped`` when the corresponding Hilbert-based detector
-    fires, else ``None`` (let the caller fall back to the trend router).
+    """Blind physics-class router, reading the data and no ``cfg`` label. It
+    returns ``chirp``, ``am`` or ``damped`` when the corresponding
+    Hilbert-based detector fires, and ``None`` otherwise, leaving the caller to
+    fall back on the trend router.
 
-    * **chirp** -- a linear sweep shows a non-negligible quadratic term in the
-      unwrapped analytic phase (``_detect_chirp`` reads ``w0, k``); a meaningful
-      ``|k|`` relative to the base rate over the window is a sweep, not a fixed
-      tone.
-    * **am** -- an amplitude-modulated carrier has a strong slow cycle in its
-      envelope (``_detect_modulation`` finds it) that is much slower than the
-      carrier itself.
-    * **damped** -- a ring-down has a monotonically decaying envelope.
+    * chirp: a linear sweep shows a non-negligible quadratic term in the
+      unwrapped analytic phase, from which ``_detect_chirp`` reads ``w0`` and
+      ``k``. A meaningful ``|k|`` relative to the base rate over the window
+      means a sweep and not a fixed tone.
+    * am: an amplitude-modulated carrier has a strong cycle in its envelope,
+      found by ``_detect_modulation``, much slower than the carrier itself.
+    * damped: a ring-down has a monotonically decaying envelope.
     """
     x_span = float(t_tr[-1] - t_tr[0]) or 1.0
-    # chirp: quadratic phase term large vs the base frequency's phase advance
+    # chirp: a quadratic phase term large against the base frequency's advance
     try:
         w0, kr = _detect_chirp(y_tr, t_tr)
         if np.isfinite(kr) and np.isfinite(w0) and w0 > 0:
@@ -595,7 +597,7 @@ def _detect_physics_class(y_tr, t_tr):
                 return "chirp"
     except Exception:
         pass
-    # am: a strong, slow envelope cycle relative to the carrier
+    # am: a strong envelope cycle, slow relative to the carrier
     try:
         wc = _w0_from(y_tr, t_tr)
         wm = _detect_modulation(y_tr, t_tr)
@@ -613,40 +615,41 @@ def _detect_physics_class(y_tr, t_tr):
 
 
 def _auto_kind(cfg, y_tr, t_tr=None):
-    """The merged pipeline's model router -- **blind** (data-driven), not fed the
-    per-series structural label except for the classes we cannot yet separate from
-    the data (``_ORACLE_ONLY_KINDS``, flagged below).
+    """The merged pipeline's model router, blind and data-driven, fed the
+    per-series structural label only for the classes that cannot yet be
+    separated from the data at all (``_ORACLE_ONLY_KINDS``, flagged below).
 
-    * detectable physics classes (chirp / AM / damped ring-down) are routed from
-      the DATA via :func:`_detect_physics_class` (Hilbert phase / envelope), NOT
-      from ``cfg["trend"]``;
-    * the still-oracle classes (single ``sine`` vs multi-harmonic
-      ``fourier_series`` vs trend+cycle ``linear_wave``) have no reliable blind
-      discriminator yet, so they read the label -- **this is the remaining
-      oracle-fed path in the merged column** (documented, not faked);
-    * a positive, saturating-or-compounding monotone growth -> **logistic**
-      (reduces to exponential pre-inflection but cannot overshoot a real
-      deceleration the way pure exp does);
-    * a seasonal series, gated by the DATA-DRIVEN FFT strength (not the
-      ``cfg["seasonal"]`` label), -> a joint **linear_seasonal**; we deliberately
-      do NOT auto-pick a quadratic trend here (extrapolating a quadratic curvature
-      is unidentifiable from the training window -- Nile vs Weather look alike
-      in-sample yet need opposite degrees);
-    * otherwise (no cycle) a **poly** trend -- caught by the divergence guard if it
-      runs away.
+    * The detectable physics classes, chirp, AM and damped ring-down, are
+      routed from the data by :func:`_detect_physics_class`, on Hilbert phase
+      and envelope, never from ``cfg["trend"]``.
+    * The still-oracle classes, a single ``sine`` against a multi-harmonic
+      ``fourier_series`` against a trend+cycle ``linear_wave``, have no
+      reliable blind discriminator yet and so read the label. This is the one
+      remaining oracle-fed path in the merged column, documented rather than
+      hidden.
+    * Positive monotone growth, whether saturating or compounding, routes to
+      logistic, which reduces to an exponential before the inflection but
+      cannot overshoot a real deceleration the way a pure exponential does.
+    * A seasonal series, gated by the data-driven FFT strength and not by the
+      ``cfg["seasonal"]`` label, routes to a joint linear_seasonal. A quadratic
+      trend is deliberately never auto-picked: extrapolating a quadratic
+      curvature is unidentifiable from the training window, and Nile and
+      Weather look alike in-sample yet need opposite degrees.
+    * With no cycle at all it routes to a poly trend, which the divergence
+      guard catches should it run away.
     """
-    # blind physics detection first (ignores the label)
+    # blind physics detection first, ignoring the label
     if t_tr is not None:
         detected = _detect_physics_class(y_tr, t_tr)
         if detected is not None:
             return detected
     kind = cfg["trend"]
-    # still-oracle classes: no blind discriminator -> read the label (oracle-fed).
+    # the still-oracle classes: no blind discriminator, so read the label
     if kind in _ORACLE_ONLY_KINDS:
         return kind
     if _looks_like_growth(y_tr) and np.all(y_tr > 0):
         return "logistic"
-    # data-driven seasonal gate: the FFT peak strength, not the cfg["seasonal"] flag
+    # the data-driven seasonal gate: FFT peak strength, not cfg["seasonal"]
     _, strength = dominant_period(y_tr)
     return "linear_seasonal" if strength > 0.05 else "poly"
 
@@ -661,10 +664,10 @@ def _fit_kind(kind, t_tr, y_tr, t_all, period_hint=None):
 
 
 def _blind_period(y_tr):
-    """A period hint for the merged pipeline detected from the DATA (the dominant
-    FFT peak), not read from ``cfg["period"]``. ``None`` when there is no reliable
-    cycle -- so the seasonal stages fall back to their own generic default rather
-    than a hand-set period."""
+    """A period hint for the merged pipeline, detected from the data as the
+    dominant FFT peak rather than read from ``cfg["period"]``. It is ``None``
+    when no cycle is reliable, which leaves the seasonal stages on their own
+    generic default rather than a hand-set period."""
     period_samp, strength = dominant_period(y_tr)
     if np.isfinite(period_samp) and strength > 0.05 and period_samp <= y_tr.size / 2:
         return float(period_samp)
@@ -673,16 +676,17 @@ def _blind_period(y_tr):
 
 def _no_extrapolable_structure(kind, t_tr, y_tr, period_hint=None, factor=8.0):
     """True when the structured model cannot get anywhere near naive persistence
-    on a held-out tail of the *training* data (no holdout leakage).
+    on a held-out tail of the training data, so nothing leaks from the holdout.
 
     A series with real structure lets the fit forecast its own recent past far
-    better than "repeat the last value"; a near-random-walk (FX) does not --
-    there the fit only overshoots. The ``factor`` (=8) is deliberately very loose:
-    it fires only on the genuinely structureless series (FX's fit is ~17x worse
-    than persistence here), and lets through both the winners (<1.5x) and the
-    weak-but-real cases (the weather slow cycle, ~6x, whose held-out-tail sits in
-    a trough that flatters persistence yet whose real forecast still beats RW).
-    ``period_hint`` is the DATA-detected period (blind), not the cfg label."""
+    better than repeating the last value. A near-random walk such as FX does
+    not, and there the fit only overshoots. ``factor``, at 8, is deliberately
+    very loose: it fires only on a genuinely structureless series, FX fitting
+    about 17x worse than persistence here, and it lets through both the
+    winners, under 1.5x, and the weak-but-real cases. The weather slow cycle is
+    one of those at about 6x, its held-out tail sitting in a trough that
+    flatters persistence while its real forecast still beats a random walk.
+    ``period_hint`` is the blind, data-detected period, not the cfg label."""
     n = y_tr.size
     if n < 24:
         return False
@@ -698,25 +702,26 @@ def _no_extrapolable_structure(kind, t_tr, y_tr, period_hint=None, factor=8.0):
 
 
 def merged_forecaster(cfg, t_tr, y_tr, t_all):
-    """Auto-composed, **genuinely blind** pipeline -- routes from the DATA, not the
-    per-series label:
+    """The auto-composed, genuinely blind pipeline. It routes from the data
+    rather than the per-series label:
 
-    1. route the model with :func:`_auto_kind` off the data (Hilbert-detected
-       physics class + FFT-gated seasonal); the only label-fed cases left are the
-       ``_ORACLE_ONLY_KINDS`` we have no blind discriminator for (documented);
-    2. the period fed to the seasonal stages is the DATA-detected
-       :func:`_blind_period`, not ``cfg["period"]``;
-    3. a **no-structure guard** -- if the model cannot beat persistence on a
-       training-tail holdout, forecast the random walk (keeps the FX and
-       weather-sensor forecasts from overshooting);
-    4. a **divergence guard** -- if a quadratic trend extrapolates off the chart,
-       drop to the linear form, which cannot run away."""
+    1. route the model with :func:`_auto_kind` off the data, by
+       Hilbert-detected physics class and an FFT-gated seasonal. The only
+       label-fed cases left are the ``_ORACLE_ONLY_KINDS``, which have no blind
+       discriminator;
+    2. feed the seasonal stages the data-detected :func:`_blind_period` instead
+       of ``cfg["period"]``;
+    3. apply a no-structure guard: where the model cannot beat persistence on a
+       training-tail holdout, forecast the random walk; that alone keeps the
+       FX and weather-sensor forecasts from overshooting;
+    4. apply a divergence guard: where a quadratic trend extrapolates off the
+       chart, drop to the linear form, which cannot run away."""
     ph = _blind_period(y_tr)                      # data-detected, not cfg["period"]
     h = t_all.size - y_tr.size
     kind = _auto_kind(cfg, y_tr, t_tr)
     if _no_extrapolable_structure(kind, t_tr, y_tr, ph):
-        # full-length series (train part + random-walk forecast); the harness
-        # scores/plots only the forecast tail ``full[n_tr:]``.
+        # the full-length series, its train part plus a random-walk forecast;
+        # the harness scores and plots only the forecast tail ``full[n_tr:]``
         return np.concatenate([y_tr, bl.random_walk_forecast(y_tr, h)])
     try:
         pred = _fit_kind(kind, t_tr, y_tr, t_all, ph)
@@ -731,14 +736,14 @@ def merged_forecaster(cfg, t_tr, y_tr, t_all):
     return pred
 
 
-# The explicit per-method forecasters are each handed the structurally-correct
-# per-series model via ``cfg["trend"]`` (the "Best model per series" table). That
-# is an **oracle** model choice, so the per-method columns are an *upper bound* on
-# what dtfit can do given the right structure -- a diagnostic, NOT a headline
-# capability. The single genuinely blind result is ``dtfit merged (auto)``, which
-# routes the model from the DATA (detected period + physics class), not the label.
-# ``win_summary``/``reading`` therefore report the MERGED column as the headline
-# and label the explicit columns "structure given".
+# Each explicit per-method forecaster is handed the structurally correct model
+# for its series through ``cfg["trend"]``, from the "Best model per series"
+# table. That is an oracle model choice, so the per-method columns are an upper
+# bound on what dtfit can do given the right structure: a diagnostic, not a
+# headline capability. The one genuinely blind result is the merged column,
+# which routes the model from the data, its detected period and physics class,
+# not the label. ``win_summary`` and ``reading`` therefore report merged as the
+# headline and label the explicit columns "structure given".
 ORACLE_METHODS = {
     "dtfit LSI [structure given]": dtfit_lsi,
     "dtfit EAC [structure given]": dtfit_eac,
@@ -748,23 +753,24 @@ ORACLE_METHODS = {
 MERGED_METHOD = "dtfit merged (auto, blind)"
 DTFIT_METHODS = {**ORACLE_METHODS, MERGED_METHOD: merged_forecaster}
 
-# The single collapsed oracle column reported in the accuracy table / win summary:
-# the per-series *best* of the four ORACLE_METHODS. Reporting all four as separate
-# columns is oracle overkill (they only differ by which fitter got closest to the
-# already-oracle-given structure); the honest upper bound is their per-series min,
-# with the winning variant named in a note. The backend still COMPUTES all four
-# (the forecast plot and short-vs-long study read the full set); this is purely a
-# reporting reduction.
+# The single collapsed oracle column the accuracy table and win summary report:
+# the per-series best of the four ORACLE_METHODS. Reporting all four separately
+# is oracle overkill, since they differ only by which fitter got closest to an
+# already oracle-given structure, so the honest upper bound is their per-series
+# minimum with the winning variant named in a note. The backend still computes
+# all four, because the forecast plot and the short-versus-long study read the
+# full set; this is a reporting reduction alone.
 ORACLE_BEST_LABEL = "dtfit (best oracle)"
 
 
 def best_oracle(scores):
     """Reduce the four :data:`ORACLE_METHODS` in a series' ``scores`` dict to the
-    single **best** (min-RMSE) one -- the honest oracle upper bound.
+    single best of them by RMSE, the honest oracle upper bound.
 
-    Returns ``(label, score_dict)`` for the winning oracle variant (``label`` is the
-    original ORACLE_METHODS key, so the caller can name which fitter won), or
-    ``(None, None)`` when no oracle method produced a finite score for the series."""
+    Returns ``(label, score_dict)`` for the winning oracle variant, ``label``
+    being the original ORACLE_METHODS key so the caller can name which fitter
+    won, or ``(None, None)`` when no oracle method scored finitely on the
+    series."""
     cands = [m for m in scores if m in ORACLE_METHODS]
     if not cands:
         return None, None
@@ -773,14 +779,15 @@ def best_oracle(scores):
 
 
 def collapse_oracle_scores(scores):
-    """Return a copy of ``scores`` with the four oracle methods replaced by ONE
-    :data:`ORACLE_BEST_LABEL` entry (the per-series best oracle, carrying a private
-    ``"_variant"`` key naming the winning fitter). Non-oracle entries -- the blind
-    merged column and every baseline -- pass through untouched.
+    """Return a copy of ``scores`` with the four oracle methods replaced by one
+    :data:`ORACLE_BEST_LABEL` entry, the per-series best oracle, carrying a
+    private ``"_variant"`` key that names the winning fitter. The non-oracle
+    entries, the blind merged column and every baseline, pass through
+    untouched.
 
     This is the reduction the accuracy table ranks over, so the collapsed oracle
-    appears as a single row/column beside ``dtfit merged (auto, blind)`` instead of
-    four near-duplicate oracle rows."""
+    appears as a single row beside the blind merged column instead of four
+    near-duplicate oracle rows."""
     label, sc = best_oracle(scores)
     out = {m: s for m, s in scores.items() if m not in ORACLE_METHODS}
     if label is not None:
@@ -789,30 +796,30 @@ def collapse_oracle_scores(scores):
 
 
 def oracle_variant_note(label):
-    """Short human tag for which oracle fitter won -- e.g.
-    ``"dtfit LSI [structure given]"`` -> ``"LSI"``. ``"--"`` for ``None``."""
+    """A short human tag for which oracle fitter won:
+    ``"dtfit LSI [structure given]"`` becomes ``"LSI"``, and ``None`` becomes
+    ``"--"``."""
     if not label:
         return "--"
     core = label.replace("dtfit ", "").split(" [structure given]")[0]
     return core
 
 
-# --------------------------------------------------------------------------- #
-# baseline forecasters (established toolkit); take (y_tr, horizon, cfg)
-# Each optional-dependency baseline is guarded: a missing statsmodels / sklearn /
-# torch raises inside the bl.* helper and is caught here -> the column is NaN
-# (skipped) rather than crashing the notebook.
+# The baseline forecasters, the established toolkit, each taking
+# (y_tr, horizon, cfg). Every optional-dependency baseline is guarded: a
+# missing statsmodels, sklearn or torch raises inside the bl.* helper and is
+# caught here, so the column is NaN and skipped rather than crashing the
+# notebook.
 #
-# DISCLOSED HANDICAP: the (S)ARIMA and ETS baselines use FIXED orders (ARIMA
-# (2,1,2), SARIMA (1,1,1)x(1,0,1,period), ETS additive+damped) rather than a
-# per-series AIC / auto_arima order search. This is a fixed-order *convention*
-# applied uniformly -- a mild, deliberately-disclosed handicap on the classical
-# statistical baselines (a per-series order search would fit some series a little
-# better). It is called out here (and in ``BASELINE_DOC``) so a reviewer is not
-# misled into reading the fixed-order numbers as tuned-optimal ones.
-# --------------------------------------------------------------------------- #
-#: Human-readable disclosure of the fixed-order convention (rendered by the
-#: notebook next to the baseline table).
+# A disclosed handicap: the (S)ARIMA and ETS baselines use fixed orders (ARIMA
+# (2,1,2), SARIMA (1,1,1)x(1,0,1,period), ETS additive and damped) rather than
+# a per-series AIC or auto_arima order search. It is a fixed-order convention
+# applied uniformly, a mild handicap on the classical statistical baselines,
+# since a per-series order search would fit some series a little better. It is
+# called out here and in ``BASELINE_DOC`` so nobody reads the fixed-order
+# numbers as tuned-optimal ones.
+#: The human-readable disclosure of that convention, which the notebook renders
+#: next to the baseline table.
 FIXED_ORDER_NOTE = (
     "Note: the (S)ARIMA / ETS baselines use fixed orders (ARIMA (2,1,2), "
     "SARIMA (1,1,1)x(1,0,1,period), ETS additive+damped) applied uniformly across "
@@ -829,8 +836,8 @@ def baseline_preds(y_tr, h, cfg, quick):
     if period:
         out["seasonal naive"] = bl.seasonal_naive_forecast(y_tr, h, period=period)
     try:
-        # fixed ETS spec (additive trend, damped, additive season) -- see the
-        # FIXED_ORDER_NOTE disclosure above (no per-series structure search).
+        # the fixed ETS spec: additive trend, damped, additive season, and
+        # no per-series structure search (see FIXED_ORDER_NOTE above)
         out["ETS (Holt-Winters)"] = bl.ets_forecast(
             y_tr, h, trend="add", damped=True,
             seasonal="add" if period else None, period=period)
@@ -841,14 +848,13 @@ def baseline_preds(y_tr, h, cfg, quick):
     except Exception:
         out["Theta"] = np.full(h, np.nan)
     try:
-        # fixed ARIMA order (2,1,2) -- a uniform convention, not an AIC search
-        # (disclosed handicap; see FIXED_ORDER_NOTE).
+        # the fixed ARIMA order (2,1,2): a convention, not an AIC search
         out["ARIMA"] = bl.arima_forecast(y_tr, h, order=(2, 1, 2))
     except Exception:
         out["ARIMA"] = np.full(h, np.nan)
     if period and period <= 12 and not quick:
         try:
-            # fixed SARIMA order (1,1,1)x(1,0,1,period) -- uniform convention.
+            # the fixed SARIMA order (1,1,1)x(1,0,1,period), likewise uniform
             out["SARIMA"] = bl.sarima_forecast(
                 y_tr, h, order=(1, 1, 1), seasonal_order=(1, 0, 1, period))
         except Exception:
@@ -868,13 +874,11 @@ def baseline_preds(y_tr, h, cfg, quick):
     return out
 
 
-# --------------------------------------------------------------------------- #
-# per-series evaluation + analysis helpers (pure compute; the notebook renders)
-# --------------------------------------------------------------------------- #
+# the per-series evaluation and analysis helpers; the notebook renders them
 def evaluate_series(cfg, horizon_frac, quick):
-    """Fit every dtfit method + the baseline toolkit on one series at a given
-    holdout fraction. Returns a dict with the raw series, the per-method forecast
-    tails (``preds``) and the per-method metrics (``scores``)."""
+    """Fit every dtfit method and the baseline toolkit on one series at a given
+    holdout fraction. Returns a dict carrying the raw series, the per-method
+    forecast tails in ``preds`` and the per-method metrics in ``scores``."""
     name, loader, trend, seasonal, period, _ = cfg
     cfgd = dict(name=name, trend=trend, seasonal=seasonal, period=period)
     y = np.asarray(loader(), dtype=float)
@@ -900,16 +904,16 @@ def evaluate_series(cfg, horizon_frac, quick):
 
 
 def fmt(v, spec="{:.4g}"):
-    """Format a (possibly NaN/None) number for display, matching the old report
-    helper -- so the notebook tables read the same as the report did."""
+    """Format a number for display, rendering ``None`` and any non-finite value
+    as ``--``."""
     if v is None or (isinstance(v, float) and not np.isfinite(v)):
         return "--"
     return spec.format(v)
 
 
 def series_overview(series):
-    """Rows for the 'Series tested' table: name, domain, length, model class and
-    the seasonal/period configuration."""
+    """Rows for the "Series tested" table: name, domain, length, model class
+    and the seasonal and period configuration."""
     rows = []
     for c in series:
         rows.append({
@@ -920,21 +924,23 @@ def series_overview(series):
 
 
 def win_summary(results):
-    """From a list of :func:`evaluate_series` results, return ``(rows,
-    merged_wins, merged_beats)`` -- the **blind-router-first** win tally.
+    """From a list of :func:`evaluate_series` results, return
+    ``(rows, merged_wins, merged_beats)``: the win tally, blind router first.
 
-    The HEADLINE number is the auto-routed, genuinely blind ``merged_forecaster``
-    (:data:`MERGED_METHOD`) vs the best baseline: ``merged_wins`` counts the series
-    where the blind merged pipeline is at least as good as the best baseline, and
-    ``merged_beats`` names them. This is the defensible capability claim -- the
-    merged column is not handed the per-series structural model.
+    The headline number is the auto-routed, genuinely blind
+    ``merged_forecaster`` (:data:`MERGED_METHOD`) against the best baseline.
+    ``merged_wins`` counts the series where the blind merged pipeline is at
+    least as good as that baseline and ``merged_beats`` names them. This is the
+    defensible capability claim, since the merged column is never handed the
+    per-series structural model.
 
-    The per-series ``rows`` additionally report the ORACLE upper bound -- collapsed
-    via :func:`best_oracle` to the SINGLE best of the four oracle variants (each fed
-    the correct ``cfg["trend"]`` model), with the winning variant named -- LABELLED
-    "(structure given)" so a reader cannot mistake it for a blind result. It is kept
-    for diagnostics (how much the right structure would buy) but is deliberately NOT
-    the headline. ``best baseline`` is the fair comparator."""
+    Each row also reports the oracle upper bound, collapsed by
+    :func:`best_oracle` to the single best of the four oracle variants, each
+    fed the correct ``cfg["trend"]`` model, with the winning variant named. It
+    is labelled "(structure given)" so no reader mistakes it for a blind
+    result, and it is kept as a diagnostic of how much the right structure
+    would buy rather than as the headline. ``best baseline`` is the fair
+    comparator."""
     dt_keys = set(DTFIT_METHODS)
     rows = []
     merged_beats = []
@@ -943,9 +949,9 @@ def win_summary(results):
         if not r["scores"]:
             continue
         best = min(r["scores"], key=lambda m: r["scores"][m]["RMSE"])
-        # the blind, deployable pipeline -- the headline
+        # the blind, deployable pipeline: the headline
         merged_rmse = r["scores"].get(MERGED_METHOD, {}).get("RMSE", np.inf)
-        # the collapsed oracle upper bound: the SINGLE best of the four variants
+        # the collapsed oracle bound: best of the four variants
         oracle_label, oracle_sc = best_oracle(r["scores"])
         best_bl = min((m for m in r["scores"] if m not in dt_keys),
                       key=lambda m: r["scores"][m]["RMSE"], default=None)
@@ -967,8 +973,8 @@ def win_summary(results):
 
 def multi_horizon(series, names, horizons, quick):
     """Re-evaluate the named structured series at each holdout fraction and
-    return rows summarising best-method / dtfit-merged / ETS / RW RMSE -- the
-    short-vs-long extrapolation-distance study."""
+    return rows summarising the best method's, dtfit-merged's, ETS's and the
+    random walk's RMSE: the short-versus-long extrapolation-distance study."""
     multi = [c for c in series if c[0] in set(names)]
     rows = []
     for c in multi:
@@ -985,18 +991,19 @@ def multi_horizon(series, names, horizons, quick):
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# model-mismatch negative control (why the blind router matters)
-# --------------------------------------------------------------------------- #
-# Series that carry clear, extrapolable structure paired with a DELIBERATELY WRONG
-# structural model -- the kind of mistake a practitioner makes by hand-picking the
-# wrong family. Each tuple is (series name, wrong dtfit kind, one-line reason).
-#   * COVID-19 (truly logistic) fitted as pure `exp`: exponential compounds and
-#     overshoots the deceleration a saturating epidemic curve has.
-#   * RLC ring-down (truly damped sinusoid) fitted as a plain `poly`: a polynomial
-#     cannot represent a decaying oscillation -- it has no periodic content at all.
-#   * AC + harmonics (truly a multi-harmonic Fourier series) fitted as a single
-#     `sine`: one tone cannot carry the 3rd/5th harmonics (the original AC bug).
+# The model-mismatch negative control, which is why the blind router matters.
+# Each case pairs a series carrying clear, extrapolable structure with a
+# deliberately wrong structural model, the mistake a practitioner makes by
+# hand-picking the wrong family. Each tuple is (series name, wrong dtfit kind,
+# one-line reason).
+#   * COVID-19, truly logistic, fitted as a pure `exp`: an exponential
+#     compounds and overshoots the deceleration a saturating epidemic curve
+#     has.
+#   * The RLC ring-down, truly a damped sinusoid, fitted as a plain `poly`: a
+#     polynomial has no periodic content and cannot represent a decaying
+#     oscillation.
+#   * AC + harmonics, truly a multi-harmonic Fourier series, fitted as a single
+#     `sine`: one tone cannot carry the 3rd and 5th harmonics.
 MISMATCH_CASES = [
     ("COVID-19 UA", "exp", "logistic curve forced into pure exponential growth"),
     ("RLC transient", "poly", "damped ring-down forced into a plain polynomial"),
@@ -1005,10 +1012,10 @@ MISMATCH_CASES = [
 
 
 def _insample_r2(kind, t_tr, y_tr, period_hint=None):
-    """In-sample R2 of the oracle ``kind`` model fitted on the training window and
-    scored back on that same window -- how well the chosen structural family can
-    even *describe* the data. A wrong family cannot, so this drops, and the fit
-    itself flags the mismatch (no holdout needed)."""
+    """In-sample R2 of the oracle ``kind`` model, fitted on the training window
+    and scored back on that same window: how well the chosen structural family
+    can even describe the data. A wrong family cannot, so this drops and the
+    fit flags its own mismatch, with no holdout needed."""
     try:
         fit_tr = _fit_kind(kind, t_tr, y_tr, t_tr, period_hint)
         return float(metrics(y_tr, fit_tr)["R2"])
@@ -1017,20 +1024,21 @@ def _insample_r2(kind, t_tr, y_tr, period_hint=None):
 
 
 def exp_model_mismatch(series, quick, horizon_frac=0.25):
-    """Model-mismatch negative control: for each :data:`MISMATCH_CASES` series, fit
-    dtfit with a **deliberately wrong** structural model and compare it against the
-    **correct** oracle model and the **blind merged** router.
+    """The model-mismatch negative control. For each series in
+    :data:`MISMATCH_CASES` it fits dtfit with a deliberately wrong structural
+    model and compares that against the correct oracle model and the blind
+    merged router.
 
-    Returns ``rows`` (one per series) carrying, for each of the three fits, the
-    holdout RMSE and the in-sample R2 (``wrong RMSE`` / ``wrong R2(in)`` /
-    ``correct RMSE`` / ``correct R2(in)`` / ``merged RMSE`` / ``merged R2(in)``),
-    plus the wrong / correct kind names and the one-line reason.
+    Returns one row per series carrying, for each of the three fits, the
+    holdout RMSE and the in-sample R2 (``wrong RMSE``, ``wrong R2(in)``,
+    ``correct RMSE``, ``correct R2(in)``, ``merged RMSE``, ``merged R2(in)``),
+    with the wrong and correct kind names and the one-line reason.
 
-    The point of the control: (a) a hand-given WRONG structure forecasts badly AND
-    its in-sample R2 collapses -- the fit flags its own mismatch before any holdout
-    is seen; (b) the blind merged router, which INFERS the structure from the data,
-    sidesteps the trap and stays near the CORRECT model. This is exactly why the
-    blind router exists."""
+    The point of the control is twofold. A hand-given wrong structure forecasts
+    badly and its in-sample R2 collapses, so the fit flags its own mismatch
+    before any holdout is seen. And the blind merged router, inferring the
+    structure from the data, sidesteps the trap and stays near the correct
+    model. That is exactly why the blind router exists."""
     by_name = {c[0]: c for c in series}
     rows = []
     for name, wrong_kind, reason in MISMATCH_CASES:
@@ -1052,21 +1060,21 @@ def exp_model_mismatch(series, quick, horizon_frac=0.25):
                 return float("nan")
             return float(metrics(y_te, p)["RMSE"])
 
-        # WRONG hand-given structure
+        # the wrong hand-given structure
         try:
             wrong_full = _fit_kind(wrong_kind, t_tr, y_tr, t, period)
             wrong_rmse = _holdout_rmse(wrong_full)
         except Exception:
             wrong_rmse = float("nan")
         wrong_r2 = _insample_r2(wrong_kind, t_tr, y_tr, period)
-        # CORRECT oracle structure
+        # the correct oracle structure
         try:
             correct_full = _fit_kind(correct_kind, t_tr, y_tr, t, period)
             correct_rmse = _holdout_rmse(correct_full)
         except Exception:
             correct_rmse = float("nan")
         correct_r2 = _insample_r2(correct_kind, t_tr, y_tr, period)
-        # BLIND merged router (infers structure from the data)
+        # the blind merged router, inferring structure from the data
         try:
             merged_full = merged_forecaster(cfgd, t_tr, y_tr, t)
             merged_rmse = _holdout_rmse(merged_full)
@@ -1102,25 +1110,21 @@ MISMATCH_DOC = (
 
 
 def reading(results):
-    """The honest, data-driven headline numbers for the 'Reading it' narrative.
+    """The honest, data-driven headline numbers for the "Reading it" narrative.
 
-    The headline is the BLIND merged pipeline: ``merged_wins`` = how many series
-    the auto-routed ``merged_forecaster`` (no per-series structural model handed
-    to it) is at least as good as the best baseline, and ``merged_beats`` names
-    them. ``dtfit_wins``/``dt_beats`` are kept as back-compat aliases of the same
-    (now blind-router) numbers so existing prose keys still resolve -- but they
-    now mean the merged column, not the oracle explicit methods."""
+    The headline is the blind merged pipeline. ``merged_wins`` is how many
+    series the auto-routed ``merged_forecaster``, handed no per-series
+    structural model, is at least as good as the best baseline on, and
+    ``merged_beats`` names them. ``dtfit_wins`` and ``dt_beats`` are aliases of
+    those same numbers, kept because existing prose reads those keys."""
     _, merged_wins, merged_beats = win_summary(results)
     return dict(n_series=sum(1 for r in results if r["scores"]),
                 merged_wins=merged_wins, merged_beats=merged_beats,
-                # back-compat aliases (now the blind-merged numbers)
                 dtfit_wins=merged_wins, dt_beats=merged_beats)
 
 
-# --------------------------------------------------------------------------- #
-# narrative constants (ported verbatim from run.py; the notebook renders them as
-# markdown). Kept here so the prose lives beside the code it describes.
-# --------------------------------------------------------------------------- #
+# The narrative constants, which the notebook renders as markdown. They live
+# here so the prose sits beside the code it describes.
 READING_INTENT = (
     "Test every applicable dtfit forecasting method (LSI, EAC, #2 Fourier-basis "
     "LSI, #5 boosting, and the auto-merged pipeline) against the standard "
@@ -1131,7 +1135,7 @@ READING_INTENT = (
     "ring-down transient, an AC power waveform with harmonics, an AM carrier and "
     "a linear chirp), at a short and a long horizon. Reported honestly.")
 
-# series name -> (model fitted, reasoning)
+# series name -> (the model fitted, the reasoning for it)
 MODEL_RATIONALE = {
     "COVID-19 UA": (
         "logistic  L/(1+e^{-k(x-x0)})",

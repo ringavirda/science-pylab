@@ -1,25 +1,26 @@
-"""Benchmark + figure generation for the dtfit method docs.
+"""Benchmark and figure generation for the dtfit method docs.
 
-Produces, for the per-method documentation (the wiki ``Methods`` pages):
+Feeds the per-method documentation (the wiki ``Methods`` pages):
 
-  * figures (PNG) into ``wiki/figures/`` -- a scenario plot per method
-    showing it on the data it is *best* at (LSI exponential + oscillatory recipe;
-    EAC saturation + adaptive-window peak; DSB additive form; the EAC/LSI streaming
-    filters; the fused multi-axis bank; the partitioned/GEMM scale backends; the
-    auto pipelines), plus a cross-method error bar chart, in the paper style;
-  * comparison tables (printed as GitHub-flavoured markdown to stdout) of the
-    dtfit methods against established baselines -- SciPy ``curve_fit``
-    (Levenberg-Marquardt NLLS, the NLS gold standard), ``numpy.polyfit``
-    (linear-in-parameters surrogate) and, for streaming, the naive random
-    walk -- on both *model* (synthetic, known ground truth) and *real*
-    (COVID-19, USD/UAH) data.
+  * figures, written as PNG into ``wiki/figures/``: one scenario plot per
+    method on the data it is best at (LSI exponential and the oscillatory
+    recipe; EAC saturation and the adaptive-window sigmoid step; DSB's
+    additive form; the EAC/LSI streaming filters; the fused multi-axis bank;
+    the partitioned and GEMM scale backends; the auto pipelines), plus a
+    cross-method error bar chart, all in the paper style;
+  * comparison tables, printed to stdout as GitHub-flavoured markdown, that
+    put the dtfit methods against established baselines: SciPy ``curve_fit``
+    (Levenberg-Marquardt NLLS, the reference nonlinear least squares),
+    ``numpy.polyfit`` (a linear-in-parameters surrogate) and, for streaming,
+    the naive random walk. Both model data (synthetic, known ground truth) and
+    real data (COVID-19, USD/UAH) are covered.
 
 Run (after ``python -m dtfit_experimental.experiments.download_data``):
 
     python -m dtfit_experimental.experiments.benchmark
 
-Everything real is downloaded data; the synthetic signals are clearly labelled
-as model data with a known ground truth and are used only where an exact
+Everything presented as real is downloaded data. The synthetic signals are
+labelled as model data with a known ground truth and appear only where an exact
 reference is needed to quote recovery error against the truth.
 """
 
@@ -46,8 +47,9 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 def _repo_root() -> Path:
     """Locate the repo root (the dir holding ``packages/dtfit``) by walking up.
 
-    This script is run from the source checkout (editable install); searching for
-    the marker dir is robust to the monorepo layout instead of a fixed depth.
+    The script runs from the source checkout (editable install). Searching for
+    the marker directory survives a rearranged monorepo layout; the fixed depth
+    in the fallback below does not.
     """
     here = Path(__file__).resolve()
     for p in here.parents:
@@ -64,9 +66,6 @@ plt.rcParams.update(
 )
 
 
-# --------------------------------------------------------------------------- #
-# shared helpers
-# --------------------------------------------------------------------------- #
 def load_csv(name: str) -> tuple[list[str], np.ndarray]:
     rows = list(csv.reader((DATA_DIR / name).open()))[1:]
     dates = [r[0] for r in rows]
@@ -98,9 +97,7 @@ def timed(fn) -> tuple[object, float]:
     return res, (time.perf_counter() - t0) * 1e3  # ms
 
 
-# --------------------------------------------------------------------------- #
-# model (synthetic) data with a known ground truth
-# --------------------------------------------------------------------------- #
+# Model data: synthetic signals whose ground truth is known exactly.
 def synthetic_exponential(n: int = 80, noise: float = 0.05):
     """y = a*exp(b*x), a=1.0, b=1.2 on a modest range, with Gaussian noise.
 
@@ -124,9 +121,6 @@ def synthetic_atan(n: int = 120, noise: float = 0.08):
     return x, y, clean, (a_true, w_true)
 
 
-# --------------------------------------------------------------------------- #
-# table 1: model-data exponential recovery (methods vs baselines)
-# --------------------------------------------------------------------------- #
 def table_model_exponential() -> str:
     x, y, clean, (a_t, b_t) = synthetic_exponential()
     expr, var = "a*exp(b*x)", "x"
@@ -167,9 +161,6 @@ def table_model_exponential() -> str:
     return title + "\n\n" + md_table(headers, rows)
 
 
-# --------------------------------------------------------------------------- #
-# table 1b: DSB on its intended additive form (curve-fit quality)
-# --------------------------------------------------------------------------- #
 def table_dsb_additive() -> str:
     rng = np.random.default_rng(0)
     x = np.linspace(0, 3, 150)
@@ -201,11 +192,10 @@ def table_dsb_additive() -> str:
         ["method", "R²", "RMSE", "MAPE %", "fit (ms)"], rows)
 
 
-# --------------------------------------------------------------------------- #
-# table 2: real-data summary (COVID + USD/UAH), reusing the validation setup
-# --------------------------------------------------------------------------- #
+# Real-data summary. The window, the scalings and the filter settings match
+# validate_methods.py, so the two scripts stay comparable.
 def table_real_data() -> str:
-    # --- COVID exponential growth window ---
+    # COVID exponential growth window.
     _, cum = load_csv("covid_ukraine_confirmed.csv")
     length, start = 28, next(i for i, v in enumerate(cum) if v >= 500)
     y = cum[start:start + length]
@@ -228,7 +218,7 @@ def table_real_data() -> str:
 
     cov_tbl = md_table(["method", "R²", "RMSE", "MAPE %"], cov_rows)
 
-    # --- USD/UAH streaming one-step-ahead vs random walk ---
+    # USD/UAH streaming one-step-ahead against the random walk.
     dates, rate = load_csv("usd_uah_2014_2015.csv")
     n = rate.size
     h = 1.5 / n
@@ -269,9 +259,6 @@ def table_real_data() -> str:
     )
 
 
-# --------------------------------------------------------------------------- #
-# figures
-# --------------------------------------------------------------------------- #
 def fig_lsi() -> None:
     x, y, clean, _ = synthetic_exponential()
     n_tr = int(x.size * 0.7)
@@ -386,9 +373,9 @@ def fig_filter() -> None:
 
 
 def fig_dsb() -> None:
-    # DSB as the analytical reference: it matches the model's Maclaurin spectrum
-    # against the data's noisy high-order polynomial coefficients, so under noise
-    # it is a curve fit here, not an exact point estimator.
+    # DSB is the analytical reference: it matches the model's Maclaurin
+    # spectrum against the data's noisy high-order polynomial coefficients.
+    # Under noise that makes it a curve fit here, not a point estimator.
     rng = np.random.default_rng(0)
     x = np.linspace(0, 3, 150)
     clean = 0.5 + 0.2 * x + 0.3 * np.exp(0.4 * x)
@@ -443,12 +430,11 @@ def fig_comparison() -> None:
     plt.close(fig)
 
 
-# --------------------------------------------------------------------------- #
-# figures for the scenario each method is *best* at (extends the basics above)
-# --------------------------------------------------------------------------- #
+# The plots above are each method's basic fit. The ones below put every method
+# on the scenario it was built for.
 def fig_lsi_oscillatory() -> None:
     """LSI's signature scenario: recover a cycle with the oscillatory recipe,
-    where a default (smoothed, low-order) spectral fit erases it."""
+    where the default low-order spectral fit settles on the wrong one."""
     rng = np.random.default_rng(3)
     x = np.linspace(0, 10, 400)
     A_t, w_t, p_t = 2.0, 1.7, 0.5
@@ -457,7 +443,7 @@ def fig_lsi_oscillatory() -> None:
 
     recipe = dt.fit_lsi(x, y, "A*sin(w*x + p)", "x", freq_param="w")
     yhat_r = np.asarray(recipe.model(x))
-    try:  # default LSI (no recipe): smoothing + low order erases the cycle
+    try:  # default LSI: order 5, no FFT seed, so it locks onto a wrong cycle
         naive = dt.fit_lsi(x, y, "A*sin(w*x + p)", "x")
         yhat_n = np.asarray(naive.model(x))
         w_n = naive.params["w"]
@@ -491,9 +477,10 @@ def fig_lsi_oscillatory() -> None:
 
 
 def fig_eac_adaptive() -> None:
-    """Adaptive EAC's scenario: a sharp sigmoid step, where the curvature is
-    localized at the bend so curvature-placed windows cluster there (carrying the
-    parameter information) instead of spreading evenly."""
+    """Adaptive EAC's scenario: a sharp sigmoid step. All the curvature sits
+    at the bend, and curvature-placed windows cluster there with it, over the
+    samples that carry the parameter information, instead of spreading evenly
+    across x."""
     rng = np.random.default_rng(4)
     x = np.linspace(0, 10, 300)
     L_t, k_t, x0_t = 1.0, 2.5, 5.0
@@ -504,10 +491,10 @@ def fig_eac_adaptive() -> None:
     yhat = np.asarray(res.model(x))
     m = 6
 
-    # Window edges from equal *information* (cumulative curvature of the underlying
-    # curve): the principle the placement targets. Computed on the clean curve so
-    # the mechanism is visible — on heavily noisy data the curvature estimate
-    # softens toward equal spacing.
+    # Window edges at equal information, i.e. equal cumulative curvature of the
+    # underlying curve: the principle the placement targets. Drawn from the
+    # clean curve to keep the mechanism visible; on heavily noisy data the
+    # curvature estimate softens toward equal spacing.
     d2 = np.abs(np.gradient(np.gradient(clean, x), x)) + 1e-12
     cum = np.concatenate([[0.0], np.cumsum(d2)]); cum /= cum[-1]
     xc = np.concatenate([[x[0]], x])
@@ -541,9 +528,10 @@ def fig_eac_adaptive() -> None:
 
 
 def fig_lsi_filter() -> None:
-    """LSIFilter's scenario: track a steady oscillation. The spectrum measurement
-    locks onto the cycle's frequency; the EACFilter's *area* measurement nearly
-    cancels over a cycle, so it cannot — the reason the LSIFilter exists."""
+    """LSIFilter's scenario: track a steady oscillation. The spectrum
+    measurement locks onto the cycle's frequency. The EACFilter's area
+    measurement nearly cancels over a cycle and cannot; the LSIFilter exists
+    for that reason."""
     from dtfit.streaming import LSIFilter, EACFilter
 
     rng = np.random.default_rng(5)
@@ -632,8 +620,16 @@ def fig_filter_bank() -> None:
 
 
 def fig_scaling() -> None:
-    """Scaling: the partitioned (chunked) reduce is *exact* — same fit as the
-    whole-batch LSI — and many channels fit in one GEMM."""
+    """Scaling: the chunked reduce lands on the whole-batch LSI fit, to the
+    max|Δcoef| the panel prints, and many channels fit in one GEMM.
+
+    The exactness is in the reduce itself: accumulated spectra are additive, so
+    chunking reproduces a single pass over the whole array. What is left over
+    against ``fit_lsi`` comes from a different empirical spectrum (a
+    least-squares Legendre fit there, trapezoid projection in the accumulator)
+    taken at a different order; the two coefficient sets therefore land close
+    together rather than on top of each other.
+    """
     rng = np.random.default_rng(7)
     x = np.linspace(0, 1.5, 4000)
     a_t, b_t = 1.0, 1.8
@@ -677,9 +673,10 @@ def fig_scaling() -> None:
 
 
 def fig_auto_forecast() -> None:
-    """auto_forecast: route to a linear+seasonal model and extrapolate the cycle
-    (a clear win over a random walk), and the no-structure guard persisting on a
-    structureless series."""
+    """auto_forecast on two series. Given trend plus cycle it routes to a
+    linear+seasonal model and extrapolates the cycle, a clear win over a random
+    walk; given a structureless series the no-structure guard falls back to
+    persistence."""
     # (1) seasonal: trend + cycle -> route to linear+seasonal, extrapolate
     rng = np.random.default_rng(2)
     n, h, P = 160, 40, 24

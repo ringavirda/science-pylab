@@ -1,8 +1,6 @@
-"""Shared metrics, timing and markdown helpers for the experiment suite.
+"""Metrics, timing and markdown helpers shared by the experiment suite.
 
-Centralizes the small helpers that were copy-pasted across the original
-``benchmark.py`` / ``validate_methods.py`` scripts. Metric semantics mirror
-``dtfit.metrics`` (and sklearn): functions take ``(y_true, y_pred)``.
+Argument order follows ``dtfit.metrics`` and sklearn: ``(y_true, y_pred)``.
 """
 
 from __future__ import annotations
@@ -53,7 +51,7 @@ def md_table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 def fmt(v: float | None, spec: str = "{:.4g}") -> str:
-    """Format a number, rendering ``None``/NaN as an em dash."""
+    """Format a number, rendering ``None`` and NaN as ``--``."""
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return "--"
     return spec.format(v)

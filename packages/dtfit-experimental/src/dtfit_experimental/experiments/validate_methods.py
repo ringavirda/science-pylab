@@ -4,16 +4,18 @@ Run experiments/download_data.py first, then:
 
     python -m dtfit_experimental.experiments.validate_methods
 
-What it does:
-  * COVID-19 (Ukraine), early exponential growth phase
-      -> batch fit  y = a*exp(b*t)  with LSI and EAC, plus a SciPy
-         curve_fit baseline; train on the first 80%, forecast the last 20%.
-  * USD/UAH (2014-2015 hryvnia crisis)
-      -> batch fit of the exponential depreciation trend (LSI / EAC);
-      -> EACFilter streaming: one-step-ahead online forecasting
-         compared with a naive "tomorrow = today" baseline.
+Four experiments:
+  * COVID-19 (Ukraine), early exponential growth phase: batch fit of
+    y = a*exp(b*t) with LSI and EAC next to a SciPy curve_fit baseline,
+    trained on the first 80% and forecasting the last 20%;
+  * the same COVID window through NonlineRegressor, the scikit-learn
+    interface, scored in sample and by 4-fold cross-validation;
+  * USD/UAH (2014-2015 hryvnia crisis): batch fit of the exponential
+    depreciation trend with LSI and EAC;
+  * the same rate series through EACFilter, streaming one-step-ahead
+    forecasting against the naive "tomorrow = today" baseline.
 
-Everything is real, downloaded data -- no synthetic signals.
+Real downloaded data throughout, no synthetic signals.
 """
 
 from __future__ import annotations
@@ -31,9 +33,6 @@ from dtfit.streaming import EACFilter
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
-# --------------------------------------------------------------------------- #
-# helpers
-# --------------------------------------------------------------------------- #
 def load_csv(name: str) -> tuple[list[str], np.ndarray]:
     rows = list(csv.reader((DATA_DIR / name).open()))[1:]
     dates = [r[0] for r in rows]
@@ -60,17 +59,15 @@ def rule(title: str) -> None:
     print("\n" + "=" * 72 + f"\n{title}\n" + "=" * 72)
 
 
-# --------------------------------------------------------------------------- #
-# 1. COVID-19 exponential growth  --  batch fit + forecast holdout
-# --------------------------------------------------------------------------- #
 def experiment_covid() -> None:
     rule("COVID-19 Ukraine -- exponential growth  y = a*exp(b*t)  (batch + forecast)")
     dates, cum = load_csv("covid_ukraine_confirmed.csv")
 
-    # Take the clean early-growth window: a 4-week stretch of the take-off with
-    # a ~16x range. A pure exponential is well-conditioned here; LSI/EAC lose
-    # accuracy when the dynamic range is much larger than this (the empirical
-    # spectrum is a Maclaurin fit, so an extreme range is ill-conditioned).
+    # Take the clean early-growth window: a 4-week stretch of the take-off
+    # spanning roughly 16x. A pure exponential is well-conditioned over that.
+    # LSI and EAC both lose accuracy once the dynamic range grows well past it;
+    # for LSI it is the empirical polynomial spectrum that goes ill-conditioned
+    # across the wider range.
     length = 28
     start = next(i for i, v in enumerate(cum) if v >= 500)
     win = slice(start, start + length)
@@ -78,8 +75,9 @@ def experiment_covid() -> None:
     print(f"window: {dates[start]} .. {dates[start + length - 1]}  "
           f"({y[0]:.0f} -> {y[-1]:.0f} cases, {y[-1] / y[0]:.0f}x)")
 
-    # Normalize the domain to [0, ~1.5] (LSI fits a Maclaurin spectrum around 0)
-    # and scale cases to O(1) for conditioning. These are invertible rescalings.
+    # Normalize the domain to [0, ~1.5] and the case counts to O(1). Both
+    # rescalings are invertible, and they leave the exponential's parameters at
+    # a scale the fit conditions well.
     n = y.size
     t = np.linspace(0, 1.5, n)
     y_scale = y[0]
@@ -95,7 +93,7 @@ def experiment_covid() -> None:
     results["LSI"] = res_lsi.coeffs
     results["EAC"] = res_eac.coeffs
 
-    # SciPy baseline (Levenberg-Marquardt style nonlinear least squares).
+    # SciPy baseline: unbounded curve_fit, i.e. Levenberg-Marquardt NLLS.
     p_sci, _ = curve_fit(
         lambda x, a, b: a * np.exp(b * x), t_tr, ys_tr, p0=[ys_tr[0], 1.0], maxfev=10000
     )
@@ -110,9 +108,6 @@ def experiment_covid() -> None:
         print(f"{name:18s} {a:10.4f} {b:10.4f}   {fmt(m_tr):^34s} | {fmt(m_fc):^34s}")
 
 
-# --------------------------------------------------------------------------- #
-# 1b. NonlineRegressor (scikit-learn interface) on the same COVID window
-# --------------------------------------------------------------------------- #
 def experiment_covid_sklearn() -> None:
     rule("COVID-19 Ukraine -- NonlineRegressor (scikit-learn fit/score + CV)")
     _, cum = load_csv("covid_ukraine_confirmed.csv")
@@ -130,9 +125,6 @@ def experiment_covid_sklearn() -> None:
     print(f"  4-fold CV R^2      : {cv.round(4)}  (mean {cv.mean():.4f})")
 
 
-# --------------------------------------------------------------------------- #
-# 2a. USD/UAH depreciation  --  batch exponential trend fit
-# --------------------------------------------------------------------------- #
 def experiment_currency_batch() -> None:
     rule("USD/UAH 2014-2015 -- exponential depreciation trend  (batch fit)")
     dates, rate = load_csv("usd_uah_2014_2015.csv")
@@ -153,16 +145,14 @@ def experiment_currency_batch() -> None:
         print(f"{name:18s} {a:10.4f} {b:10.4f}   {fmt(metrics(rate, pred)):^34s}")
 
 
-# --------------------------------------------------------------------------- #
-# 2b. USD/UAH  --  streaming one-step-ahead forecasting
-# --------------------------------------------------------------------------- #
 def experiment_currency_streaming() -> None:
     rule("USD/UAH 2014-2015 -- EACFilter online tracking (bounded cost)")
     dates, rate = load_csv("usd_uah_2014_2015.csv")
     n = rate.size
     window = 30
-    # A per-sample step h keeps the local exponential model well-conditioned;
-    # t is absolute, so the filter tracks parameter drift across the window.
+    # A per-sample step h keeps the local exponential model well-conditioned.
+    # t stays absolute, letting the filter track parameter drift across the
+    # window.
     h = 1.5 / n
     t = np.arange(n) * h
     r0 = rate[0]
@@ -180,16 +170,17 @@ def experiment_currency_streaming() -> None:
         if flt.drift_flag_:
             drift_events.append((dates[i], "up" if flt.last_drift_direction_ > 0 else "down"))
         if len(flt._t) > 0:
-            # online tracked estimate of *today's* level (one-sample lag)
+            # online tracked estimate of today's level (one-sample lag)
             track.append(float(flt.predict(np.array([t[i]]))[0]) * r0)
             truth.append(rate[i])
 
     track = np.array(track)
     truth = np.array(truth)
 
-    # The random walk ("tomorrow = today") is the standard, famously hard FX
-    # benchmark; the filter's role is bounded-cost online tracking and drift
-    # flagging, not beating the RW one step ahead. We report both honestly.
+    # The random walk ("tomorrow = today") is the standard and famously hard FX
+    # benchmark. The filter's job is bounded-cost online tracking and drift
+    # flagging, not beating the walk one step ahead; both numbers print either
+    # way.
     one_step_pred = track[:-1]
     one_step_truth = truth[1:]
     naive = truth[:-1]

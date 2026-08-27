@@ -1,11 +1,11 @@
-"""Adaptation #5 -- stage-wise residual boosting (LSI then EAC).
+"""Adaptation #5: stage-wise residual boosting (LSI then EAC).
 
-A single parametric form may not capture both a trend and a cycle. Boosting
-stages the two methods: fit stage 1 to the data, subtract its prediction, fit
-stage 2 to the residual, and so on. The composite model is the sum of the
-stages -- e.g. an LSI exponential/poly trend plus an EAC-fitted oscillatory
-residual -- giving more expressiveness than either method alone while keeping
-each stage a cheap, well-posed fit.
+One parametric form rarely captures both a trend and a cycle. Boosting stages
+the methods instead: fit stage 1 to the data, subtract its prediction, fit
+stage 2 to what is left, and so on down the list. The composite model is the
+sum of the stages, say an LSI exponential or polynomial trend plus an
+EAC-fitted oscillatory residual. Every stage stays a cheap, well-posed fit
+while the composite reaches past what either method expresses alone.
 """
 
 from __future__ import annotations
@@ -46,9 +46,9 @@ def boosted_fit(
 
     Args:
         data_x, data_y: Observed samples.
-        stages: Ordered list of stage specs, each a dict with keys ``expr``,
-            ``var``, ``method`` (``"lsi"``/``"eac"``), and any extra fitter
-            kwargs (e.g. ``p0``, ``bounds``).
+        stages: Ordered stage specs. Each is a dict of ``expr``, ``var``,
+            ``method`` (``"lsi"`` or ``"eac"``, default ``"lsi"``) and any
+            extra fitter kwargs such as ``p0`` or ``bounds``.
 
     Returns:
         BoostedModel whose ``predict`` sums the staged contributions.

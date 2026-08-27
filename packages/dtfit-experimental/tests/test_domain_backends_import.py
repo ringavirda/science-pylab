@@ -1,11 +1,10 @@
 """Import smoke test for the per-domain experiment backends.
 
-The domain ``backend.py`` modules are the single source of truth the notebooks
-and the paper scripts import. When the package is restructured they can drift out
-of sync (a renamed module, a moved symbol) and only fail when a heavy notebook is
-run -- which is easy to miss. This cheaply guards that every backend still
-imports and exposes the handful of public names its notebook/paper tooling
-depends on, so drift is caught in CI instead of at figure-render time.
+Each domain's ``backend.py`` is the single source of truth its notebook and its
+paper scripts both import. A rename or a moved symbol breaks that link quietly:
+nothing fails until someone runs a heavy notebook or re-renders a figure.
+Importing every backend and checking the names its tooling calls turns that
+into a CI failure instead.
 """
 
 from __future__ import annotations
@@ -16,7 +15,8 @@ import pytest
 
 _BASE = "dtfit_experimental.experiments.domains"
 
-# backend module -> a few public symbols its notebook / paper scripts rely on.
+# backend module -> the public names its notebook and paper scripts call.
+# An empty tuple leaves the import itself as the whole check.
 _BACKENDS = {
     "forecasting": ("evaluate_series", "merged_forecaster", "win_summary",
                     "best_oracle", "collapse_oracle_scores", "exp_model_mismatch"),

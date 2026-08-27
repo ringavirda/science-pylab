@@ -1,31 +1,31 @@
 """Information-form (inverse-covariance) recursive estimator.
 
-The covariance-form Kalman update the streaming filters run maintains ``P`` and,
-per step, inverts the innovation covariance ``S`` (dimension = measurement size).
-The **information form** maintains the inverse ``Y = P^-1`` (the *information
-matrix*) and ``yv = P^-1 p`` (the *information vector*) instead, which flips three
-properties that matter for the embedded / sensor-fusion target:
+The covariance-form Kalman update the streaming filters run maintains ``P``
+and, every step, inverts the innovation covariance ``S``, whose dimension is
+the measurement size. The information form instead maintains the inverse
+``Y = P^-1``, the information matrix, alongside ``yv = P^-1 p``, the
+information vector. Three properties flip, all of them relevant to the
+embedded / sensor-fusion target:
 
-* **the measurement update is purely additive** -- ``Y += Hᵀ R⁻¹ H`` and
-  ``yv += Hᵀ R⁻¹ z`` -- so no matrix inverse is needed to *absorb* a measurement,
-  and independent estimators **fuse by adding information** (associative,
-  order-independent, bit-faithful);
-* **you invert the smaller matrix**: a readout solves the ``n_params × n_params``
-  system ``Y θ = yv`` once, rather than inverting an ``m × m`` innovation
-  covariance every step (a win whenever the measurement dimension ``m`` exceeds
-  the state dimension ``n`` -- the common LSI case, order+1 vs 2-3 params);
-* it is **fixed-point friendlier** -- adding information never suffers the
+* the measurement update is purely additive, ``Y += Hᵀ R⁻¹ H`` and
+  ``yv += Hᵀ R⁻¹ z``, so absorbing a measurement takes no matrix inverse at
+  all; independent estimators fuse by adding information in an associative,
+  order-independent reduce;
+* the matrix you do invert is the smaller one. A readout solves the
+  ``n_params × n_params`` system ``Y θ = yv`` once, against an ``m × m``
+  innovation covariance inverted at every step: a win whenever the measurement
+  dimension ``m`` exceeds the state dimension ``n``, the common LSI case of
+  order+1 coefficients against 2-3 parameters;
+* it is friendlier in fixed point. Accumulating information never meets the
   covariance-collapse conditioning that ``(I - K H) P`` does.
 
-This module provides the linear-Gaussian primitive (recursive least squares in
-information form, with an optional forgetting factor) -- the "on-MCU info-form"
-building block. It is the *same update* dtfit's nonlinear filters would take if
-they were run in information form rather than covariance form; it is provided
-here as a **standalone, fusion-oriented experimental primitive**. It is not
-imported by the covariance-form ``EACFilter`` / ``LSIFilter`` (which run the
-covariance update directly), and it stays in ``dtfit-experimental`` until a
-domain study exercises it -- it has not yet cleared the >=2-domain promotion gate
-that the stable tier is defined by.
+What lives here is the linear-Gaussian primitive: recursive least squares in
+information form with an optional forgetting factor, the on-MCU building block.
+It is the same update dtfit's nonlinear filters would take were they run in
+information form rather than covariance form, offered standalone and
+fusion-oriented. The covariance-form ``EACFilter`` / ``LSIFilter`` run the
+covariance update directly and do not touch it; it stays in
+``dtfit-experimental`` until a domain study exercises it.
 """
 
 from __future__ import annotations
@@ -50,20 +50,21 @@ class InformationFilter:
         theta = f.theta_                    # current estimate
         cov = f.cov_                        # its covariance (P = Y^-1)
 
-    Fuse two independent estimators (e.g. per-sensor or per-partition) by adding
-    their information -- exactly, in any order::
+    Two independent estimators, one per sensor or per partition, fuse by adding
+    their information, in whichever order they arrive::
 
         fused = a.fuse(b)                   # associative & commutative
 
     Args:
         n_params: State dimension.
         prior_precision: Diagonal of the initial information matrix ``Y0 =
-            prior_precision * I`` (a weak prior; ``0`` is an uninformative start
-            but leaves ``Y`` singular until enough measurements arrive).
-        forgetting: Exponential forgetting factor in ``(0, 1]`` (``1`` = no
-            forgetting). Each step down-weights the accumulated information by this
-            factor before adding the new measurement, so the estimator tracks
-            slowly-varying parameters.
+            prior_precision * I``, a weak prior. ``0`` is the uninformative
+            start, at the cost of leaving ``Y`` singular until enough
+            measurements arrive.
+        forgetting: Exponential forgetting factor in ``(0, 1]``, where ``1`` is
+            no forgetting. Each step down-weights the accumulated information
+            by this factor before adding the new measurement, so the estimator
+            tracks slowly-varying parameters.
     """
 
     def __init__(
@@ -80,9 +81,10 @@ class InformationFilter:
             raise ValueError("forgetting must be in (0, 1]")
         self.forgetting = float(forgetting)
         self._prior = float(prior_precision)
-        # Annotated as bare ``np.ndarray`` (shape-agnostic): the 3.10 numpy stubs
-        # otherwise pin these to a 1-D ``tuple[int]`` shape, and the shape-widening
-        # ``self.yv = self.yv + other.yv`` in ``fuse`` then fails mypy --python-version 3.10.
+        # Bare ``np.ndarray`` on purpose. The 3.10 numpy stubs would otherwise
+        # pin these to a 1-D ``tuple[int]`` shape, and the widening assignment
+        # ``self.yv = self.yv + other.yv`` in ``fuse`` then fails mypy under
+        # --python-version 3.10.
         self.Y: np.ndarray = np.eye(self.n) * self._prior   # information matrix (P^-1)
         self.yv: np.ndarray = np.zeros(self.n)              # information vector (P^-1 p)
         self.n_updates = 0
@@ -90,10 +92,10 @@ class InformationFilter:
     def partial_fit(self, h, z, r: float = 1.0) -> "InformationFilter":
         """Absorb one measurement ``z = h . theta + noise`` (noise variance ``r``).
 
-        ``h`` is a length-``n`` row for a scalar ``z``, or an ``(m, n)`` matrix for
-        a vector measurement ``z`` of length ``m`` (then ``r`` may be a scalar or a
-        length-``m`` per-component variance). The update is additive:
-        ``Y += Hᵀ R⁻¹ H``, ``yv += Hᵀ R⁻¹ z`` -- no inverse.
+        ``h`` is a length-``n`` row for a scalar ``z``, or an ``(m, n)`` matrix
+        for a vector measurement ``z`` of length ``m``; ``r`` is then either a
+        scalar or a length-``m`` per-component variance. The update is
+        additive, ``Y += Hᵀ R⁻¹ H`` and ``yv += Hᵀ R⁻¹ z``, with no inverse.
         """
         H = np.atleast_2d(np.asarray(h, dtype=float))
         zz = np.atleast_1d(np.asarray(z, dtype=float))
@@ -142,15 +144,17 @@ class InformationFilter:
     def fuse(self, other: "InformationFilter") -> "InformationFilter":
         """Combine another estimator's information into this one (in place).
 
-        Information is **additive**, so fusing independent estimators is an exact,
-        associative, commutative reduce -- the property that makes the information
-        form the natural sensor-fusion / map-reduce state. The shared prior is
-        subtracted once so it is not double-counted. Returns ``self``.
+        Information is additive. Fusing independent estimators is then an
+        associative, commutative reduce, the property behind the information
+        form's standing as the natural sensor-fusion / map-reduce state.
+        Reordering the sum reproduces the single-pass estimate to
+        floating-point rounding, not bit for bit. The shared prior is
+        subtracted once here so it is not double-counted. Returns ``self``.
 
-        Assumes both operands used ``forgetting == 1`` (the usual partition/fusion
-        case): with forgetting < 1 the retained prior has been decayed per step, so
-        subtracting the full initial prior over-removes it. Fuse un-forgotten
-        estimators.
+        Both operands are assumed to have run with ``forgetting == 1``, the
+        usual partition/fusion case. Under forgetting < 1 the retained prior
+        has been decayed per step and subtracting the full initial prior
+        over-removes it, so fuse un-forgotten estimators.
         """
         if other.n != self.n:
             raise ValueError("cannot fuse filters with different state sizes")

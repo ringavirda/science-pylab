@@ -1,33 +1,31 @@
-"""Backend infrastructure for the embedded real-time control experiment.
+"""Simulation and estimation infrastructure for the embedded real-time control
+experiment.
 
-This module is the **single source of truth for the simulation and estimation
-code** behind ``embedded_control.ipynb``; the notebook imports it and does all the
-presentation (tables, figures, narrative). Keeping the infra here means the
-plants/filters/baselines are defined once and the notebook stays a thin,
-rerunnable layer over them.
+``embedded_control.ipynb`` imports this module and does the presentation. Pure
+compute here, with no ``matplotlib``: every function returns numbers, arrays or
+dicts the notebook renders.
 
-The study tests **both dtfit streaming filters** and the fused multi-axis
+The study tests both dtfit streaming filters and the fused multi-axis
 ``FilterBank`` across the concerns that actually decide an embedded estimator,
-against the **established online toolkit** an engineer would otherwise reach for
-(EKF, RLS, constant-acceleration Kalman, sliding-window ``curve_fit``):
+against the online toolkit an engineer would otherwise reach for: an EKF, RLS,
+a constant-acceleration Kalman and a sliding-window ``curve_fit``. What it
+holds:
 
-* the **plant model families** -- :data:`PLANTS`, :func:`gen_plant` (oscillatory /
-  sustained-cycle / monotone / polynomial signal classes with noise / outliers /
-  dropout);
-* the **uniform estimator adapters** -- :class:`EAAd`, :class:`LegAd`,
-  :class:`EKFAd`, :class:`RLSAd`, :class:`RefitAd`, driven by :func:`drive`;
-* the **identification-accuracy** sweep across plant shapes plus the
-  data-driven **applicability map** (:data:`FILTER_REASON`);
-* the **robustness profile** -- :func:`sweep_perr`, :func:`dropout_perr`
-  (Gaussian noise / outliers / dropout);
-* the **multi-axis fault detection** -- :func:`make_multi`, :class:`MergedTracker`,
-  :func:`run_tracker`, :func:`kalman_multi` (fused chi-square detector + ``inflate``);
-* the **embedded-footprint accounting** -- :func:`footprint_rows`, :data:`MCUS`,
-  and a re-exported :func:`embedded_footprint`;
-* the **real-data online tracking** -- :func:`load_fx`, :func:`fx_track`.
-
-It is pure compute: no ``matplotlib``, no ``ReportWriter``, no writing of
-``report.md``. Functions return numbers / arrays / dicts the notebook renders.
+* the plant model families, :data:`PLANTS` and :func:`gen_plant`: the
+  oscillatory, sustained-cycle, monotone and polynomial signal classes, with
+  noise, outliers and dropout;
+* the uniform estimator adapters :class:`EAAd`, :class:`LegAd`, :class:`EKFAd`,
+  :class:`RLSAd` and :class:`RefitAd`, driven by :func:`drive`;
+* the identification-accuracy sweep across plant shapes, and the data-driven
+  applicability map :data:`FILTER_REASON`;
+* the robustness profile, :func:`sweep_perr` and :func:`dropout_perr` over
+  Gaussian noise, outliers and dropout;
+* the multi-axis fault detection, :func:`make_multi`, :class:`MergedTracker`,
+  :func:`run_tracker` and :func:`kalman_multi`, on a fused chi-square detector
+  and ``inflate``;
+* the embedded-footprint accounting, :func:`footprint_rows`, :data:`MCUS` and a
+  re-exported :func:`embedded_footprint`;
+* the real-data online tracking, :func:`load_fx` and :func:`fx_track`.
 """
 
 from __future__ import annotations
@@ -62,9 +60,7 @@ __all__ = [
 OSC = "A*exp(-z*w*t)*sin(w*sqrt(1-z**2)*t)"
 
 
-# --------------------------------------------------------------------------- #
-# plant model families (each a real embedded signal class)
-# --------------------------------------------------------------------------- #
+# the plant model families, each a real embedded signal class
 def _f_damped(t, A, w, z):
     return A * np.exp(-z * w * t) * np.sin(w * np.sqrt(1 - z ** 2) * t)
 
@@ -103,10 +99,10 @@ PLANTS = [
 
 
 def gen_plant(plant, rng, *, noise=0.05, outliers=0.0, drop=0.0):
-    """One noisy real-time stream from a plant: clean signal + Gaussian noise,
-    optional gross **outliers** (sensor spikes / multipath), optional **dropout**
-    (a fraction of samples removed, leaving an irregular stream). Returns
-    ``(t, y, clean)``."""
+    """One noisy real-time stream from a plant: the clean signal plus Gaussian
+    noise, optionally with gross outliers (sensor spikes, multipath) and
+    optionally with dropout, a fraction of samples removed to leave an
+    irregular stream. Returns ``(t, y, clean)``."""
     t = np.linspace(0, plant["T"], plant["n"])
     clean = plant["func"](t, *[plant["true"][k] for k in sorted(plant["true"])])
     scale = clean.std() + 1e-9
@@ -120,9 +116,7 @@ def gen_plant(plant, rng, *, noise=0.05, outliers=0.0, drop=0.0):
     return t, y, clean
 
 
-# --------------------------------------------------------------------------- #
-# uniform estimator adapters
-# --------------------------------------------------------------------------- #
+# the uniform estimator adapters
 class _Ad:
     gives_params = True
 
@@ -241,8 +235,9 @@ def perr(params, true):
 
 
 def drive(adapter, t, y, clean, warm):
-    """Run one adapter sample-by-sample over a stream. Returns
-    ``(rmse_vs_clean, median_latency_us, track)`` (RMSE scored post-warmup)."""
+    """Run one adapter sample by sample over a stream. Returns
+    ``(rmse_vs_clean, median_latency_us, track)``, the RMSE scored past
+    warm-up."""
     track = np.full(t.size, np.nan)
     lat = []
     for i in range(t.size):
@@ -262,15 +257,17 @@ def adapters(plant):
 
 
 def clean_accuracy(plant, seeds, *, noise=0.05):
-    """Multi-seed clean-accuracy (E1) for one plant: run every adapter over
-    ``seeds`` independent noisy realisations and report the **distribution** of
-    the recovered-parameter error (mean +/- std), so the headline number is not
-    single-seed luck. RMSE / latency are averaged too (both are stable across
-    seeds). Also returns, from seed 0, the noisy stream + best-dtfit / EKF tracks
-    the overlay figure draws. Returns ``{"rows": {name: {...}}, "overlay": {...}}``.
+    """Multi-seed clean accuracy (E1) for one plant: run every adapter over
+    ``seeds`` independent noisy realisations and report the distribution of the
+    recovered-parameter error as mean and standard deviation, so the headline
+    number cannot be single-seed luck. RMSE and latency are averaged too, both
+    being stable across seeds. From seed 0 it also returns the noisy stream and
+    the best-dtfit and EKF tracks the overlay figure draws, as
+    ``{"rows": {name: {...}}, "overlay": {...}}``.
 
-    ``rows[name]`` carries: ``perr_mean``, ``perr_std`` (None for params-free
-    methods), ``rmse``, ``lat``, ``gp`` (gives physical params)."""
+    ``rows[name]`` carries ``perr_mean`` and ``perr_std`` (None for a
+    params-free method), ``rmse``, ``lat``, and ``gp`` for whether it gives
+    physical parameters."""
     warm = plant["window"] + 15
     names = [ad.name for ad in adapters(plant)]
     acc = {nm: dict(perr=[], rmse=[], lat=[], gp=True) for nm in names}
@@ -306,12 +303,11 @@ def clean_accuracy(plant, seeds, *, noise=0.05):
     return dict(rows=rows, overlay=overlay)
 
 
-# --------------------------------------------------------------------------- #
-# robustness sweeps: Gaussian noise, outliers, dropout
-# --------------------------------------------------------------------------- #
+# the robustness sweeps: Gaussian noise, outliers, dropout
 def sweep_perr(plant, kind, levels, seeds):
-    """Sweep ``kind`` ("noise" / "outliers") over ``levels``, averaging the mean
-    parameter error over ``seeds`` for LSI / EAC / EKF. Returns ``{method: [errs]}``."""
+    """Sweep ``kind``, "noise" or "outliers", over ``levels``, averaging the
+    mean parameter error over ``seeds`` for LSI, EAC and the EKF. Returns
+    ``{method: [errs]}``."""
     methods = ["dtfit LSIFilter", "dtfit EACFilter", "EKF (params-as-state)"]
     out = {m: [] for m in methods}
     for lv in levels:
@@ -332,16 +328,17 @@ def sweep_perr(plant, kind, levels, seeds):
 
 
 def sweep_perr_all(kind, levels, seeds, *, plants=None):
-    """Run :func:`sweep_perr` for **every** plant (default all of :data:`PLANTS`),
-    so the outlier / noise robustness claim is validated across shapes, not on the
-    damped oscillator alone. Returns ``{plant_key: {method: [errs per level]}}``."""
+    """Run :func:`sweep_perr` for every plant, by default all of
+    :data:`PLANTS`, so the outlier and noise robustness claim is validated
+    across shapes rather than on the damped oscillator alone. Returns
+    ``{plant_key: {method: [errs per level]}}``."""
     plants = plants if plants is not None else PLANTS
     return {p["key"]: sweep_perr(p, kind, levels, seeds) for p in plants}
 
 
 def dropout_perr(plant, drops, seeds):
-    """Mean parameter error vs dropout fraction for LSI / EAC / EKF. Returns a
-    list of ``(method_label, [errs per drop])`` rows."""
+    """Mean parameter error against dropout fraction for LSI, EAC and the EKF.
+    Returns a list of ``(method_label, [errs per drop])`` rows."""
     rows = []
     for m_cls, mname in [(LegAd, "dtfit LSIFilter"), (EAAd, "dtfit EACFilter"),
                          (EKFAd, "EKF")]:
@@ -360,10 +357,9 @@ def dropout_perr(plant, drops, seeds):
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# model mismatch (negative control): the wrong physical model on-device
-# --------------------------------------------------------------------------- #
-# (true plant that generates the stream, wrong plant whose model is fitted to it)
+# Model mismatch, the negative control: the wrong physical model on-device.
+# Each pair is the true plant that generates the stream and the wrong plant
+# whose model is fitted to it.
 _MISMATCH_PAIRS = [
     ("damped_osc", "first_order"),  # a decaying sinusoid fitted as a saturating rise
     ("first_order", "ac_sine"),     # a monotone RC rise fitted as a pure sinusoid
@@ -375,18 +371,20 @@ def _plant_by_key(key):
     return next(p for p in PLANTS if p["key"] == key)
 
 
-# RMSE ceiling: a wrong-model EKF can diverge to numerical overflow (covariance
-# windup / exp blow-up). Clip to a finite ceiling and flag it rather than let an
-# ~1e88 value swamp the table -- "diverged" is the honest reading.
+# RMSE ceiling. A wrong-model EKF can diverge to numerical overflow through
+# covariance windup or an exponential blow-up, so clip to a finite ceiling and
+# flag it rather than let a ~1e88 value swamp the table: "diverged" is the
+# honest read.
 _MM_CEIL = 1e4
 
 
 def _mismatch_scores(adapter, t, y, clean, warm):
-    """Drive one adapter over a stream and return ``(rmse_vs_clean,
-    insample_residual_rmse, diverged)``. The residual (track vs the noisy
-    observations) is the on-device self-diagnosis signal: a wrong model cannot fit
-    even the data it sees, so its residual stays structured and large. ``diverged``
-    is set when the estimate blew up (non-finite or past :data:`_MM_CEIL`)."""
+    """Drive one adapter over a stream and return
+    ``(rmse_vs_clean, insample_residual_rmse, diverged)``. The residual, track
+    against the noisy observations, is the on-device self-diagnosis signal: a
+    wrong model cannot fit even the data it sees, so its residual stays
+    structured and large. ``diverged`` is set when the estimate blew up, going
+    non-finite or past :data:`_MM_CEIL`."""
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         _, _, track = drive(adapter, t, y, clean, warm)
     valid = np.isfinite(track)
@@ -400,16 +398,16 @@ def _mismatch_scores(adapter, t, y, clean, warm):
 
 
 def exp_model_mismatch(seeds=5):
-    """Negative control: drive an online estimator **configured for the wrong
-    plant model** over another plant's stream. Shows (a) no online estimator
-    rescues a mis-specified physical model -- the error is a property of the
-    *model* not the filter, and while the integral ``LSIFilter`` degrades
-    *gracefully* (stays bounded), the pointwise EKF can **diverge** outright; and
-    (b) the wrong model leaves a large **in-sample residual** (the streaming
-    analogue of an in-sample R^2 collapse, and exactly the innovation the fused
-    chi-square detector already watches), so a mismatch is self-diagnosing
-    on-device without ground truth. Returns one row per (true plant, wrong model,
-    estimator)."""
+    """Negative control: drive an online estimator configured for the wrong
+    plant model over another plant's stream. Two things come out of it. No
+    online estimator rescues a mis-specified physical model, the error being a
+    property of the model rather than the filter, though the integral
+    ``LSIFilter`` degrades gracefully and stays bounded where the pointwise EKF
+    can diverge outright. And the wrong model leaves a large in-sample
+    residual, the streaming analogue of an in-sample R^2 collapse and the very
+    innovation the fused chi-square detector already watches, so a mismatch is
+    self-diagnosing on-device with no ground truth. Returns one row per (true
+    plant, wrong model, estimator)."""
     rows = []
     for true_key, wrong_key in _MISMATCH_PAIRS:
         tp, wp = _plant_by_key(true_key), _plant_by_key(wrong_key)
@@ -438,11 +436,9 @@ def exp_model_mismatch(seeds=5):
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# fault detection & on-device re-adaptation (multi-axis fused detector)
-# --------------------------------------------------------------------------- #
+# fault detection and on-device re-adaptation, by the multi-axis fused detector
 def make_multi(rng, n=900, noise=0.05):
-    """A 3-axis damped oscillator with a **damping fault**: zeta jumps on every
+    """A 3-axis damped oscillator carrying a damping fault: zeta jumps on every
     axis at the midpoint. Returns ``(t, noisy, clean, half)``."""
     t = np.linspace(0, 18, n)
     half = n // 2
@@ -458,11 +454,11 @@ def make_multi(rng, n=900, noise=0.05):
 
 
 class MergedTracker:
-    """A multi-axis oscillator tracker built on the promoted streaming API: a
-    :class:`~dtfit.FilterBank` of per-axis Legendre-spectrum filters driven by the
-    promoted :class:`~dtfit.FusedChiSquareDetector`, which pools the per-axis
-    one-step innovations into a fused chi^2(n_axes) fault statistic and re-arms the
-    bank via ``inflate`` on a detection."""
+    """A multi-axis oscillator tracker on dtfit's streaming API: a
+    :class:`~dtfit.FilterBank` of per-axis Legendre-spectrum filters driven by
+    :class:`~dtfit.FusedChiSquareDetector`, which pools the per-axis one-step
+    innovations into a fused chi^2(n_axes) fault statistic and re-arms the bank
+    through ``inflate`` on a detection."""
 
     def __init__(self, n_axes, p0, *, window=60, fuse_alpha=1e-4, inflate=4.0):
         self.bank = FilterBank.from_model(
@@ -504,8 +500,8 @@ def run_tracker(t, Y, clean, half, inflate):
 
 
 def kalman_multi(t, Y, clean, warm):
-    """Constant-acceleration Kalman over the multi-axis stream (no plant ID).
-    Returns ``(pred, rmse)``."""
+    """Constant-acceleration Kalman over the multi-axis stream, identifying no
+    plant. Returns ``(pred, rmse)``."""
     kf = KalmanCA(dim=3, dt=float(np.mean(np.diff(t))), q=1e-2, r=0.5)
     pred = np.full((Y.shape[0], 3), np.nan)
     for i in range(Y.shape[0]):
@@ -516,9 +512,7 @@ def kalman_multi(t, Y, clean, warm):
     return pred, rmse
 
 
-# --------------------------------------------------------------------------- #
-# deployable footprint & latency
-# --------------------------------------------------------------------------- #
+# deployable footprint and latency
 MCUS = [
     ("AVR ATmega328 (Uno)", 2 * 1024, "no (soft)"),
     ("ARM Cortex-M0+ (SAMD21)", 32 * 1024, "no (soft)"),
@@ -528,11 +522,11 @@ MCUS = [
 
 
 def footprint_rows(lat, *, n=3, W=60):
-    """Live no-malloc state per estimator (does not grow with the stream). The
-    deployable word/byte counts of a hand-coded C struct; ``lat`` is a
-    ``{estimator_name: latency_us}`` map from the accuracy sweep. Returns a dict
-    with the per-estimator state table, the MCU-fit table, and the resident-state
-    sweep used by the figure."""
+    """Live no-malloc state per estimator, which does not grow with the stream:
+    the deployable word and byte counts of a hand-coded C struct. ``lat`` is
+    the ``{estimator_name: latency_us}`` map from the accuracy sweep. Returns a
+    dict holding the per-estimator state table, the MCU-fit table, and the
+    resident-state sweep the figure draws."""
     ea = embedded_footprint(n, W, kind="eac")
     leg = embedded_footprint(n, W, kind="legendre")
     ekf_words = n * n + 2 * n + 8
@@ -568,12 +562,10 @@ def footprint_rows(lat, *, n=3, W=60):
                 sweep_W=Ws, sweep=sweep, lat=lat)
 
 
-# --------------------------------------------------------------------------- #
 # real-data online tracking
-# --------------------------------------------------------------------------- #
 def load_fx(limit=220):
-    """Load and normalise the daily USD/UAH 2014-15 crisis rate (``rate/rate[0]``).
-    Returns ``(t, y)``."""
+    """Load the daily USD/UAH 2014-15 crisis rate, normalised as
+    ``rate/rate[0]``. Returns ``(t, y)``."""
     path = EXPERIMENTS_DIR / "data" / "usd_uah_2014_2015.csv"
     rows = list(csv.reader(path.open()))[1:]
     rate = np.array([float(r[1]) for r in rows])[:limit]
@@ -584,7 +576,7 @@ def load_fx(limit=220):
 
 def fx_track(t, y):
     """Stream the FX series and track a local exponential ``a*exp(b*t)`` online,
-    one-step-ahead, against EKF / RLS / random-walk. Returns
+    one step ahead, against the EKF, RLS and a random walk. Returns
     ``(actual, {method: predictions})``."""
     ea = EACFilter("a*exp(b*t)", "t", p0=[1.0, 0.5], window_size=40, n_sub=2,
                    q_diag=[1e-4, 1e-4], r=0.5, adapt_r=True)
@@ -603,9 +595,7 @@ def fx_track(t, y):
     return np.array(actual), {k: np.array(v) for k, v in preds.items()}
 
 
-# --------------------------------------------------------------------------- #
-# the data-driven applicability map (the headline reasoning)
-# --------------------------------------------------------------------------- #
+# the data-driven applicability map, which carries the headline reasoning
 FILTER_REASON = {
     "damped_osc": ("EACFilter ~= Legendre",
                    "A clean damped oscillation is easy for both -- param error <1% "

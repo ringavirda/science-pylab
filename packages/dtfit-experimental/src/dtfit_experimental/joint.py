@@ -1,12 +1,13 @@
-"""Adaptation #4 -- joint shared-parameter multi-channel fit.
+"""Adaptation #4: joint shared-parameter multi-channel fit.
 
-When several channels share structure -- a common frequency across the x/y/z
-axes of a trajectory, a common growth rate across regions, a common time
-constant across a MIMO plant's outputs -- fitting them independently wastes the
-coupling. :func:`fit_joint` stacks all channels' EAC area equations into one
-system with **shared** parameters (estimated jointly from every channel) and
-**per-channel private** parameters, solved in one least-squares pass. More
-equations per shared unknown means better observability than independent fits.
+Channels often share structure: one frequency across the x/y/z axes of a
+trajectory, one growth rate across regions, one time constant across a MIMO
+plant's outputs. Fitting them independently throws that coupling away.
+:func:`fit_joint` stacks every channel's EAC area equations into a single
+system carrying shared parameters, estimated from all channels at once, plus
+per-channel private ones, then solves the lot in a single least-squares pass.
+Each shared unknown ends up with more equations behind it: that is the
+observability gain over independent fits.
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ from dtfit.methods._common import model_params
 class JointResult:
     """Result of a joint multi-channel fit."""
 
-    shared: dict[str, float]                 # shared parameter estimates
-    private: list[dict[str, float]]          # per-channel private estimates
+    shared: dict[str, float]
+    private: list[dict[str, float]]
     expr: str
     var: str
 
@@ -35,8 +36,8 @@ class JointResult:
         f_sym = sp.sympify(self.expr)
         subs = {sp.Symbol(k): v for k, v in self.shared.items()}
         subs.update({sp.Symbol(k): v for k, v in self.private[channel].items()})
-        # sympy's stub types subs() as an iterable of pairs; a {sym: val} dict is
-        # accepted at runtime.
+        # sympy's stub types subs() as an iterable of pairs; a {sym: val} dict
+        # is accepted at runtime.
         model = sp.lambdify(t, f_sym.subs(subs), "numpy")  # pyright: ignore[reportCallIssue, reportArgumentType]
         v = model(np.asarray(x, dtype=float))
         return np.full(np.shape(x), float(v)) if np.ndim(v) == 0 else np.asarray(v, float)
@@ -64,11 +65,12 @@ def fit_joint(
             estimated per channel.
         n_windows: Area windows per channel (equal-areas equations).
         active_ratio: Leading fraction of each channel used for windows.
-        p0_shared / p0_private: Optional initial guesses (default ones).
-        bounds_shared / bounds_private: Optional ``(min, max)`` per shared /
-            per private parameter. When given, a global search (differential
-            evolution) precedes the local refine -- needed for multimodal
-            shared parameters (e.g. a free frequency).
+        p0_shared / p0_private: Optional initial guesses, ones by default.
+        bounds_shared / bounds_private: Optional ``(min, max)`` per shared and
+            per private parameter. Pass both to put a global search
+            (differential evolution) ahead of the local refine, as a multimodal
+            shared parameter such as a free frequency requires; pass only one
+            and the plain local solve runs instead.
 
     Returns:
         JointResult with the shared and per-channel private estimates.

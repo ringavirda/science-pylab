@@ -1,26 +1,20 @@
-"""dtfit-experimental -- experimental structural adaptations of EAC / LSI.
+"""Experimental structural adaptations of EAC and LSI.
 
-This distribution has **two tiers**, kept deliberately distinct:
+The distribution has two tiers. The library tier is this package
+(``import dtfit_experimental``): a small importable surface of adaptations
+plus the backend helpers, staging code that may graduate into stable
+``dtfit``. The study tier is :mod:`dtfit_experimental.experiments`, the
+per-case and per-domain validation suite each adaptation is measured in.
+That tier is a research tree rather than an API: exempt from the mypy gate,
+ruff-relaxed, driven with ``python -m dtfit_experimental.experiments...``
+instead of imported. Nothing in the library tier imports from it.
 
-1. **The library** -- *this* top-level package (``import dtfit_experimental``): a
-   small, importable surface of experimental adaptations (``fit_lsi_basis``,
-   ``fit_joint``, ``boosted_fit``) plus the backend helpers. This is the
-   promotion staging area -- code that may graduate into stable ``dtfit``.
-2. **The study** -- :mod:`dtfit_experimental.experiments`: the per-case /
-   per-domain **validation suite** (notebooks + backends + the established
-   baselines each method is measured against). It is a research/dev tree, *not*
-   part of the library's API contract -- it is exempt from the mypy gate and
-   ruff-relaxed, and is driven via ``python -m dtfit_experimental.experiments...``
-   rather than imported as a library. Nothing in tier 1 imports from it.
-
-The rest of this docstring describes tier 1 (the adaptations).
-
-These are new ways to *compose* the differential-transformation fitting methods
-of :mod:`dtfit`, grounded in the methods' own math (linearity of integration;
-orthogonal-basis projection; additive areas). They are prototyped here, evaluated
-across the experiment suite (:mod:`dtfit_experimental.experiments`), and the ones
-that prove effective across a range of applications are **promoted into the stable
-``dtfit`` API** -- where they then live physically, not re-imported from here.
+The adaptations are new ways to compose the differential-transformation
+fitting methods of :mod:`dtfit`, grounded in the methods' own math: linearity
+of integration, orthogonal-basis projection, additive areas. They are
+prototyped here and evaluated across the experiment suite; whatever holds up
+on two or more domains is promoted into stable ``dtfit``, where it then lives
+physically rather than being re-imported from here.
 
     from dtfit_experimental import (
         fit_lsi_basis,        # #2 pluggable orthogonal basis (Fourier/...)
@@ -29,44 +23,18 @@ that prove effective across a range of applications are **promoted into the stab
         InformationFilter,    # inverse-covariance (info-form) fusion primitive
     )
 
-These APIs are experimental and may change until promoted. Several adaptations
-have already cleared the promotion gate and now live in :mod:`dtfit`:
-
-* #1 ``PartitionedLSI`` / ``PartitionedEAC`` -- one-pass / distributed map-reduce
-  (``from dtfit import PartitionedLSI, PartitionedEAC``);
-* the GEMM-batched projection ``fit_lsi_batched`` / ``project_spectra`` and the
-  fused multi-channel ``PartitionedBatchLSI`` (``from dtfit import ...``);
-* #6 adaptive-window EAC, now folded into stable ``dtfit.fit_eac`` as
-  ``window_mode="curvature"``;
-* the LSI **oscillatory recipe** is now built into ``dtfit.fit_lsi`` via
-  ``oscillatory=True`` / ``freq_param=`` (plus ``dtfit.fft_frequency_seed``);
-* the fused multi-axis ``FusedChiSquareDetector`` for a streaming ``FilterBank``;
-* #3 the overlapping-window **ensemble** ``ensemble_fit`` / ``EnsembleResult``
-  (``from dtfit import ensemble_fit``) -- robust to outliers on contaminated data;
-* the **stochastic-series** solution -- fit dtfit's deterministic fitters to the
-  deterministic functionals of a random process to characterize / forecast /
-  generate it (``dtfit.stochastic.fit_stochastic`` / ``StochasticModel`` /
-  ``dtfit.Stochastic``) and track it online (``dtfit.stochastic.StochasticFilter``).
-
-The three adaptations below remain here on purpose. #2 ``fit_lsi_basis`` was
-evaluated as a *vocabulary* (it makes periodic/decay models expressible) but **not
-a source of predictive power** -- it did not improve accuracy and lost on the LTSF
-benchmark, so it stays experimental rather than being folded into ``fit_lsi``. #5
-``boosted_fit`` is a genuine win but on **one domain only** (additive trend+season,
-e.g. CO2); it needs a confirming second domain to clear the ``>=2 domains`` gate.
-#4 ``fit_joint`` is the substantial new solver still under evaluation. See the
-``experiments/cases/analysis`` notes for the measured verdicts.
-
-``InformationFilter`` -- the inverse-covariance (information-form) linear
-primitive with additive, associative fusion -- also lives here: it is coherent and
-tested but is exercised by no domain study and is not used by the covariance-form
-``EACFilter`` / ``LSIFilter``, so it has not cleared the >=2-domain promotion gate.
-It was moved out of stable ``dtfit`` for that reason and stays here until a
-sensor-fusion / embedded domain exercises it.
-
-The shared spectral/backend machinery (``dtfit._core._spectral`` / ``dtfit._core._backend``)
-moved to stable with the map-reduce estimators and is reused by the adaptations
-that remain here.
+These signatures may change until promotion. Each of the four is here for its
+own reason. ``fit_lsi_basis`` buys vocabulary, not accuracy: a Fourier or
+Laguerre basis makes periodic and decay models expressible, yet recovery did
+not improve and the LTSF benchmark went against it. ``fit_lsi`` still
+hard-codes Legendre for that reason. ``boosted_fit`` is a genuine win, but on
+one domain only (additive trend plus season, CO2 and the like); a confirming
+second domain would clear the promotion gate. ``fit_joint`` is the substantial
+new solver, still under evaluation. ``InformationFilter``, the
+inverse-covariance primitive whose fusion is a plain addition, is coherent and
+tested but no domain study exercises it and the covariance-form ``EACFilter``
+/ ``LSIFilter`` do not use it; it waits here for a sensor-fusion or embedded
+domain. Measured verdicts live in ``experiments/cases/analysis``.
 """
 
 from dtfit._core._backend import available_backends, resolve_backend, Backend
@@ -74,11 +42,6 @@ from .basis_lsi import fit_lsi_basis
 from .joint import fit_joint, JointResult
 from .boosting import boosted_fit, BoostedModel
 from .information import InformationFilter
-
-# The stochastic-series adaptations were promoted into stable ``dtfit`` -- they now
-# live physically there (``from dtfit.stochastic import fit_stochastic,
-# StochasticModel, StochasticFilter, ...`` / ``from dtfit import Stochastic``) and
-# are no longer re-exported from here. The domain harness consumes them from dtfit.
 
 __all__ = [
     "fit_lsi_basis",

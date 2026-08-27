@@ -1,32 +1,23 @@
-"""Backend infrastructure for the LTSF-benchmark experiment.
+"""Forecasters and benchmark protocol for the LTSF case study.
 
-This module is the **single source of truth for the data-loading and forecasting
-code** behind ``06_benchmark_ltsf.ipynb``; the notebook imports it and does all
-the presentation (tables, figures, narrative). Keeping the infra here means the
-forecasters / benchmark protocol are defined once and the notebook stays a thin,
-rerunnable layer over them.
+``06_benchmark_ltsf.ipynb`` imports this module and owns the presentation.
 
-The experiment places dtfit on the **exact** long-term-forecasting (LTSF)
-benchmark used by DLinear (arXiv:2205.13504), TimesNet (arXiv:2210.02186) and
-Time-LLM (arXiv:2310.01728): standard splits, train-fit z-score normalization,
-lookback->horizon windows, MSE/MAE on the normalized values. The papers'
-**published** MSE numbers are transcribed (cited) rather than re-run, so dtfit's
-measured numbers sit comparably alongside them.
+The point of this case is to put dtfit on the same long-term-forecasting
+benchmark that DLinear (arXiv:2205.13504), TimesNet (arXiv:2210.02186) and
+Time-LLM (arXiv:2310.01728) report on, with nothing bent in dtfit's favour: the
+splits, train-fit z-score normalization, lookback-to-horizon windows and
+MSE/MAE on the normalized values. Those papers' published MSE numbers are
+transcribed rather than re-run, since a re-implementation of someone else's
+model is a worse comparison than the number they stand behind. The data comes
+through the shared :mod:`...common.datasets` loader, which reproduces the
+Informer/Autoformer pipeline all three papers use.
 
-It provides:
-
-* the **published-results table** -- :data:`PUBLISHED_MSE` (transcribed from the
-  papers' ar5iv editions) and the benchmark constants :data:`HORIZONS`,
-  :data:`LOOKBACK`, :data:`DAMP`, :data:`SEASONAL_FRAC`;
-* the **forecasters** -- :func:`series_extrapolate`, three fit-then-extrapolate
-  variants (``"legendre"`` trend, ``"fourier"`` seasonal, ``"trend_seasonal"``
-  DLinear-style decomposition), all NLinear-anchored to the last observation;
-* the **benchmark evaluation** -- :func:`evaluate` (MSE/MAE over the test
-  windows) and :func:`run_dataset` / :func:`seasonal_helped` batch helpers.
-
-The data itself is loaded through the shared
-:mod:`dtfit_experimental.experiments.common.datasets` LTSF loader, which
-reproduces the Informer/Autoformer pipeline the papers all use.
+:func:`series_extrapolate` holds three fit-then-extrapolate forecasters, each
+anchored NLinear-style to the last observation: a Legendre trend alone, a
+Fourier continuation alone, and a DLinear-style decomposition into trend plus a
+data-driven seasonal term. :func:`evaluate` scores one of them over a
+dataset's test windows; :func:`run_dataset` and :func:`seasonal_helped` batch
+that up for the notebook.
 """
 
 from __future__ import annotations
@@ -41,11 +32,13 @@ __all__ = [
     "seasonal_helped", "sample_window",
 ]
 
-# Published MULTIVARIATE MSE on the LTSF benchmark (lookback 96), transcribed
-# from the papers' ar5iv editions. Horizons 96/192/336/720.
-#   DLinear  : arXiv:2205.13504 (table 2)   -- note: paper uses a longer lookback
-#   TimesNet : arXiv:2210.02186             -- lookback 96
-#   Time-LLM : arXiv:2310.01728             -- lookback 96
+# Published multivariate MSE on the LTSF benchmark, transcribed from the
+# papers' ar5iv editions. Horizons 96/192/336/720 across each row.
+#   DLinear  : arXiv:2205.13504, table 2. Its paper reports a longer lookback
+#              than the 96 the other two use, so that row is not strictly
+#              like-for-like with the rest.
+#   TimesNet : arXiv:2210.02186, lookback 96.
+#   Time-LLM : arXiv:2310.01728, lookback 96.
 PUBLISHED_MSE = {
     "ETTh1": {
         "DLinear": [0.375, 0.405, 0.439, 0.472],
@@ -65,32 +58,33 @@ PUBLISHED_MSE = {
 }
 HORIZONS = [96, 192, 336, 720]
 LOOKBACK = 96
-DAMP = 0.95  # damped-trend factor: saturates long-horizon trend growth
-SEASONAL_FRAC = 0.15  # min residual-energy share for a harmonic to be continued
+DAMP = 0.95  # Damped-trend factor; saturates long-horizon trend growth.
+SEASONAL_FRAC = 0.15  # Smallest energy share a harmonic may be kept on.
 
 
 def available() -> list[str]:
-    """LTSF dataset keys whose CSV is present locally (re-export of the loader)."""
+    """LTSF dataset keys whose CSV is present locally; the loader's list."""
     return ds.available()
 
 
 def series_extrapolate(look, H, order, basis="trend_seasonal", n_harm=3):
     """Forecast H steps for each channel of the ``(L, C)`` lookback.
 
-    Three forecasters share the same fit-then-extrapolate spirit; all are
-    NLinear-anchored to the last observation for continuity:
+    All three forecasters fit then extrapolate, and all three are anchored to
+    the last observation NLinear-style so the forecast starts where the series
+    left off.
 
-    * ``"legendre"`` -- a low-order Legendre (LSI empirical-spectrum) **trend**
-      only. The trend-restorer baseline.
-    * ``"fourier"``  -- low-frequency harmonics over the lookback continued
-      forward (adaptation #2).
-    * ``"trend_seasonal"`` -- a DLinear-style decomposition: the low-order
-      Legendre trend **plus** a data-driven Fourier seasonal term fitted on the
-      detrended residual and extrapolated periodically. This models the
-      *restorable* structure (trend + seasonality), not the trend alone.
+    ``"legendre"`` restores a low-order Legendre trend, the LSI empirical
+    spectrum, and nothing else; it is the baseline the other two have to beat.
+    ``"fourier"`` instead continues the lookback's low-frequency harmonics
+    forward (adaptation #2).
+    ``"trend_seasonal"`` decomposes DLinear-style: the same Legendre trend plus
+    a data-driven Fourier seasonal term fitted on the detrended residual and
+    extended periodically, so the restorable structure is modelled whole
+    rather than the trend alone.
     """
     L, C = look.shape
-    anchor = look[-1:]            # (1, C) last observed value per channel
+    anchor = look[-1:]            # (1, C) last observed value per channel.
     u = np.linspace(-1.0, 1.0, L)
     step = (u[-1] - u[0]) / (L - 1)
     u_fut = u[-1] + step * np.arange(1, H + 1)
@@ -109,42 +103,41 @@ def series_extrapolate(look, H, order, basis="trend_seasonal", n_harm=3):
             colsf += [np.cos(2 * np.pi * k * fut / L), np.sin(2 * np.pi * k * fut / L)]
         return np.column_stack(colsf) @ coef + anchor
 
-    # --- low-order Legendre trend (shared by 'legendre' and 'trend_seasonal') -- #
+    # Low-order Legendre trend, shared by 'legendre' and 'trend_seasonal'.
     from numpy.polynomial.legendre import legvander
     d = look - anchor
     V = legvander(u, order)                          # (L, order+1)
     tcoef, *_ = np.linalg.lstsq(V, d, rcond=None)
     trend_in = V @ tcoef + anchor                    # (L, C) in-sample trend
-    # Damped-trend extrapolation: a slope fit on a short, noisy lookback diverges
-    # if continued linearly over long horizons. We keep the LSI linear trend but
-    # saturate its growth geometrically (damped-trend / NLinear-style), so the
-    # forecast stays bounded near the last observation instead of exploding.
+    # A trend fitted on a short, noisy 96-point lookback diverges if it is
+    # simply continued over a 720-step horizon. The fit is kept but its growth
+    # damped geometrically, holding the forecast near the last observation
+    # instead of letting it run away.
     last_trend = V[-1] @ tcoef                       # (C,) trend deviation at u[-1]
-    raw_dev = legvander(u_fut, order) @ tcoef - last_trend  # (H, C) linear growth
+    raw_dev = legvander(u_fut, order) @ tcoef - last_trend  # (H, C) undamped
     h = np.arange(1, H + 1)
-    sat = (1.0 - DAMP ** h) / (1.0 - DAMP)           # saturating cumulative profile
-    scale = (sat / h)[:, None]                       # (H,1) damping ratio (1 at h=1)
+    sat = (1.0 - DAMP ** h) / (1.0 - DAMP)           # saturating profile
+    scale = (sat / h)[:, None]                       # (H,1) ratio, 1 at h=1
     trend_fut = anchor + raw_dev * scale             # (H, C) bounded trend
     if basis == "legendre":
         return trend_fut
 
-    # --- trend_seasonal: Fourier seasonal on the detrended residual ---------- #
+    # trend_seasonal: a Fourier seasonal term on the detrended residual.
     resid = look - trend_in                          # (L, C)
     F = np.fft.rfft(resid, axis=0)                    # (L//2+1, C)
     freqs = np.fft.rfftfreq(L)                        # cycles / sample
-    mag = np.abs(F); mag[0] = 0.0                     # drop DC (already in trend)
+    mag = np.abs(F); mag[0] = 0.0                     # DC lives in the trend
     fut = np.arange(L, L + H)
     seasonal_fut = np.zeros((H, C))
     seasonal_last = np.zeros(C)
     power = (mag ** 2)                                # spectral energy per bin
     total = power[1:].sum(axis=0) + 1e-12             # residual energy per channel
     for c in range(C):
-        # energy-fraction gate: continue a harmonic only if it is a *dominant*
-        # spectral peak, holding a large share of the residual energy. A period
-        # pinned from a 96-point lookback drifts out of phase when extrapolated
-        # over long horizons, so a weak/uncertain peak hurts; this keeps only the
-        # clean, strong cycles (so the seasonal term is help-or-neutral and zero
-        # on aperiodic channels, where the forecast falls back to the trend).
+        # Only a dominant spectral peak is worth continuing. A period pinned
+        # from a 96-point lookback drifts out of phase once extrapolated over
+        # a long horizon, and a weak peak drifts far enough to do damage, so
+        # the energy-fraction gate keeps the clean strong cycles alone. An
+        # aperiodic channel passes nothing and falls back to the trend.
         frac = power[1:, c] / total[c]                # energy share per non-DC bin
         cand = 1 + np.where(frac > SEASONAL_FRAC)[0]
         if cand.size == 0:
@@ -155,16 +148,17 @@ def series_extrapolate(look, H, order, basis="trend_seasonal", n_harm=3):
             ph = np.angle(F[k, c])
             seasonal_fut[:, c] += amp * np.cos(2 * np.pi * freqs[k] * fut + ph)
             seasonal_last[c] += amp * np.cos(2 * np.pi * freqs[k] * (L - 1) + ph)
-    # anchor the composite to the last observation (continuity); the double
-    # anchor cancels algebraically, leaving forecast = last obs + dtrend + dseasonal
+    # Anchor the composite to the last observation. The double anchor cancels
+    # algebraically: forecast = last obs + trend delta + seasonal delta.
     return trend_fut + seasonal_fut + (anchor[0] - trend_in[-1] - seasonal_last)
 
 
 def evaluate(name, H, order, basis, max_windows, n_harm=3):
     """Mean (MSE, MAE) of a forecaster over the test windows of one dataset.
 
-    Reproduces the LTSF protocol: z-score (train-fit) normalized windows, MSE/MAE
-    on the normalized values, averaged across ``max_windows`` test windows.
+    Follows the LTSF protocol: train-fit z-score normalized windows, MSE and
+    MAE taken on the normalized values, averaged over up to ``max_windows``
+    test windows.
     """
     se = ae = cnt = 0
     for look, target in ds.test_windows(name, LOOKBACK, H, max_windows=max_windows):
@@ -178,8 +172,9 @@ def evaluate(name, H, order, basis, max_windows, n_harm=3):
 def run_dataset(name, horizons, order, max_windows, n_harm=3):
     """Measure both dtfit forecasters on one dataset across ``horizons``.
 
-    Returns ``(trend_mse, ts_mse, ts_mae)`` -- three ``{horizon: value}`` dicts
-    for the trend-only MSE, the trend+seasonal MSE, and the trend+seasonal MAE.
+    Returns ``(trend_mse, ts_mse, ts_mae)``, three ``{horizon: value}`` dicts
+    holding the trend-only MSE, the trend-plus-seasonal MSE and the
+    trend-plus-seasonal MAE.
     """
     trend_mse, ts_mse, ts_mae = {}, {}, {}
     for H in horizons:
@@ -194,9 +189,9 @@ def run_dataset(name, horizons, order, max_windows, n_harm=3):
 def seasonal_helped(trend_mse, ts_mse, h0):
     """Split datasets by whether the seasonal term helped at horizon ``h0``.
 
-    ``trend_mse`` / ``ts_mse`` are ``{name: {horizon: mse}}``. Returns
-    ``(helped, hurt)`` lists of dataset names where trend+seasonal beat (or did
-    not beat) trend-only at the shortest horizon.
+    ``trend_mse`` and ``ts_mse`` are ``{name: {horizon: mse}}``. Returns
+    ``(helped, hurt)``: the dataset names where trend-plus-seasonal beat
+    trend-only at ``h0``, and the names where it did not.
     """
     helped, hurt = [], []
     for name in ts_mse:
@@ -209,8 +204,8 @@ def seasonal_helped(trend_mse, ts_mse, h0):
 def sample_window(name, H, order, n_harm=3):
     """One sample lookback/target window plus both forecasts, for plotting.
 
-    Returns ``(look, target, pred_trend, pred_trend_seasonal)`` for the first
-    test window of ``name`` at horizon ``H`` (all ``(*, C)`` arrays).
+    Returns ``(look, target, pred_trend, pred_trend_seasonal)``, all ``(*, C)``
+    arrays, for the first test window of ``name`` at horizon ``H``.
     """
     wins = list(ds.test_windows(name, LOOKBACK, H, max_windows=1))
     look, target = wins[0]

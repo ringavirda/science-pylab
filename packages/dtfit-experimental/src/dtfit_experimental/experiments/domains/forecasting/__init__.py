@@ -1,1 +1,4 @@
-"""Forecasting domain validation (see ``forecasting.ipynb`` over ``backend.py``)."""
+"""Forecasting domain validation.
+
+See ``forecasting.ipynb`` (presentation) over ``backend.py`` (compute).
+"""
