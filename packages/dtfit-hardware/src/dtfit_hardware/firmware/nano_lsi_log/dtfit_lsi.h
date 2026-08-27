@@ -1,9 +1,10 @@
-// dtfit_lsi.h -- fixed-size embedded port of dtfit's streaming LSIFilter.
+// dtfit_lsi.h: fixed-size embedded port of dtfit's streaming LSIFilter.
 //
 // A header-only float32 specialization of dtfit.streaming.LSIFilter for one
 // model at a frozen window/order (see tools/embed_lsi.py, which also emits
 // lsi_tables.h and the float64 "golden" this mirrors operation-for-operation).
-// No malloc, no recursion, fixed-size stack/state -- safe for an MCU hot path.
+// No malloc, no recursion, fixed-size stack and state: safe on an MCU hot
+// path.
 //
 // Hot path per sample, once the window is full:
 //   beta_data = PROJ * y_window
@@ -48,9 +49,9 @@ struct LsiFilter {
     return v;
   }
 
-  // In-place N x N inverse via Gauss-Jordan with partial pivoting. N is the
-  // (tiny) parameter count, so this is the only matrix inverse the information
-  // form needs -- the old M x M inverse of the innovation covariance is gone.
+  // In-place N x N inverse by Gauss-Jordan with partial pivoting. N is the
+  // parameter count, which is tiny, and this is the only matrix inverse the
+  // information form needs.
   static bool invertN(const float A[LSI_N][LSI_N], float out[LSI_N][LSI_N]) {
     float a[LSI_N][2 * LSI_N];
     for (int i = 0; i < LSI_N; i++)
@@ -127,8 +128,8 @@ struct LsiFilter {
       e[j] = beta_data[j] - bm;
     }
 
-    // Information-form measurement update (R diagonal, N << M): the only
-    // inverses are N x N, so the M x M innovation-covariance inverse is gone.
+    // Information-form measurement update, R diagonal and N << M, so every
+    // inverse below is N x N:
     //   A = H^T R^-1 H  (N x N) ,  b = H^T R^-1 e  (N)
     float Rinv[LSI_M];
     for (int a = 0; a < LSI_M; a++) Rinv[a] = 1.0f / LSI_RDIAG[a];
@@ -145,7 +146,7 @@ struct LsiFilter {
       }
     }
 
-    // P_post = (P^-1 + A)^-1   (the a-posteriori covariance, before adding Q)
+    // P_post = (P^-1 + A)^-1, the a-posteriori covariance, before adding Q
     float Pinv[LSI_N][LSI_N], Msum[LSI_N][LSI_N], Ppost[LSI_N][LSI_N];
     if (!invertN(P, Pinv)) return false;
     for (int i = 0; i < LSI_N; i++)

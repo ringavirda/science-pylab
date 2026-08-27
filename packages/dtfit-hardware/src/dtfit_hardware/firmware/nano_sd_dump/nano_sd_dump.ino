@@ -1,8 +1,10 @@
 /*
- * nano_sd_dump - stream a session file off the SD card over USB serial. Since nano_lsi_log v3
- * writes a fresh per-session file (YYYYMMDD_HHMMSS.CSV, or SESSnnnn.CSV before a GPS fix), this
- * first prints a directory LISTING, then auto-dumps the NEWEST .csv (by FAT modify-time, which
- * the logger stamps from GPS UTC). The host extracts the bytes between the markers.
+ * nano_sd_dump - stream a session file off the SD card over USB serial.
+ *
+ * nano_lsi_log writes one file per session, YYYYMMDD_HHMMSS.CSV or
+ * SESSnnnn.CSV before a GPS fix, so this prints a directory listing first,
+ * then auto-dumps the newest .csv by FAT modify-time, which the logger stamps
+ * from GPS UTC. The host pulls the bytes out from between the markers.
  * Prints:  <<<LIST>>>  name size fatdate fattime  (one per line)  <<<ENDLIST>>>
  *          <<<BEGIN name size>>>  <raw file bytes>  <<<END>>>
  *
@@ -13,7 +15,7 @@
 #include <string.h>
 
 #define SD_CS 10
-#define MAX_YEAR 2027         // files dated later are spoof-clock junk; skip when auto-picking
+#define MAX_YEAR 2027         // dated later = spoof junk, never picked
 SdFs sd;
 FsFile root, f;
 
@@ -25,9 +27,10 @@ static bool isCsv(const char* n) {
          (n[L - 1] == 'v' || n[L - 1] == 'V');
 }
 
-// Leading YYYY of a session name "YYYYMMDD_HHMMSS.CSV", or 0 if not that pattern (SESSnnnn,
-// riglog.csv). A GPS date spoof can name a file 2028 while its FAT mtime reads a valid 2026 --
-// so we reject the spoofed NAME too, not just the FAT year.
+// Leading YYYY of a session name "YYYYMMDD_HHMMSS.CSV", or 0 when the name is
+// not that pattern (SESSnnnn, riglog.csv). A GPS date spoof can name a file
+// 2028 while its FAT mtime still reads a valid 2026, so the name gets checked
+// as well as the FAT year.
 static int nameYear(const char* n) {
   for (int i = 0; i < 8; i++) if (n[i] < '0' || n[i] > '9') return 0;
   if (n[8] != '_') return 0;
@@ -45,7 +48,7 @@ void setup() {
   }
 
   char name[64], newest[64] = {0};
-  uint32_t newestKey = 0;                 // (fatDate << 16) | fatTime -> newest wins
+  uint32_t newestKey = 0;              // (fatDate << 16) | fatTime, max wins
   if (!root.open("/")) { Serial.println("<<<ERR no root>>>"); return; }
 
   Serial.println("<<<LIST>>>");
@@ -57,11 +60,12 @@ void setup() {
       uint32_t sz = f.fileSize();
       Serial.print(name); Serial.print(' '); Serial.print(sz);
       Serial.print(' '); Serial.print(d); Serial.print(' '); Serial.println(tm);
-      // pick the newest CSV, but IGNORE spoof-dated files: a GPS spoof falsifies the clock
-      // (observed: a fake 2028 date), which would otherwise out-rank a real drive. FAT year =
-      // 1980 + (date >> 9); a genuine run is within [2024, MAX_YEAR].
+      // Pick the newest CSV, ignoring spoof-dated files. A GPS spoof falsifies
+      // the clock, a fake 2028 date in one observed case, and that would
+      // out-rank a real drive. FAT year is 1980 + (date >> 9), and a genuine
+      // run lands within [2024, MAX_YEAR].
       int yr = 1980 + (d >> 9);
-      int ny = nameYear(name);                 // 0 for SESS/riglog (fall back to FAT date)
+      int ny = nameYear(name);    // 0 for SESS/riglog: FAT date decides
       uint32_t key = ((uint32_t)d << 16) | tm;
       if (isCsv(name) && yr >= 2024 && yr <= MAX_YEAR && ny <= MAX_YEAR &&
           key >= newestKey) {

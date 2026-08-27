@@ -1,9 +1,9 @@
 /*
- * nano_gps_parse - Stage 2b GPS fix readout for the realtime_gps_hw rig.
+ * nano_gps_parse - GPS fix readout for the realtime_gps_hw rig.
  *
  * Parses the NEO-M8N's NMEA stream (Serial1 on D0/D1) with TinyGPS++ and
  * prints one clean line per second: satellites tracked, fix validity,
- * latitude / longitude, altitude, HDOP and speed. Use this once the raw
+ * latitude, longitude, altitude, HDOP and speed. Run it once the raw
  * passthrough shows sentences arriving, to watch the fix come in.
  *
  * Wiring:  GPS TX -> D0 (RX0), GND shared, VCC on the 5 V rail.

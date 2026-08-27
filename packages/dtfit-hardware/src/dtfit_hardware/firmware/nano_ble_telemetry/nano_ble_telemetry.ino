@@ -1,9 +1,9 @@
 /*
- * nano_ble_telemetry - Stage 5 wireless telemetry for the realtime_gps_hw rig.
+ * nano_ble_telemetry - wireless telemetry for the realtime_gps_hw rig.
  *
- * Streams GPS + IMU telemetry over BLE so the rig runs untethered on battery
- * while the PC receives the log over Bluetooth. Each line is also echoed to
- * USB serial, so it's still readable when tethered.
+ * Streams GPS and IMU telemetry over BLE, letting the rig run untethered on
+ * battery while the host receives the log over Bluetooth. Each line is also
+ * echoed to USB serial, so it stays readable when tethered.
  *
  * Advertises as "dtfit-gps" with one notify characteristic carrying a CSV line:
  *   t_ms,sats,fix,lat,lon,alt_m,hdop,spd_kmph,ax,ay,az,gx,gy,gz
@@ -82,7 +82,7 @@ void loop() {
       }
     }
     Serial.println("BLE disconnected");
-    BLE.advertise();  // resume advertising so the PC can reconnect
+    BLE.advertise();  // resume advertising, or the host cannot reconnect
   } else {
     while (Serial1.available()) gps.encode(Serial1.read());
     if (millis() - last >= 1000) {

@@ -1,13 +1,13 @@
 /*
- * nano_lsi_onboard - the dtfit streaming LSI filter running ON the M4F.
+ * nano_lsi_onboard - the dtfit streaming LSI filter running on the M4F.
  *
- * The embedded-paper payload: a fixed-size float32 port of
- * dtfit.streaming.LSIFilter (dtfit_lsi.h, tables from tools/embed_lsi.py)
- * running on the Cortex-M4F. At boot it (1) replays an embedded real-data
- * vector (lsi_testvec.h) through the filter and dumps each estimate so the host
- * can check it against the float64 golden, (2) reports the per-update cost in
- * CPU cycles / microseconds (DWT cycle counter) and the SRAM footprint, then
- * (3) runs live on the GPS longitude stream, printing filtered value + forecast.
+ * A fixed-size float32 port of dtfit.streaming.LSIFilter (dtfit_lsi.h, tables
+ * from tools/embed_lsi.py) on the Cortex-M4F. At boot it replays an embedded
+ * real-data vector (lsi_testvec.h) through the filter and dumps each estimate
+ * for the host to check against the float64 golden, reports the per-update
+ * cost in CPU cycles and microseconds from the DWT cycle counter along with
+ * the SRAM footprint, then runs live on the GPS longitude stream, printing the
+ * filtered value and the forecast.
  *
  * Board:   Arduino Nano 33 BLE Sense Rev2 (arduino:mbed_nano:nano33ble)
  * Library: TinyGPSPlus
@@ -17,7 +17,7 @@
 #include "lsi_testvec.h"
 #include <TinyGPS++.h>
 
-// --- DWT cycle counter (exists on the M4, not on the Pico's M0+) ---------- //
+// DWT cycle counter. Present on the Cortex-M4, absent on an M0+.
 static inline void dwtEnable() {
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0;

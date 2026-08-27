@@ -1,13 +1,14 @@
 /*
  * nano_rig_check - wiring verification for the realtime_gps_hw rig.
  *
- * One-shot health report for the wired-up rig. Each second it prints:
+ * A running health report for the wired-up rig. Each second it prints:
  *   - the external I2C scan (expect the INA226 at 0x40)
  *   - INA226 bus voltage / shunt voltage / current  (power-meter wiring)
  *   - onboard IMU acceleration                       (board sanity)
  *   - bytes/sec arriving on Serial1 (D0/D1)          (GPS UART link)
  *
- * The GPS MUST feed D0 (Serial1 RX); a GPS on any other pin reads 0 bytes/s.
+ * The GPS must feed D0, which is Serial1 RX. On any other pin it reads
+ * 0 bytes/s.
  *
  * Board:   Arduino Nano 33 BLE Sense Rev2 (arduino:mbed_nano:nano33ble)
  * Library: Arduino_BMI270_BMM150, INA226 (Rob Tillaart)

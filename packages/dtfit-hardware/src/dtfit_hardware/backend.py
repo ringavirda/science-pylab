@@ -1,15 +1,13 @@
-"""Host-side control + telemetry for the realtime_gps_hw rig.
+"""Host-side control and telemetry for the realtime_gps_hw rig.
 
-Single source of truth for *driving the real hardware* -- the hardware twin of
-the ``realtime_gps`` simulation domain. Where that domain's ``backend.py``
-simulates a 9-DOF rig in NumPy, this one talks to the actual Arduino Nano 33 BLE
-Sense: over USB it locates the board, flashes a firmware sketch from
-``firmware/`` and captures the serial telemetry; over **BLE** it receives the
-untethered telemetry stream so the rig can run on battery in open sky.
+Talks to the Arduino Nano 33 BLE Sense. Over USB it locates the board, flashes
+a firmware sketch from ``firmware/`` and captures the serial telemetry; over
+BLE it receives the same stream untethered, which is what lets the rig run on
+battery in open sky.
 
-Toolchain (no extra install on a machine with the Arduino IDE): the bundled
-``arduino-cli``, plus ``pyserial`` and ``bleak`` for the links
-(``pip install -e '.[rig]'``).
+The toolchain is ``arduino-cli``, taken from PATH or from an Arduino IDE
+install, so a machine with the IDE needs no extra download. ``pyserial`` and
+``bleak`` carry the two links and are ordinary dependencies of this package.
 
 CLI (board on USB / advertising over BLE)::
 
@@ -37,25 +35,26 @@ from pathlib import Path
 FQBN = "arduino:mbed_nano:nano33ble"
 DEFAULT_BAUD = 115200
 
-# BLE identifiers -- must match firmware/nano_ble_telemetry/.
+# BLE identifiers; must match the UUIDs in the firmware sketches.
 BLE_NAME = "dtfit-gps"
 BLE_SERVICE_UUID = "9a1e0000-1b2c-4f3a-8d5e-6f7a8b9c0d10"
 BLE_TELE_UUID = "9a1e0001-1b2c-4f3a-8d5e-6f7a8b9c0d10"
 BLE_CSV_HEADER = (
     "t_ms,sats,fix,lat,lon,alt_m,hdop,spd_kmph,ax,ay,az,gx,gy,gz"
 )
-# nano_lsi_log (v4) emits a wider record: raw fix + IMU, then the on-MCU float32 LSI
-# estimate + 1 s forecast (est_lat/est_lon/fc_*, computed in local-ENU metres so
-# float32 stays well-conditioned), the IMU-adaptive ``mode`` (0 = still/ZUPT degree-0,
-# 1 = moving/degree-1), the per-update cost (us), the high-rate on-MCU heading block
-# (``hdg_deg`` on-MCU COMPLEMENTARY-cleaned heading -- gyro integrated at high rate but
-# slow-anchored to the GPS course so it is drift-free live (v7; was the raw integrator
-# pre-v7); ``dhdg_deg`` the RAW gravity-aligned yaw increment since the last emit (the
-# alias-free increment the host dead-reckons on; cumsum recovers the raw heading),
-# ``imu_hz`` samples integrated this interval,
-# ``newfix`` 1 on a fresh GPS fix / 0 on a between-fix high-rate sample), and ``sd``
-# (0/1 -- write+sync health, so the untethered phone can show REC / NO SD). The PC scores
-# the float32 est_* columns against a float64 LSI replayed on the raw lat/lon.
+# nano_lsi_log emits a wider record: the raw fix and IMU, then the on-MCU
+# float32 LSI estimate and 1 s forecast (``est_*``/``fc_*``, computed in
+# local-ENU metres to keep float32 well-conditioned), the IMU-adaptive ``mode``
+# (0 still, 1 moving), the per-update cost in microseconds, the heading block,
+# ``imu_hz`` (IMU samples integrated this interval, which confirms the rate),
+# ``newfix`` (1 on a fresh GPS fix, 0 on a between-fix sample) and ``sd``, the
+# write health the untethered phone renders as REC / NO SD.
+#
+# Of the heading pair, ``hdg_deg`` is anchored to the GPS course on-chip: it is
+# drift-free but not independent of GPS. ``dhdg_deg`` is the raw
+# gravity-aligned yaw increment since the last emit, and that is the one the
+# host dead-reckons on. The host scores the float32 ``est_*`` columns against a
+# float64 LSI replayed on the raw lat/lon.
 BLE_CSV_HEADER_LSI = (
     "t_ms,sats,fix,lat,lon,alt_m,hdop,spd_kmph,ax,ay,az,gx,gy,gz,mx,my,mz,"
     "est_lat,est_lon,fc_lat,fc_lon,mode,cost_us,hdg_deg,dhdg_deg,imu_hz,newfix,sd"
@@ -85,9 +84,7 @@ class Board:
     name: str
 
 
-# --------------------------------------------------------------------------- #
-# Arduino toolchain (arduino-cli)
-# --------------------------------------------------------------------------- #
+# Arduino toolchain (arduino-cli).
 def arduino_cli() -> str:
     """Locate ``arduino-cli``: PATH first, then the bundled Arduino IDE copy."""
     exe = shutil.which("arduino-cli")
@@ -155,16 +152,14 @@ def flash(sketch: str, port: str | None = None, fqbn: str = FQBN) -> str:
     cp = _run(["upload", "-p", port, "--fqbn", fqbn, str(sk)])
     if cp.returncode != 0:
         raise RuntimeError(f"upload failed:\n{cp.stdout}\n{cp.stderr}")
-    # The board resets and re-enumerates after upload, sometimes on a *new* COM
-    # port; re-detect so callers read the live port, not the stale one.
+    # After an upload the board resets and re-enumerates, sometimes on a
+    # different COM port. Re-detect, or the caller gets a stale port.
     time.sleep(2.0)
     b = find_board(fqbn)
     return b.port if b else port
 
 
-# --------------------------------------------------------------------------- #
-# USB-serial telemetry (pyserial)
-# --------------------------------------------------------------------------- #
+# USB-serial telemetry (pyserial).
 def _resolve_port(port: str | None) -> str:
     if port is None:
         b = find_board()
@@ -235,9 +230,7 @@ def log_csv(
     return out
 
 
-# --------------------------------------------------------------------------- #
-# BLE telemetry (bleak) -- the untethered link for battery / open-sky runs
-# --------------------------------------------------------------------------- #
+# BLE telemetry (bleak): the untethered link for battery / open-sky runs.
 def _ble_stream(seconds, name, char_uuid, scan_timeout, on_line) -> None:
     """Connect to ``name`` and call ``on_line(str)`` per notification."""
     import asyncio
@@ -287,11 +280,10 @@ def ble_log_csv(
     scan_timeout: float = 15.0,
     header: str = BLE_CSV_HEADER_LSI,
 ) -> Path:
-    """Stream BLE telemetry to a CSV (with the firmware's column header).
+    """Stream BLE telemetry to a CSV, prefixed with the column header.
 
-    Defaults to the ``nano_lsi_log`` (rig) column header, the firmware the rig
-    actually runs. Pass ``header=BLE_CSV_HEADER`` for the plain 14-column
-    ``nano_ble_telemetry`` sketch instead.
+    The default header is ``nano_lsi_log``'s, the sketch the rig runs. Pass
+    ``header=BLE_CSV_HEADER`` for the plain 14-column ``nano_ble_telemetry``.
     """
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -306,9 +298,6 @@ def ble_log_csv(
     return out
 
 
-# --------------------------------------------------------------------------- #
-# Telemetry parsing
-# --------------------------------------------------------------------------- #
 _NUM = r"[-+]?\d*\.?\d+"
 _IMU_RE = re.compile(
     rf"a=({_NUM}),({_NUM}),({_NUM})\s+"
@@ -326,14 +315,12 @@ def parse_imu(line: str) -> dict | None:
     return dict(zip(_IMU_KEYS, (float(x) for x in m.groups())))
 
 
-# --------------------------------------------------------------------------- #
-# End-to-end self test (flash diagnostic + confirm telemetry)
-# --------------------------------------------------------------------------- #
 def self_test(seconds: float = 6.0, install: bool = True) -> dict:
     """Flash the diagnostic and confirm the board streams IMU telemetry.
 
-    Returns a report dict. Raises on toolchain/compile/upload failure; reports
-    a soft ``ok=False`` if the board is absent or no telemetry arrives.
+    Returns:
+        A report dict. A missing board or silent telemetry is reported as a
+        soft ``ok=False``; a toolchain, compile or upload failure raises.
     """
     b = find_board()
     if b is None:
@@ -380,7 +367,6 @@ def _main(argv: list[str]) -> None:
     elif cmd == "blelog":
         path = argv[1] if len(argv) > 1 else str(DATA_DIR / "ble_log.csv")
         secs = float(argv[2]) if len(argv) > 2 else 60.0
-        # the rig runs nano_lsi_log -> wide record (raw + on-MCU LSI + cost)
         print("wrote", ble_log_csv(path, seconds=secs, header=BLE_CSV_HEADER_LSI))
     elif cmd in ("selftest", "self_test"):
         rep = self_test()

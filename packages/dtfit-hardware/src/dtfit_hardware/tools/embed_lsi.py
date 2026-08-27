@@ -1,26 +1,25 @@
-"""Freeze a streaming-LSI config into embeddable form + a golden reference.
+"""Freeze a streaming-LSI config into embeddable form plus a golden reference.
 
-The on-MCU filter is a fixed-size specialization of ``dtfit.streaming.LSIFilter``:
-a single model, a fixed window ``W`` and Legendre ``order``, full-window only (no
-adaptive window / drift / robust paths). This module is the bridge between the
-Python method and the C firmware:
+The on-MCU filter is a fixed-size specialization of
+``dtfit.streaming.LSIFilter``: one model, a fixed window ``W`` and Legendre
+``order``, full-window only, with no adaptive-window, drift or robust paths.
+This module bridges the Python method and the C firmware.
 
-* :func:`tables` precomputes every constant the hot path needs (the Legendre
-  projection matrix, the Gauss-Legendre quadrature, the noise diagonals) -- these
-  become read-only **flash** tables on the MCU.
-* :func:`golden_run` is a float64 reimplementation of *exactly* the C hot path,
-  the "PC reference" the embedded float32 filter is validated bit-for-bit against.
-* :func:`cross_check` proves the golden equals the real ``LSIFilter`` (configured
-  to the same fixed-window subset), so the embedded filter is demonstrably the
-  dtfit method -- not a lookalike.
+* :func:`tables` precomputes every constant the hot path needs, being the
+  Legendre projection matrix, the Gauss-Legendre quadrature and the noise
+  diagonals. On the MCU these live in read-only flash.
+* :func:`golden_run` reimplements the C hot path in float64, operation for
+  operation. It is the host reference the embedded float32 filter is checked
+  against.
+* :func:`cross_check` shows the golden matches the real ``LSIFilter``
+  configured to the same fixed-window subset, which is what makes the embedded
+  filter demonstrably the dtfit method rather than a lookalike.
 * :func:`emit_header` writes ``lsi_tables.h`` for the firmware.
 
-v1 model: per-axis **constant-velocity** ``y = c0 + c1*t`` (monomial basis, degree
-1). It is linear in the parameters and well-conditioned in float32 even at large
-absolute ``t`` (condition ~ t0/span), so it gives a clean bit-identity demo. The
-quadratic / nonlinear-coordinated-turn escalations reuse this same machinery and
-are where the float32-precision story gets interesting (raise ``DEGREE`` / swap
-the basis).
+The frozen model is a per-axis constant velocity ``y = c0 + c1*t`` on a
+monomial basis. Being linear in the parameters, it stays well-conditioned in
+float32 even at large absolute ``t``, where the condition number goes as
+t0/span.
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ from pathlib import Path
 import numpy as np
 from numpy.polynomial import legendre as L
 
-# --- frozen configuration -------------------------------------------------- #
+# Frozen configuration.
 W = 15                  # sliding-window length
 ORDER = 5               # Legendre spectral order -> M = ORDER + 1 coefficients
 DEGREE = 1              # model degree: y = sum_{k=0..DEGREE} c_k t^k  (N = DEGREE+1)
@@ -44,15 +43,15 @@ N = DEGREE + 1
 N_QUAD = max(2 * (ORDER + 1), 16)
 HERE = Path(__file__).resolve().parent
 FIRMWARE = HERE.parent / "firmware"
-# Every sketch dir that #includes the generated tables. Arduino requires a
-# sketch-local copy of each header, so the generator writes lsi_tables.h into all
-# of them in one pass -- otherwise a config change regenerates one and silently
-# leaves the other's tables stale (shipping mismatched firmware).
+# Every sketch dir that #includes the generated tables. Arduino demands a
+# sketch-local copy of each header, so the generator writes lsi_tables.h into
+# all of them in one pass. Regenerating just one would silently leave the
+# other's tables stale, and mismatched firmware would ship.
 FIRMWARE_TARGETS = ("nano_lsi_onboard", "nano_lsi_log")
 
 
 def tables() -> dict:
-    """Every constant the on-MCU hot path needs (the future flash tables)."""
+    """Every constant the on-MCU hot path needs; these become flash tables."""
     tau = np.linspace(-1.0, 1.0, W)
     proj = np.linalg.pinv(L.legvander(tau, ORDER))          # (M, W)
     nodes, qw = L.leggauss(N_QUAD)                           # (N_QUAD,)
@@ -74,10 +73,12 @@ def _project(fv: np.ndarray, qw: np.ndarray, legv: np.ndarray,
 
 
 def golden_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
-    """Float64 reference: exactly the C hot path, one (t, y) sample at a time.
+    """Float64 reference for the C hot path, one (t, y) sample at a time.
 
-    Returns the per-sample parameter estimate ``p`` (N,), shape ``(len(t), N)``;
-    rows before the window fills hold the initial ``p0`` (the filter is idle).
+    Returns:
+        The per-sample parameter estimate ``p`` (N,), shape ``(len(t), N)``.
+        Rows before the window fills hold the initial ``p0``, the filter being
+        idle until then.
     """
     tb = tables()
     proj, nodes, qw, legv_q = tb["proj"], tb["nodes"], tb["qw"], tb["legv_q"]
@@ -105,14 +106,14 @@ def golden_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
                 H[:, k] = _project(tq ** k, qw, legv_q, norm)
             beta_model = H @ p
             e = beta_data - beta_model
-            # Information-form update. The measurement noise R is diagonal and the
-            # state is tiny (N << M), so instead of forming and inverting the
-            # M x M innovation covariance S = H P H^T + R, use the algebraically
-            # identical Woodbury form whose only inverses are N x N:
+            # Information-form update. R is diagonal and the state is tiny
+            # (N << M), so rather than form and invert the M x M innovation
+            # covariance S = H P H^T + R, this takes the algebraically
+            # identical Woodbury form, whose only inverses are N x N:
             #   P_post = (P^-1 + H^T R^-1 H)^-1        (a-posteriori covariance)
             #   p     += P_post H^T R^-1 e
             #   P      = P_post + Q
-            # Same result to float rounding; the on-MCU cost drops (no M x M inverse).
+            # Same result to float rounding, and the MCU never inverts M x M.
             HtRinv = H.T / r_diag                  # (N, M) == H^T diag(1/R)
             A = HtRinv @ H                          # (N, N)
             P_post = np.linalg.inv(np.linalg.inv(P) + A)
@@ -143,7 +144,11 @@ def dtfit_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
 
 
 def cross_check() -> float:
-    """Golden vs the real LSIFilter on a synthetic ramp+noise; max |Δp|."""
+    """Golden against the real LSIFilter on a synthetic ramp plus noise.
+
+    Returns:
+        The largest absolute parameter difference over the run.
+    """
     rng = np.random.default_rng(0)
     t = np.arange(80) * 0.1
     y = 3.0 - 1.5 * t + rng.normal(0, 0.05, t.size)
@@ -153,21 +158,20 @@ def cross_check() -> float:
     return float(np.max(np.abs(g - d)))
 
 
-# --- C header emission ----------------------------------------------------- #
 def _fc(v: float) -> str:
-    """Format a float as a valid C float literal (always decimal or exponent).
+    """Format a float as a valid C float literal, decimal or exponent.
 
-    Values with ``|v| < 1e-12`` -- projection entries that are analytically zero
-    but carry platform-dependent ~1e-17 floating-point roundoff (they differ
-    across BLAS / NumPy builds) -- are snapped to ``0.0`` so the emitted tables
-    are byte-deterministic across machines. Without this the checked-in-tables
-    sync test is flaky (and the firmware ships meaningless 1e-17 noise).
+    Anything under ``1e-12`` in magnitude is snapped to ``0.0``. Those are
+    projection entries that are analytically zero but carry ~1e-17 of roundoff
+    which differs between BLAS and NumPy builds; snapping them keeps the
+    emitted tables byte-identical across machines. Otherwise the checked-in
+    tables sync test goes flaky and the firmware ships meaningless noise.
     """
     if abs(v) < 1e-12:
         v = 0.0
     s = f"{v:.9g}"
     if not any(c in s for c in ".eE"):
-        s += ".0"          # "1" -> "1.0" so the 'f' suffix is valid C++
+        s += ".0"          # "1" -> "1.0", or the 'f' suffix is invalid C++
     return s + "f"
 
 
@@ -209,10 +213,14 @@ def render_header() -> str:
 def emit_header(path: Path | None = None) -> list[Path]:
     """Write the firmware's ``lsi_tables.h`` from the frozen config.
 
-    With no ``path`` the header is written into **every** sketch dir that
-    consumes it (:data:`FIRMWARE_TARGETS`), so a config change can never leave one
-    sketch's tables stale. Pass an explicit ``path`` to write a single file (e.g.
-    a temp file in a test). Returns the paths written.
+    Args:
+        path: Write this single file instead, such as a temp file in a test.
+            With no ``path`` the header goes into every sketch dir that
+            consumes it (:data:`FIRMWARE_TARGETS`), which is what stops a
+            config change leaving one sketch's tables stale.
+
+    Returns:
+        The paths written.
     """
     text = render_header()
     targets = ([path] if path is not None
@@ -226,9 +234,11 @@ def emit_header(path: Path | None = None) -> list[Path]:
 def load_sample(col: int = 4) -> tuple[np.ndarray, np.ndarray]:
     """Load (t_seconds, y) from the newest recorded BLE sample CSV.
 
-    ``col`` selects the signal column (default 4 = longitude). Time is
-    re-referenced to the first sample and converted to seconds. Falls back to a
-    synthetic ramp+noise if no sample exists yet.
+    Time is re-referenced to the first sample and converted to seconds. With no
+    sample recorded yet this falls back to a synthetic ramp plus noise.
+
+    Args:
+        col: Signal column to take; 4 is longitude.
     """
     data_dir = HERE.parent / "data"
     samples = sorted(data_dir.glob("sample_*.csv"))
@@ -248,7 +258,7 @@ def load_sample(col: int = 4) -> tuple[np.ndarray, np.ndarray]:
 
 
 def emit_testvec(t: np.ndarray, y: np.ndarray, path: Path | None = None) -> Path:
-    """Emit ``lsi_testvec.h`` (the firmware's on-boot self-validation vector)."""
+    """Emit ``lsi_testvec.h``, the on-boot self-validation vector."""
     out = path or (FIRMWARE / "nano_lsi_onboard" / "lsi_testvec.h")
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = [

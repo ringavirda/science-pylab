@@ -1,10 +1,11 @@
 /*
- * nano_diagnostic - Stage 0 bring-up for the realtime_gps_hw rig.
+ * nano_diagnostic - first bring-up step for the realtime_gps_hw rig.
  *
- * Proves the board with NO external wiring: the USB upload path, USB-serial
- * telemetry, the onboard 9-axis IMU (BMI270 + BMM150) and the external I2C
- * bus on A4/A5. Streams IMU readings twice a second so the host backend can
- * confirm the board is alive and the toolchain works end to end.
+ * Proves the board with no external wiring at all: the USB upload path,
+ * USB-serial telemetry, the onboard 9-axis IMU (BMI270 + BMM150) and the
+ * external I2C bus on A4/A5. It streams IMU readings twice a second, which is
+ * what the host backend watches to confirm the board is alive and the
+ * toolchain works end to end.
  *
  * Board:   Arduino Nano 33 BLE Sense Rev2 (arduino:mbed_nano:nano33ble)
  * Library: Arduino_BMI270_BMM150
@@ -25,7 +26,7 @@ static void i2cScan() {
     }
   }
   Serial.print("  external I2C (A4/A5) devices: ");
-  Serial.println(found);  // 0 is expected until the INA226 is wired
+  Serial.println(found);  // 0 until the INA226 is wired
 }
 
 void setup() {

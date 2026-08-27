@@ -5,7 +5,7 @@
 deepest result in the suite — it is not a heuristic but the linearity of
 integration turned into an architecture.
 
-Source: [`../../src/dtfit/adaptations/partitioned.py`](../../src/dtfit/adaptations/partitioned.py).
+Source: [`../../../../../../dtfit/src/dtfit/scale/_partitioned.py`](../../../../../../dtfit/src/dtfit/scale/_partitioned.py).
 Tested in: [Big-data (2)](../02_big_data_streaming/02_big_data_streaming.ipynb),
 [Parallel (7)](../07_parallel_scaling/07_parallel_scaling.ipynb),
 [GPU (8)](../08_gpu_batched_projection/08_gpu_batched_projection.ipynb),

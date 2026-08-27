@@ -1,8 +1,8 @@
 """Smoke tests for dtfit-hardware.
 
-The package is host-glue driving real silicon, so most of it can only run with a
-board attached. These checks just confirm the package imports and ships its
-firmware, without needing any hardware.
+The package is host glue driving real silicon, and most of it only runs with a
+board attached. These checks confirm the package imports and ships its
+firmware, which needs no hardware.
 """
 from __future__ import annotations
 
@@ -20,6 +20,6 @@ def test_firmware_sketches_present() -> None:
     root = resources.files("dtfit_hardware")
     firmware = Path(str(root)) / "firmware"
     assert firmware.is_dir(), "firmware/ should ship with the package"
-    # The rig firmware and the BLE-telemetry sketch the phone app talks to.
+    # The rig firmware, plus the BLE-telemetry sketch the phone app talks to.
     for sketch in ("nano_lsi_log", "nano_ble_telemetry"):
         assert (firmware / sketch).is_dir(), f"missing firmware/{sketch}"

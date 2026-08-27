@@ -9,9 +9,9 @@ per-channel partitioned loop at the same flat memory**, and **backend-pluggable*
 It trails the whole-array single GEMM (the price of bounded memory) and the GPU
 does *not* help its streaming path — both honest, both expected.
 
-Source: [`../../src/dtfit/adaptations/partitioned.py`](../../src/dtfit/adaptations/partitioned.py)
+Source: [`../../../../../../dtfit/src/dtfit/scale/_partitioned.py`](../../../../../../dtfit/src/dtfit/scale/_partitioned.py)
 (`PartitionedBatchLSI`), built on the new
-[`_spectral.py`](../../src/dtfit/adaptations/_spectral.py) primitive
+[`_spectral.py`](../../../../../../dtfit/src/dtfit/_core/_spectral.py) primitive
 `Basis.project_integral_batched` (raw additive integrals).
 Tested in: [Fused multi-channel big data (10)](../10_fused_partitioned_batched/10_fused_partitioned_batched.ipynb).
 Extends [#1 map-reduce](01_map_reduce_partitioned.md) and the

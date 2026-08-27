@@ -1,9 +1,9 @@
 /*
  * nano_sd_check - verify the SPI microSD module (SdFat, exFAT-capable).
  *
- * Uses SdFat's SdFs (FAT16/FAT32/exFAT), so a stock 128 GB exFAT card works
- * without reformatting. Mounts, writes a test file, reads it back, reports the
- * filesystem type and any low-level card error code for diagnosis.
+ * Built on SdFat's SdFs (FAT16/FAT32/exFAT), so a stock 128 GB exFAT card
+ * works unreformatted. It mounts the card, writes a test file, reads it back,
+ * and reports the filesystem type plus any low-level card error code.
  *
  * Wiring:  VCC->3V3 or 5V (see note), GND, SCK->D13, MISO->D12, MOSI->D11, CS->D10.
  * Note:    modules with an onboard regulator + level-shifter want VCC = 5 V;
@@ -25,7 +25,7 @@ void setup() {
   Serial.println();
   Serial.println("=== nano_sd_check (SdFat / exFAT-capable) ===");
   Serial.print("sd.begin(CS=D10, 4 MHz) ... ");
-  // 4 MHz SPI: conservative for breadboard jumper wiring.
+  // 4 MHz SPI, kept conservative for breadboard jumper wiring.
   if (!sd.begin(SdSpiConfig(SD_CS, SHARED_SPI, SD_SCK_MHZ(4)))) {
     Serial.println("FAILED");
     Serial.print("card errorCode=0x");

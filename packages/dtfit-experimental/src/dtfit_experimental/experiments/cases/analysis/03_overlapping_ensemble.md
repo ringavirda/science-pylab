@@ -4,7 +4,7 @@
 aggregation breaks down once many windows are corrupted, and plain **LSI is both
 simpler and more robust**. Does not clear the promotion gate.
 
-Source: [`../../src/dtfit/adaptations/ensemble.py`](../../src/dtfit/adaptations/ensemble.py).
+Source: [`../../../../../../dtfit/src/dtfit/methods/_ensemble.py`](../../../../../../dtfit/src/dtfit/methods/_ensemble.py).
 Tested in: [Noise & robustness (3)](../03_noise_robustness/03_noise_robustness.ipynb).
 
 ## What it is

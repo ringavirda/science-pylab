@@ -5,7 +5,7 @@ channels the dedicated per-channel solver already wins; coupling buys *parameter
 parsimony and enforced consistency*, not accuracy. The case where it *should*
 help (genuinely weak per-channel data) was not cleanly demonstrated.
 
-Source: [`../../src/dtfit/adaptations/joint.py`](../../src/dtfit/adaptations/joint.py).
+Source: [`../../../joint.py`](../../../joint.py).
 Tested in: [Control MIMO (1)](../01_control_systems/01_control_systems.ipynb),
 [GPS (5)](../05_gps_trajectory/05_gps_trajectory.ipynb) (intended retest — inconclusive, see caveat).
 

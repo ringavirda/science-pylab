@@ -5,8 +5,8 @@ many channels turns a Python per-channel loop into a single BLAS GEMM — up to
 ~340× faster on CPU, exact to machine precision, and the form that also unlocks
 the GPU.
 
-Source: [`../../src/dtfit/adaptations/batched.py`](../../src/dtfit/adaptations/batched.py),
-[`_spectral.py`](../../src/dtfit/adaptations/_spectral.py) (`_gemm_factors`).
+Source: [`../../../../../../dtfit/src/dtfit/scale/_batched.py`](../../../../../../dtfit/src/dtfit/scale/_batched.py),
+[`_spectral.py`](../../../../../../dtfit/src/dtfit/_core/_spectral.py) (`_gemm_factors`).
 Tested in: [GPU/batched throughput (8)](../08_gpu_batched_projection/08_gpu_batched_projection.ipynb),
 [Fused multi-channel big data (10)](../10_fused_partitioned_batched/10_fused_partitioned_batched.ipynb).
 

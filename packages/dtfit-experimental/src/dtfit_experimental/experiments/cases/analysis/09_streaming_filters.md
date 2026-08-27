@@ -10,7 +10,7 @@ that does not translate into beating the Kalman. The streaming filter's value is
 real-time/streaming operation, change detection, and a tiny fixed footprint that
 fits a microcontroller (Exp 9) — not raw accuracy superiority.
 
-Source: [`../../src/dtfit/streaming/`](../../src/dtfit/streaming/)
+Source: [`../../../../../../dtfit/src/dtfit/streaming/`](../../../../../../dtfit/src/dtfit/streaming/)
 (`EACFilter`, `LSIFilter`, `FilterBank`).
 Tested in: [Control (1)](../01_control_systems/01_control_systems.ipynb),
 [Big-data (2)](../02_big_data_streaming/02_big_data_streaming.ipynb),

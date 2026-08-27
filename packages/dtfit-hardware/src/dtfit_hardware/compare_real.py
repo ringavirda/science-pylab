@@ -1,23 +1,20 @@
-"""Score dtfit's integral trackers against the classical baselines on a *real*
-logged rig run -- the hardware counterpart of the simulation's E1/E2 (and the
-float32-vs-float64 precision check, E5).
+"""Score dtfit's integral trackers against the classical baselines on a real
+logged rig run: the hardware counterpart of the simulation's E1/E2, plus the
+float32-vs-float64 precision check E5.
 
-There is no external ground truth on a real single-frequency run, so we use the
-two metrics that *are* well-defined from the data itself (the BOM's no-RTK plan):
+A real single-frequency run has no external ground truth, which is why the
+comparison rests on the only two metrics that are well defined from the data
+itself. Forecast RMSE has the tracker predict the fix ``h`` steps ahead and
+scores that against the fix that actually arrived, making truth the real future
+sample. Dropout-coasting RMSE blanks synthetic gaps, lets each tracker coast,
+and scores the coasted estimate against the real fixes that were held out; the
+GPS+IMU methods dead-reckon the gap while the GPS-only ones extrapolate their
+local model. When the log also carries the on-MCU estimate (``est_lat`` and
+``est_lon`` from ``nano_lsi_log``), a third number compares that logged float32
+estimate against a float64 dtfit replay of the same raw fixes.
 
-* **forecast RMSE** -- at each step the tracker predicts the fix ``h`` steps ahead;
-  score against the actually-observed future fix. Truth = the real future sample.
-* **dropout-coasting RMSE (E2)** -- blank synthetic gaps, let each tracker coast,
-  and score the coasted estimate against the *held-out* real fixes. Truth = the
-  fixes we hid. The GPS+IMU methods dead-reckon the gap; the GPS-only ones
-  extrapolate their local model.
-
-Plus, when the log carries the on-MCU estimate (``est_lat``/``est_lon`` from
-``nano_lsi_log``), the **float32-vs-float64** drift: the logged on-MCU float32
-estimate vs a float64 dtfit replay on the same raw fixes.
-
-Everything runs in **local-ENU metres** about the first fix (small values keep the
-fit well-conditioned, the same reason the firmware moved to ENU).
+Everything runs in local-ENU metres about the first fix. Small values keep the
+fit well-conditioned, which is also why the firmware works in ENU.
 
 Usage::
 
@@ -39,18 +36,20 @@ DEG2RAD = math.pi / 180.0
 G_MS2 = 9.81
 
 
-# --------------------------------------------------------------------------- #
-# load + project
-# --------------------------------------------------------------------------- #
 def load_log(path: str) -> dict:
-    """Parse a rig CSV (raw GPS+IMU, optionally the nano_lsi_log columns). Keeps
-    only fix==1 rows; returns named float arrays + the column set present.
+    """Parse a rig CSV: raw GPS+IMU, optionally the nano_lsi_log columns.
 
-    v4 logs emit faster than GPS (``EMIT_HZ``), so most rows repeat the last fix with
-    only fresh IMU/heading. When the ``newfix`` column is present we keep just the
-    genuine-GPS-update rows (newfix==1), so the trajectory stays at the real GPS rate and
-    every existing metric is unchanged; the between-fix high-rate samples remain in the raw
-    CSV for finer analysis. The on-MCU heading columns (hdg_deg/dhdg_deg) are carried through."""
+    Keeps only ``fix==1`` rows.
+
+    Returns:
+        Named float arrays plus the set of columns present. The firmware emits
+        faster than the GPS updates, leaving most rows a repeat of the last fix
+        with only fresh IMU and heading, so where a ``newfix`` column exists
+        only the genuine GPS updates are kept and the trajectory stays at the
+        true GPS rate. The between-fix samples remain in the raw CSV for finer
+        analysis. Both on-MCU heading columns, ``hdg_deg`` and
+        ``dhdg_deg``, are carried through.
+    """
     rows = list(csv.reader(open(path)))
     head = rows[0]
     ix = {name: i for i, name in enumerate(head)}
@@ -77,7 +76,7 @@ def load_log(path: str) -> dict:
               "mx", "my", "mz", "est_lat", "est_lon", "sats", "hdop", "spd_kmph",
               "hdg_deg", "dhdg_deg"):
         out[k] = col(k)
-    # accept the v1 column names for the on-MCU estimate (lsi_lat/lsi_lon)
+    # older logs name the on-MCU estimate lsi_lat/lsi_lon
     if out["est_lat"] is None and "lsi_lat" in ix:
         out["est_lat"] = col("lsi_lat")
         out["est_lon"] = col("lsi_lon")
@@ -96,9 +95,11 @@ def to_enu(lat, lon, alt):
 
 
 def _align_to_z(g):
-    """Body->world rotation that maps the unit vector ``g`` to world +z (Rodrigues).
-    With ``g`` = the measured static specific force, this makes ``R0 @ accel_static``
-    point along +z, so gravity cancels in ``R @ accel + GRAVITY`` at rest."""
+    """Body-to-world rotation taking ``g`` to world +z, via Rodrigues.
+
+    Feed it the measured static specific force and ``R0 @ accel_static`` points
+    along +z, which makes gravity cancel in ``R @ accel + GRAVITY`` at rest.
+    """
     z = np.array([0.0, 0.0, 1.0])
     g = g / (np.linalg.norm(g) + 1e-9)
     v = np.cross(g, z)
@@ -111,8 +112,8 @@ def _align_to_z(g):
 
 
 def _rest_mask(gyro, accel, gbias, speed):
-    """Stationary samples: low (bias-removed) rotation, ~1 g specific force, and a
-    near-zero GPS speed -- the same rest test the firmware uses."""
+    """Stationary samples: low rotation once bias is removed, ~1 g specific
+    force, near-zero GPS speed. Thresholds match the firmware's rest test."""
     gmag = np.linalg.norm(gyro - gbias, axis=1)          # rad/s
     amag = np.linalg.norm(accel, axis=1) / G_MS2         # g
     sp = speed if speed is not None else np.zeros(len(gyro))
@@ -120,9 +121,9 @@ def _rest_mask(gyro, accel, gbias, speed):
 
 
 def _imu(log):
-    """Real IMU in SI body frame (raw, *no* bias removed) + the initial gravity
-    alignment ``R0``, the initial gyro bias, and the per-sample rest mask. Returns a
-    dict, or None if accel/gyro are absent."""
+    """Real IMU in the SI body frame, raw and with no bias removed, plus
+    the initial gravity alignment ``R0``, the initial gyro bias and the
+    per-sample rest mask. Returns a dict, or None if accel/gyro are absent."""
     if log["gx"] is None or log["ax"] is None:
         return None
     gyro = np.stack([log["gx"], log["gy"], log["gz"]], axis=1) * DEG2RAD
@@ -133,22 +134,23 @@ def _imu(log):
     R0 = _align_to_z(g0)
     abias0 = g0 - R0.T @ np.array([0.0, 0.0, np.linalg.norm(g0)])
     rest = _rest_mask(gyro, accel, gbias0, log["spd_kmph"])
-    # Yaw rate about the *gravity* (world-vertical) axis, not the raw body z. With the
-    # board tilted (even ~11 deg), roll/pitch rates from road bumps/braking -- gyro_x/y,
-    # often larger than gyro_z -- leak into gyro_z and integrate into a bogus heading
-    # (measured 98 deg RMS vs GPS course on the car drive; the gravity-aligned component
-    # is 36 deg). R0 is the same body->world alignment the strapdown path already uses;
-    # (R0 @ w)[2] is the component of body rate w about world up. Feeds gyro_gated_basis
-    # and ekf_track (both previously used the raw-z yaw).
+    # Yaw rate about the gravity (world-vertical) axis, not the raw body z.
+    # Tilt the board even ~11 deg and the roll/pitch rates from bumps and
+    # braking, gyro_x/y and often larger than gyro_z, leak into gyro_z and
+    # integrate into a bogus heading: 98 deg RMS vs GPS course on the car
+    # drive, against 36 deg for the gravity-aligned component. R0 is the same
+    # body-to-world alignment the strapdown path uses, and (R0 @ w)[2] is the
+    # part of body rate w about world up. Feeds gyro_gated_basis and ekf_track.
     yaw = (R0 @ (gyro - gbias0).T).T[:, 2]
-    # Prefer the on-MCU RAW yaw increment (``dhdg_deg``, v4+): it is the alias-free,
-    # gravity-aligned per-emit heading delta the host dead-reckons on, integrated at high
-    # rate on-chip so it does not alias the way one gyro sample per second does. Crucially it
-    # is *not* the GPS-course-anchored ``hdg_deg`` -- feeding that cleaned heading into the
-    # "gyro" fusion would leak the GPS course (incl. metric [B]'s held-out fixes, which the
-    # on-chip anchor still saw) into the dead-reckoning. ``hdg_deg`` is reserved for
-    # reporting/plots. Consumed as a yaw *rate* (increment / dt) so gyro_gated_basis and
-    # ekf_track are unchanged; falls back to the gravity-aligned gyro_z above when absent.
+    # Prefer the on-MCU raw yaw increment ``dhdg_deg`` where the log has it: it
+    # is integrated at the IMU rate on-chip, so it does not alias the way one
+    # gyro sample per second does. It is deliberately not the GPS-anchored
+    # ``hdg_deg``; feeding that cleaned heading into the "gyro" fusion would
+    # leak the GPS course into the dead-reckoning, including metric [B]'s
+    # held-out fixes, which the on-chip anchor did see. ``hdg_deg`` stays for
+    # reporting and plots. Consumed as a yaw rate (increment / dt), leaving
+    # gyro_gated_basis and ekf_track untouched, and falling back to the
+    # gravity-aligned gyro_z above when the column is absent.
     dhdg = log.get("dhdg_deg")
     if dhdg is not None and len(dhdg) == len(gyro) and np.isfinite(dhdg).all():
         t = log["t"]
@@ -160,18 +162,26 @@ def _imu(log):
 
 
 def _mag_heading_enu(log, fixes, *, win=10, disp=8.0):
-    """Tilt-compensated magnetometer heading in the **ENU velocity-angle** frame (angle from
-    EAST -- the convention ``gyro_gated_basis`` integrates ``psi`` in), for use as the
-    drift-free absolute-yaw anchor. Steps: hard-iron center the mag (median over the run),
-    tilt-compensate with the accelerometer roll/pitch, then align the compass frame to true
-    course by a **single constant circular offset** fit on the confident-motion samples
-    (>= ``disp`` m of GPS displacement over +-``win`` s, where course-over-ground is well
-    defined). That one scalar absorbs magnetic declination, the sensor-axis convention AND the
-    board's (unknown) mounting yaw -- all physically constant; every *time-varying* part of the
-    heading is the real magnetometer, so it still holds heading THROUGH GPS dropouts (the whole
-    point of the anchor). Returns ``(heading_enu (n,), info)`` or ``(None, None)`` if the mag
-    columns are absent / too little motion. ``info['resid_deg']`` = how tightly the compass
-    tracks course = a quality gauge (this run's compass is loose, ~33 deg, so weight it lightly)."""
+    """Tilt-compensated magnetometer heading in the ENU velocity-angle frame,
+    measured from east, the convention ``gyro_gated_basis`` integrates ``psi``
+    in. This is the drift-free absolute-yaw anchor.
+
+    The magnetometer is hard-iron centred on the run median, tilt-compensated
+    with the accelerometer roll and pitch, then aligned to true course by a
+    single constant circular offset fitted on the confident-motion samples,
+    those with at least ``disp`` m of GPS displacement across the +-``win``
+    sample window where course-over-ground is well defined. One scalar absorbs
+    magnetic declination, the sensor-axis convention and the board's unknown
+    mounting yaw, all of them physically constant. Every time-varying part of
+    the heading is therefore the real magnetometer, which is what lets it hold
+    heading through a GPS dropout.
+
+    Returns:
+        ``(heading_enu (n,), info)``, or ``(None, None)`` when the mag columns
+        are absent or there is too little motion. ``info['resid_deg']`` is how
+        tightly the compass tracks course, i.e. a quality gauge for weighting
+        the anchor.
+    """
     if log["mx"] is None or fixes is None:
         return None, None
     n = log["n"]
@@ -192,12 +202,12 @@ def _mag_heading_enu(log, fixes, *, win=10, disp=8.0):
         k = max(i - win, 0)
         de, dn = fixes[j, 0] - fixes[k, 0], fixes[j, 1] - fixes[k, 1]
         if math.hypot(de, dn) > disp:
-            course[i] = math.atan2(dn, de)                    # ENU angle from EAST
+            course[i] = math.atan2(dn, de)        # ENU angle from east
     mv = np.isfinite(course)
     if mv.sum() < 20:
         return None, None
     d = course[mv] - psi[mv]
-    off = math.atan2(float(np.sin(d).mean()), float(np.cos(d).mean()))   # 1 scalar: the frame
+    off = math.atan2(float(np.sin(d).mean()), float(np.cos(d).mean()))
     r = np.arctan2(np.sin(d - off), np.cos(d - off))
     heading = np.arctan2(np.sin(psi + off), np.cos(psi + off))
     return heading, {"resid_deg": float(np.degrees(np.sqrt(np.mean(r ** 2)))),
@@ -206,13 +216,16 @@ def _mag_heading_enu(log, fixes, *, win=10, disp=8.0):
 
 def strapdown_real(t, gyro, accel, R0, rest, gbias0, abias0, *, tau=20.0,
                    ba=0.02, bg=0.02):
-    """Real-IMU strapdown with **rest-aided online bias estimation + ZUPT**. At the
-    detected stationary samples the true angular rate is 0 and the true specific
-    force is just gravity, so there we EWMA the **body-frame** gyro and accel biases
-    (body frame is where sensor bias lives -- it rotates with attitude, so a world-
-    frame estimate is wrong during motion) and zero the velocity (a zero-velocity
-    update). This keeps the position basis bounded over long runs where a one-time
-    bias removal drifts to hundreds of metres. Returns ``S`` (n,3)."""
+    """Real-IMU strapdown with rest-aided online bias estimation and ZUPT.
+
+    At a detected stationary sample the true angular rate is zero and the true
+    specific force is just gravity, so those samples drive an EWMA of the gyro
+    and accel biases and zero the velocity. The biases are estimated in the
+    body frame because that is where sensor bias lives: it rotates with
+    attitude, and a world-frame estimate goes wrong the moment the rig moves.
+    Doing this keeps the position basis bounded over long runs where a one-time
+    bias removal drifts to hundreds of metres. Returns ``S`` (n,3).
+    """
     m = len(t); R = R0.copy()
     S = np.zeros((m, 3)); v = np.zeros(3); s = np.zeros(3)
     gb = gbias0.copy(); ab = abias0.copy(); grav = G.GRAVITY
@@ -236,45 +249,52 @@ def strapdown_real(t, gyro, accel, R0, rest, gbias0, abias0, *, tau=20.0,
 def gyro_gated_basis(t, fixes, imu, *, tau=4.0, gbias_relax=0.01,
                      mag_heading=None, mag_gain=0.05, scale=1.0, gain=0.5,
                      abs_scale=8.0, decay=0.95, anchor_tau=30.0, win=5):
-    """The drift-immune IMU basis: gyro-yaw-rate dead-reckoning under an innovation gate.
+    """Gyro-yaw-rate dead-reckoning under an innovation gate: the CT-EKF
+    mechanism in dtfit-native form.
 
-    This is the CT-EKF mechanism in dtfit-native form, and the candidate to prove on a
-    *moving* run. It integrates ONLY the bias-corrected gyro **yaw-rate** into a heading
-    ``psi`` -- a single integration of a bounded rate, so there is no gravity-leak to
-    double-integrate (the failure that makes the accel-strapdown rows drift to hundreds of
-    metres). GPS finite-difference speed (re-anchored at each fix, zero-velocity-updated at
-    rest, held through gaps) rides that heading, washed into a position basis
-    ``S = washout_tau( speed * [cos psi, sin psi] )``. The accelerometer is intentionally
-    excluded -- it is the liability, not the asset, on this class of MEMS.
+    Only the bias-corrected gyro yaw rate is integrated, into a heading
+    ``psi``. That is a single integration of a bounded rate, with no gravity
+    leak to double-integrate, which is the failure that sends the
+    accel-strapdown rows drifting hundreds of metres. GPS finite-difference
+    speed rides that heading, re-anchored at each fix, zero-velocity-updated at
+    rest and held through gaps, washed into a position basis
+    ``S = washout_tau(speed * [cos psi, sin psi])``. The accelerometer is left
+    out deliberately: on this class of MEMS it is the liability.
 
-    A per-step gate ``w in [0,1]`` then fuses an **increment-agreement** term (does the
-    dead-reckoned step match the GPS step) with an **absolute-divergence** term (has the
-    dead-reckon walked away from an EWMA GPS anchor) and scales the basis by it: a diverging
-    coast is suppressed toward the GPS-only control, a trustworthy one is admitted. Through a
-    GPS gap ``w`` simply decays. So on static/garbage data the basis self-disables (stays
-    within noise of the S=0 control) and only on genuine, GPS-consistent motion does the IMU
-    carry weight. Returns ``(w*S, w)``. A calibrated compass, if present, bounds ``psi`` drift
-    through long dropouts via the complementary ``mag_heading``/``mag_gain`` anchor."""
+    A per-step gate ``w`` in [0,1] then combines an increment-agreement term,
+    asking whether the dead-reckoned step matches the GPS step, with an
+    absolute-divergence term, asking whether the dead-reckoning has walked away
+    from an EWMA GPS anchor, and scales the basis by the product. A diverging
+    coast is pulled back toward the GPS-only control while a trustworthy one is
+    admitted, and through a GPS gap ``w`` simply decays. The upshot is that on
+    static or garbage data the basis self-disables, staying within noise of the
+    S=0 control, and the IMU carries weight only on genuine, GPS-consistent
+    motion. Returns ``(w*S, w)``.
+
+    A calibrated compass, where present, bounds ``psi`` drift through long
+    dropouts via the complementary ``mag_heading``/``mag_gain`` anchor.
+    """
     yaw_rate, rest = imu["yaw"], imu["rest"]
     m = len(t); S = np.zeros((m, 3))
     psi = 0.0; gb = 0.0; s = np.zeros(2); last_speed = 0.0
     for i in range(m):
         dt = (t[i] - t[i - 1]) if i > 0 else (t[1] - t[0] if m > 1 else 1.0)
         dt = min(max(float(dt), 1e-3), 5.0)
-        a = min(dt / tau, 1.0)                        # clamp: a>1 on a >tau gap would sign-flip the washout
-        if rest[i]:                                   # ZUPT on the yaw-rate bias
+        a = min(dt / tau, 1.0)     # a>1 past a tau-long gap flips the sign
+        if rest[i]:                                   # ZUPT the yaw-rate bias
             gb = (1 - gbias_relax) * gb + gbias_relax * yaw_rate[i]
         psi += (yaw_rate[i] - gb) * dt
         if mag_heading is not None and mag_gain > 0.0 and np.isfinite(mag_heading[i]):
             e = math.atan2(math.sin(mag_heading[i] - psi), math.cos(mag_heading[i] - psi))
-            psi += mag_gain * e                       # absolute-yaw anchor (drift-free)
+            psi += mag_gain * e                       # drift-free yaw anchor
         if i > 0 and not np.any(np.isnan(fixes[i])) and not np.any(np.isnan(fixes[i - 1])):
             last_speed = float(np.linalg.norm(fixes[i, :2] - fixes[i - 1, :2])) / dt
         speed = 0.0 if rest[i] else last_speed
         vd = speed * np.array([math.cos(psi), math.sin(psi)])
         s = (1.0 - a) * s + vd * dt
         S[i, 0], S[i, 1] = s[0], s[1]
-    # innovation + absolute-divergence gate (Schmidt-style), causal; gaps decay w
+    # causal Schmidt-style gate: innovation plus absolute divergence, decaying
+    # through gaps
     w = np.zeros(m); cur = 1.0; err_ewma = 0.0
     prevS = prevF = aS = aF = None; b = 1.0 / anchor_tau
     for i in range(m):
@@ -296,13 +316,10 @@ def gyro_gated_basis(t, fixes, imu, *, tau=4.0, gbias_relax=0.01,
     return S * w[:, None], w
 
 
-# --------------------------------------------------------------------------- #
-# metrics
-# --------------------------------------------------------------------------- #
 def _fc_rmse(pred_h, fixes, motion=None):
-    """Forecast RMSE past warm-up. ``motion`` (a rest mask) restricts to moving samples
-    (rest==False) -- the only honest IMU discriminator, since static metrics reward
-    'stay put' regardless of the IMU."""
+    """Forecast RMSE past warm-up. Passing ``motion``, a rest mask, restricts
+    the score to moving samples. That is the only honest IMU discriminator,
+    because a static metric rewards 'stay put' whatever the IMU did."""
     m = ~np.isnan(pred_h[:, 0])
     m[:WARM] = False
     if motion is not None:
@@ -319,17 +336,24 @@ def _gap_mask(n, gap=15, period=80):
 
 
 def _cv_replay(t, fixes_en, rest=None):
-    """Float64 replay of the *on-MCU* model for the precision diff: per-axis **degree-1**
-    LSI (``c0 + c1*t``), window 15, ZUPT-adaptive -- i.e. **approximately** what
-    ``nano_lsi_log`` computes on-chip (NOT the cubic GPS-only tracker). It matches the
-    on-chip window and degree, but the Legendre spectral ``order`` here (4) differs from the
-    firmware's (5) and it cannot reproduce the exact on-chip warmup / glitch / ENU-origin
-    state, so ``[C]`` is a *coarse* float32-vs-float64 sanity number (a cubic replay instead
-    would measure the model gap and grossly overstate the 'precision drop'). The rigorous
-    bit-faithful E5 is the golden-vector test in ``tools/embed_lsi.py`` (<=3e-5 deg); this is
-    the on-run sanity number on the same fixes the rig actually saw. ``rest`` (the on-MCU rest mask) applies
-    the same zero-velocity update: while still, hold the estimate (degree-0), as the chip
-    does, so the diff is not polluted by the PC model tracking GPS jitter the chip froze."""
+    """Float64 replay of the on-MCU model for the precision diff: per-axis
+    degree-1 LSI (``c0 + c1*t``) over a 15-sample window, roughly what
+    ``nano_lsi_log`` computes on-chip. It is not the cubic GPS-only tracker.
+
+    Window and degree match the chip. The Legendre spectral ``order`` here is 4
+    against the firmware's 5, and the on-chip warm-up, glitch handling and ENU
+    origin cannot be reconstructed from the log, which makes ``[C]`` a coarse
+    float32-vs-float64 sanity number rather than a measurement. Replaying a
+    cubic instead would measure the model gap and wildly overstate the
+    precision drop. The rigorous check is the on-boot golden-vector run
+    (``lsi_testvec.h``, scored in the report notebook); this is the on-run
+    sanity number over the fixes the rig actually saw.
+
+    ``rest`` is accepted but never applied. The estimate is read at the current
+    sample time, and on static data, with ``c1`` near zero, that is already the
+    value the chip's degree-0 ZUPT would hold, so passing a mask changes
+    nothing.
+    """
     m = len(t)
     flts = [G.LSIFilter("c0 + c1*t", "t", p0=[float(fixes_en[0, ax]), 0.0],
                         window_size=15, order=4, q_diag=[1e-2, 1e-2],
@@ -338,20 +362,18 @@ def _cv_replay(t, fixes_en, rest=None):
     for i in range(m):
         for ax in range(2):
             flts[ax].partial_fit(t[i], fixes_en[i, ax])
-            # ZUPT (degree-0): the chip pins the VELOCITY to 0 but c0 still tracks the
-            # fixes as a running average, so the estimate is the filter's position read at
-            # the current time -- the same value degree-1 gives when c1~0 on static data.
             out[i, ax] = float(flts[ax].predict(np.array([t[i]]))[0])
     return out
 
 
 def _glitch_mc(t, fixes, imu, have_imu, n, idx, *, n_seeds=25, frac=0.05, mag=25.0):
-    """Monte-Carlo the [D] glitch-robustness row over ``n_seeds`` INDEPENDENT
-    sub-seeds spawned from a root :class:`numpy.random.SeedSequence` (decorrelated
-    streams -- not correlated integer offsets), so the reported number is a
-    distribution, not a single glitch realization. Each seed draws its own spiked-
-    fix set and scores every tracker's smoothed estimate at the spiked samples
-    against the CLEAN fix. Returns ``[(name, (mean_rmse, p95_rmse)), ...]``."""
+    """Monte-Carlo the [D] glitch-robustness row over ``n_seeds`` independent
+    sub-seeds spawned from a root :class:`numpy.random.SeedSequence`. Spawning
+    gives decorrelated streams where correlated integer offsets would not, and
+    turns the reported figure into a distribution rather than one glitch
+    realization. Each seed draws its own spiked-fix set and scores every
+    tracker's smoothed estimate at the spiked samples against the clean fix.
+    Returns ``[(name, (mean_rmse, p95_rmse)), ...]``."""
     trackers = [
         ("dtfit LSI robust (GPS-only)",
          lambda fg: G.dtfit_track(t, fg, (1,), kind="lsi", robust=True)[0]),
@@ -395,8 +417,9 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
     have_imu = imu is not None
     if have_imu:
         gy3, ac3, R0 = imu["gyro"], imu["accel"], imu["R0"]
+        # the accelerometer contrast row
         S_rest = strapdown_real(t, gy3, ac3, R0, imu["rest"],
-                                imu["gbias0"], imu["abias0"])  # rest-aided (accel contrast)
+                                imu["gbias0"], imu["abias0"])
         rest_pct = 100.0 * imu["rest"].mean()
         lines.append(f"  IMU present; rest-detected {rest_pct:.0f}% of samples")
         mh, minfo = _mag_heading_enu(log, fixes)
@@ -408,13 +431,13 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
                          f"n={minfo['n']}) -> a weak but stable absolute-yaw anchor")
         lines.append("")
 
-    # ---- (A) forecast RMSE: predict h ahead, score vs the real future fix ---- #
-    # Every IMU row is judged against the matched S=0 control -- pure GPS through the
-    # *same* imu_lsi_track engine -- not the differently-configured LSI-cubic row, so a
-    # harness-config difference (cubic vs the engine's quadratic drift) can never be
-    # mistaken for an IMU gain. The motion-only column (rest==False) is the honest
-    # discriminator: a static rig rewards "stay put" regardless of the IMU, so only the
-    # moving samples reveal whether the IMU actually helps.
+    # (A) forecast RMSE: predict h ahead, score against the real future fix.
+    # Every IMU row is judged against the matched S=0 control, pure GPS through
+    # the same imu_lsi_track engine, rather than the differently configured
+    # LSI-cubic row. Otherwise a harness-config difference (cubic against the
+    # engine's quadratic drift) could pass for an IMU gain. The motion-only
+    # column is the honest discriminator, since a static rig rewards "stay put"
+    # whatever the IMU did.
     rest = imu["rest"] if have_imu else None
     z3 = np.zeros((n, 3))
     rows = []   # (name, all_rmse, motion_rmse)
@@ -422,10 +445,9 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
     def _fwd(pred_h):
         return _fc_rmse(pred_h, fixes), _fc_rmse(pred_h, fixes, motion=rest)
 
-    # coast=True: off its window the cubic is dead-reckoned constant-velocity, not
-    # evaluated directly -- a raw cubic *diverges* past the window (h-step forecast and
-    # gap coasting both blow up: measured 143 m at a 25-step gap vs 104 m coasted). This
-    # is the matched control for the dropout/forecast regime (see dtfit_track's docstring).
+    # coast=True dead-reckons the cubic at constant velocity off its window
+    # instead of evaluating it directly, because a raw cubic diverges past the
+    # window: 143 m at a 25-step gap against 104 m coasted. See dtfit_track.
     rows.append(("dtfit LSI-cubic (GPS-only, CV-coast)",
                  *_fwd(G.dtfit_track(t, fixes, (h,), kind="lsi", coast=True)[1][h])))
     rows.append(("Kalman-CA (GPS-only)", *_fwd(G.kalman_track(t, fixes, (h,))[1][h])))
@@ -455,7 +477,8 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
             lines.append(f"      -> compass contribution (gyro+compass minus matched control): "
                          f"{cm_a - ctrl_a:+.2f} / {cm_m - ctrl_m:+.2f}")
 
-    # ---- (B) dropout coasting: blank gaps, score coast vs held-out real fix --- #
+    # (B) dropout coasting: blank gaps, score the coast against the held-out
+    # real fix.
     gm = _gap_mask(n, gap=gap)
     fg = fixes.copy()
     fg[gm] = np.nan
@@ -466,13 +489,14 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
     if have_imu:
         sc.append(("dtfit IMU-LSI S=0 control (matched)",
                    G.imu_lsi_track(t, fg, gy3, ac3, R0, (1,), S=z3)[0]))
-        Sg_gap, _ = gyro_gated_basis(t, fg, imu)   # rebuilt on the blanked series (no leak)
+        Sg_gap, _ = gyro_gated_basis(t, fg, imu)   # rebuilt on blanked fixes
         sc.append(("dtfit IMU-LSI gyro-gated (GPS+gyro)",
                    G.imu_lsi_track(t, fg, gy3, ac3, R0, (1,), S=Sg_gap)[0]))
         if imu.get("mag_heading") is not None:
-            # mag_heading is the magnetometer's own (its constant frame offset is fit on the
-            # FULL run, a physical constant) -> the compass still holds heading through the
-            # blanked gap, which is exactly the anchor value we want to measure here.
+            # mag_heading is the magnetometer's own; its constant frame offset
+            # is fitted on the full run because that offset is a physical
+            # constant. The compass therefore still holds heading through the
+            # blanked gap, which is the anchor value being measured here.
             Sgm_gap, _ = gyro_gated_basis(t, fg, imu, mag_heading=imu["mag_heading"])
             sc.append(("dtfit IMU-LSI gyro+compass (GPS+gyro+mag)",
                        G.imu_lsi_track(t, fg, gy3, ac3, R0, (1,), S=Sgm_gap)[0]))
@@ -486,7 +510,7 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
         v = G.rmse3(sm[gm], fixes[gm]) if sm is not None and gm.any() else float("nan")
         lines.append(f"      {name:<36} {v:6.2f}")
 
-    # ---- (C) float32 (on-MCU) vs float64 (PC) replay of the SAME model -------- #
+    # (C) on-MCU float32 against a host float64 replay of the same model.
     if log["est_lat"] is not None:
         _, (lat0, lon0, cl, md) = to_enu(log["lat"], log["lon"], log["alt_m"])
         mcu = np.stack([(log["est_lon"] - lon0) * cl * md,
@@ -504,17 +528,14 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
         lines.append("      NOT float32 error. The rigorous bit-faithful E5 is the embed_lsi "
                      "golden-vector test: on-MCU float32 == float64 golden to <=3e-5 deg.)")
 
-    # ---- (D) glitch robustness (E3): inject multipath spikes, score vs clean truth -- #
-    # S2 is clean (hdop<=4), so the harness never exercises dtfit's winsorized-integral
-    # robustness -- a real differentiator. We inject synthetic ~25 m multipath spikes on a
-    # fraction of fixes and score each tracker's smoothed estimate at the spiked samples
-    # against the CLEAN (un-spiked) fix = truth: a robust tracker rejects the spike and
-    # stays on the local trajectory; a pointwise one follows it. (A real urban-canyon run
-    # would supply organic glitches; until then this is the honest stand-in.)
-    #
-    # Monte-Carlo'd over independent sub-seeds (SeedSequence.spawn -- decorrelated
-    # streams, NOT correlated offsets like 1000+j), reported as mean +/- p95, so a
-    # single lucky/unlucky glitch placement cannot drive the number.
+    # (D) glitch robustness (E3): inject multipath spikes, score against the
+    # clean truth. The S2 run is clean (hdop<=4) and never exercises dtfit's
+    # winsorized-integral robustness, so synthetic ~25 m multipath spikes go on
+    # a fraction of the fixes and each tracker's smoothed estimate at those
+    # samples is scored against the un-spiked fix. A robust tracker rejects the
+    # spike and stays on the local trajectory; a pointwise one follows it. A
+    # real urban-canyon run would supply organic glitches; until there is one,
+    # this is the honest stand-in.
     idx = np.arange(WARM + 10, n)
     if idx.size:
         d_stats = _glitch_mc(t, fixes, imu, have_imu, n, idx, n_seeds=25)
@@ -545,12 +566,16 @@ def report(path: str, h: int = 10, gap: int = 15) -> str:
 
 
 def sweep(path: str, horizons=(2, 3, 5, 10), gaps=(5, 10, 15)) -> str:
-    """Compact horizon/gap sweep of the key fusion rows, to answer two questions the fixed
-    ``report`` (h=10, gap=15) can't: (a) does the gyro/compass contribution show up at a
-    *shorter* forecast horizon -- 10 s is long for a pedestrian who turns corners, so a
-    genuine IMU gain can be washed out; (b) how does coasting scale with gap length. Motion-
-    only RMSE throughout (the honest IMU discriminator). Columns share the ``report`` engine
-    (matched S=0 control), so a config difference can't masquerade as an IMU gain."""
+    """Compact horizon/gap sweep of the key fusion rows.
+
+    It answers two questions the fixed ``report`` (h=10, gap=15) cannot. First,
+    whether the gyro or compass contribution shows up at a shorter forecast
+    horizon: 10 s is long for a pedestrian who turns corners, and a genuine IMU
+    gain can wash out over it. Second, how coasting scales with gap length.
+    Motion-only RMSE throughout, and every column shares the ``report`` engine
+    and its matched S=0 control, leaving no room for a config difference to
+    masquerade as an IMU gain.
+    """
     log = load_log(path)
     fixes, _ = to_enu(log["lat"], log["lon"], log["alt_m"])
     t, n = log["t"], log["n"]
@@ -603,13 +628,13 @@ def sweep(path: str, horizons=(2, 3, 5, 10), gaps=(5, 10, 15)) -> str:
     return "\n".join(L)
 
 
-# --------------------------------------------------------------------------- #
-# real 5 Hz car-drive analyses (E1/E2 on the fast-motion run)
-# --------------------------------------------------------------------------- #
+# Analyses for the real 5 Hz car drive: E1/E2 on the fast-motion run.
 def est_err_by_speed(log, buckets=((0, 1), (1, 10), (10, 30), (30, 60), (60, 200))):
-    """On-MCU LSI estimate vs the raw GPS fix (the phone's EST ERR chip), binned by speed (m).
-    At 5 Hz the fixed 15-sample window spans 3 s (not 15 s), so the on-chip degree-1 fit stops
-    cutting corners at speed. Returns rows ``(lo, hi, n, mean_err, max_err)`` or None if no est."""
+    """On-MCU LSI estimate against the raw GPS fix, in metres, binned by speed.
+    This is what the phone shows as EST ERR. At 5 Hz the fixed 15-sample window
+    spans 3 s rather than 15, which is why the on-chip degree-1 fit stops
+    cutting corners at speed. Returns rows ``(lo, hi, n, mean_err, max_err)``,
+    or None when the log carries no estimate."""
     if log.get("est_lat") is None:
         return None
     cl = math.cos(math.radians(float(log["lat"][0]))); md = 111320.0
@@ -625,9 +650,11 @@ def est_err_by_speed(log, buckets=((0, 1), (1, 10), (10, 30), (30, 60), (60, 200
 
 
 def imu_noise_floor(log):
-    """IMU noise at the longest stationary stretch (parked; true rate~0, |a|~1 g) vs fast driving.
-    Isotropic gyro/accel std far above the parked floor is mechanical vibration through a loose
-    mount, not vehicle dynamics (which is anisotropic). Returns per-regime stats + stop duration."""
+    """IMU noise at the longest stationary stretch, where the true rate is 0
+    and |a| is 1 g, against fast driving. An isotropic gyro/accel std far above
+    the parked floor is mechanical vibration through a loose mount; vehicle
+    dynamics would be anisotropic. Returns per-regime stats and the stop
+    duration."""
     g = np.stack([log["gx"], log["gy"], log["gz"]], axis=1)
     a = np.stack([log["ax"], log["ay"], log["az"]], axis=1)
     spd = log["spd_kmph"]; amag = np.linalg.norm(a, axis=1)
@@ -648,7 +675,8 @@ def imu_noise_floor(log):
 
 
 def _course(fixes, *, win=15, disp=8.0):
-    """GPS course-over-ground (ENU angle from east) where there's real displacement, else NaN."""
+    """GPS course-over-ground, as an ENU angle from east, where there is real
+    displacement; NaN elsewhere."""
     n = len(fixes); c = np.full(n, np.nan)
     for i in range(n):
         j = min(i + win, n - 1); k = max(i - win, 0)
@@ -659,11 +687,14 @@ def _course(fixes, *, win=15, disp=8.0):
 
 
 def complementary_heading(log, fixes, *, K=0.03):
-    """Clean the wobbly on-MCU gyro heading with a complementary filter: propagate on the real
-    per-emit yaw increment (``dhdg_deg``, integrated ~35 Hz on-chip), slow-correct toward GPS
-    course when moving (removes the drift + vibration-rectification bias the loose mount injects),
-    and coast on gyro alone through GPS gaps (NaN fix). Returns ``(psi_cleaned, course)``. Needs
-    the v4+ ``dhdg_deg`` column."""
+    """Clean the wobbly on-MCU gyro heading with a complementary filter.
+
+    Propagate on the real per-emit yaw increment ``dhdg_deg``, slow-correct
+    toward the GPS course while moving, which takes out both the drift and the
+    vibration-rectification bias a loose mount injects, and coast on the gyro
+    alone through a GPS gap (a NaN fix). Returns ``(psi_cleaned, course)``.
+    Needs the ``dhdg_deg`` column.
+    """
     n = len(fixes); dhdg = np.radians(np.asarray(log["dhdg_deg"]))
     course = _course(fixes); psi = np.zeros(n); p = 0.0
     for i in range(n):
@@ -675,22 +706,28 @@ def complementary_heading(log, fixes, *, K=0.03):
 
 
 def onchip_heading_causal(log, fixes, *, win=15, disp=8.0, K=0.04):
-    """Host mirror of the on-MCU v7 CLEANED heading (firmware ``anchorHeading`` in nano_lsi_log):
-    integrate the RAW per-emit gyro increment (``dhdg_deg``) and slow-correct toward a CAUSAL
-    backward-difference GPS course -- the direction from the fix ``win`` samples ago to now, only
-    where displacement>``disp`` m and moving. This is complementary_heading() with a backward
-    (MCU-realisable) course instead of the centred one it uses, so it reproduces exactly what the
-    chip now emits live in ``hdg_deg`` (v7). On the drive it lands 82 -> ~15 deg vs GPS course (the
-    causal-lag cost over the 9 deg of the non-causal host filter). Lets a NEW log verify the chip.
-    Constants mirror the firmware #defines (CRS_WIN / CRS_DISP / CRS_K). Returns cleaned psi (rad)."""
+    """Host mirror of the on-MCU cleaned heading, firmware ``anchorHeading`` in
+    nano_lsi_log.
+
+    Integrate the raw per-emit gyro increment ``dhdg_deg`` and slow-correct
+    toward a causal backward-difference GPS course, the direction from the fix
+    ``win`` samples ago to now, only where displacement exceeds ``disp`` m and
+    the rig is moving. That is ``complementary_heading`` with a backward,
+    MCU-realisable course in place of the centred one, and it reproduces what
+    the chip emits live in ``hdg_deg``. On the drive it lands at ~15 deg RMS
+    against GPS course, from 82 deg raw; the non-causal host filter reaches 9
+    deg, and the difference is what the causal lag costs. Having the mirror
+    here means a fresh log can verify the chip. The constants match the
+    firmware #defines CRS_WIN, CRS_DISP and CRS_K. Returns cleaned psi in rad.
+    """
     n = len(fixes); dhdg = np.radians(np.asarray(log["dhdg_deg"]))
     spd = log.get("spd_kmph"); psi = np.zeros(n); p = 0.0
     for i in range(n):
-        p += dhdg[i]                                     # gyro propagation (raw increment)
+        p += dhdg[i]                                     # gyro propagation
         moving = spd is None or spd[i] >= 2.0
         if i >= win and moving:
             de = fixes[i, 0] - fixes[i - win, 0]; dn = fixes[i, 1] - fixes[i - win, 1]
-            if math.hypot(de, dn) > disp:                # real displacement over the causal window
+            if math.hypot(de, dn) > disp:                # real displacement
                 course = math.atan2(dn, de)
                 p += K * math.atan2(math.sin(course - p), math.cos(course - p))
         psi[i] = p
@@ -707,13 +744,14 @@ def heading_rms(psi, course):
 
 
 def deadreckon_basis(t, fixes, psi, *, tau=4.0):
-    """Position basis from a heading + GPS finite-difference speed (speed held through gaps),
-    washed out over ``tau`` -- the gyro-yaw dead-reckoning fed to imu_lsi_track as regressor ``S``.
-    No accelerometer: its double integration is hopeless on a vibrating mount."""
+    """Position basis from a heading and GPS finite-difference speed, the speed
+    held through gaps, washed out over ``tau``. This is the gyro-yaw
+    dead-reckoning fed to imu_lsi_track as the regressor ``S``. No
+    accelerometer: its double integration is hopeless on a vibrating mount."""
     n = len(fixes); S = np.zeros((n, 3)); s = np.zeros(2); last = 0.0
     for i in range(n):
         dt = min(max(float(t[i] - t[i - 1]) if i > 0 else 0.2, 1e-3), 5.0)
-        a = min(dt / tau, 1.0)                        # clamp: a>1 on a >tau gap would sign-flip the washout
+        a = min(dt / tau, 1.0)     # a>1 past a tau-long gap flips the sign
         if i > 0 and not np.any(np.isnan(fixes[i])) and not np.any(np.isnan(fixes[i - 1])):
             last = float(np.linalg.norm(fixes[i, :2] - fixes[i - 1, :2])) / dt
         s = (1 - a) * s + last * np.array([math.cos(psi[i]), math.sin(psi[i])]) * dt
@@ -722,12 +760,19 @@ def deadreckon_basis(t, fixes, psi, *, tau=4.0):
 
 
 def maneuver_dropouts(log, fixes, *, gap=75, turn_deg=15):
-    """Place periodic ``gap``-sample GPS dropouts, coast GPS-only vs cleaned-gyro fusion through
-    each, and split gaps into straight vs turn by net heading change. The IMU pays off exactly on
-    turn-dropouts -- GPS-only extrapolates straight off the turn while the gyro carries the
-    heading. Averaged over random placement the two cancel (why periodic dropouts show ~nothing),
-    so the split is the honest view. Returns per-bin means + the best-improvement turn gap and the
-    two coasted tracks (for plotting)."""
+    """Place periodic ``gap``-sample GPS dropouts, coast GPS-only against
+    cleaned-gyro fusion through each, and split the gaps into straight and turn
+    by net heading change.
+
+    The IMU pays off precisely on turn-dropouts: GPS-only extrapolates straight
+    off the turn while the gyro carries the heading. Average over random
+    placement and the two cancel, which is why undifferentiated periodic
+    dropouts show almost nothing and the split is the honest view.
+
+    Returns:
+        Per-bin means, the turn gap with the best improvement, and the two
+        coasted tracks for plotting.
+    """
     n = len(fixes); t = log["t"]; z3 = np.zeros((n, 3))
     psi_full = np.unwrap(complementary_heading(log, fixes)[0])
     gm = _gap_mask(n, gap=gap); fg = fixes.copy(); fg[gm] = np.nan
@@ -759,12 +804,19 @@ def maneuver_dropouts(log, fixes, *, gap=75, turn_deg=15):
 
 
 def load_comma_enu(path):
-    """Load the compact comma2k19 demo ENU CSV (``data/comma2k19_demo_enu.csv``; see its provenance
-    header). Public CA-280 highway: raw ublox live GNSS (~5 Hz) + comma's ``global_pose`` dm-truth,
-    both in per-segment local ENU metres with the constant ublox<->pose datum offset removed. This
-    is the ONE thing our no-RTK rig lacks -- absolute ground truth -- so it turns the rig's forecast/
-    coast *proxies* into real E1/E2 error. Returns a list of segments ``{seg, t, raw(Nx3, z=0),
-    truth(Nx3, z=0), n}`` (the trailing z lets the backend trackers, which expect ENU, run as-is)."""
+    """Load the compact comma2k19 demo ENU CSV from
+    ``data/comma2k19_demo_enu.csv``, whose provenance header has the details.
+
+    Public CA-280 highway: raw ublox live GNSS at about 5 Hz alongside comma's
+    ``global_pose`` decimetre truth, both in per-segment local ENU metres with
+    the constant ublox-to-pose datum offset removed. Absolute ground truth is
+    the one thing the no-RTK rig lacks, and having it turns the rig's forecast
+    and coast proxies into real E1/E2 error.
+
+    Returns:
+        A list of segments ``{seg, t, raw(Nx3, z=0), truth(Nx3, z=0), n}``. The
+        trailing z is there because the backend trackers expect ENU triples.
+    """
     rows = [r for r in csv.reader(open(path)) if r and not r[0].startswith("#")]
     ix = {k: i for i, k in enumerate(rows[0])}
     by_seg = {}
@@ -781,11 +833,17 @@ def load_comma_enu(path):
 
 
 def comma_bench(segs, *, horizons=(5, 10), gaps=(15, 25), glitch_thr=8.0):
-    """dtfit LSI-cubic (CV-coast) vs Kalman-CA on the comma2k19 segments, scored against ABSOLUTE
-    dm-truth -- the real E1 (forecast) and E2 (coast) the rig can only proxy without RTK. Metrics are
-    fix-weighted over segments. Also scans for ORGANIC multipath (raw-vs-truth deviations, no
-    injection). Returns dataset stats + ``forecast[H]=(dtfit,kalman)``, ``coast[gap]=(dtfit,kalman)``
-    and the glitch count above ``glitch_thr`` m."""
+    """dtfit LSI-cubic (CV-coast) against Kalman-CA on the comma2k19 segments,
+    scored on absolute decimetre truth. This is the real E1 forecast and E2
+    coast that the rig can only proxy without RTK. Metrics are fix-weighted
+    over segments, and the run also scans for organic multipath as raw-vs-truth
+    deviation, with nothing injected.
+
+    Returns:
+        Dataset stats plus ``forecast[H]=(dtfit, kalman)``,
+        ``coast[gap]=(dtfit, kalman)`` and the count of glitches above
+        ``glitch_thr`` m.
+    """
     def rms2(a, b):
         m = ~np.isnan(a[:, 0]); m[:WARM] = False
         return float(np.sqrt(np.mean(np.sum((a[m, :2] - b[m, :2]) ** 2, axis=1)))) if m.any() else float("nan")
@@ -818,11 +876,16 @@ def comma_bench(segs, *, horizons=(5, 10), gaps=(15, 25), glitch_thr=8.0):
 
 
 def load_urbannav_enu(path):
-    """Load the UrbanNav Medium-Urban (TST) organic-multipath CSV (``data/urbannav_tst_enu.csv``; see
-    its provenance header). Deep-ish HK urban canyon: three receivers' raw NMEA GGA fixes (a clean
-    dual-freq ublox F9P, a phone, and a severe single-freq M8T ~ our rig's NEO-M8N class) vs the
-    SPAN-CPT dm-truth, in local ENU + the receiver-reported HDOP. This is *organic* multipath -- no
-    injection. Returns ``{recv: {t, raw(Nx3, z=0), truth(Nx3, z=0), hdop, n}}``."""
+    """Load the UrbanNav Medium-Urban (TST) organic-multipath CSV,
+    ``data/urbannav_tst_enu.csv``, whose provenance header has the details.
+
+    A fairly deep Hong Kong urban canyon: raw NMEA GGA fixes from three
+    receivers, a clean dual-frequency ublox F9P, a phone, and a badly affected
+    single-frequency M8T of the same class as the rig's NEO-M8N, against
+    SPAN-CPT decimetre truth, in local ENU with the receiver-reported HDOP.
+    The multipath here is organic, with nothing injected. Returns
+    ``{recv: {t, raw(Nx3, z=0), truth(Nx3, z=0), hdop, n}}``.
+    """
     rows = [r for r in csv.reader(open(path)) if r and not r[0].startswith("#")]
     ix = {k: i for i, k in enumerate(rows[0])}
     by = {}
@@ -839,13 +902,21 @@ def load_urbannav_enu(path):
 
 
 def urbannav_e3(data, *, spike_thr=15.0):
-    """Organic E3 on UrbanNav, and the honest bound on the robustness claim. For each receiver:
-    (1) the quality gradient -- horizontal error vs SPAN truth (median / p95 / max); (2) whether a
-    robust POINTWISE filter rescues the multipath -- raw vs dtfit-robust (winsorized integral) vs
-    Kalman-CA at the organic spike epochs (raw error > ``spike_thr`` m); and (3) ``n_iso``, spikes
-    that are *isolated* (both neighbours < 8 m). Real urban NLOS is SUSTAINED (n_iso ~ 0), so no
-    per-axis filter helps -- the robust win is scoped to isolated outliers (the rig's injected E3),
-    and the urban regime is a tight-coupling / 3D-map problem. Returns per-receiver stats."""
+    """Organic E3 on UrbanNav, and the honest bound on the robustness claim.
+
+    Per receiver it reports three things: the quality gradient, as horizontal
+    error against SPAN truth in median, p95 and max; whether a robust pointwise
+    filter rescues the multipath, comparing raw against dtfit-robust
+    (winsorized integral) and Kalman-CA at the organic spike epochs where raw
+    error exceeds ``spike_thr`` m; and ``n_iso``, the spikes that are isolated,
+    both neighbours under 8 m.
+
+    Real urban NLOS is sustained rather than isolated, giving ``n_iso`` near
+    zero, and no per-axis filter helps there. The robust win is therefore
+    scoped to isolated outliers, which is what the rig's injected E3 measures;
+    the urban regime is a tight-coupling or 3D-map problem instead. Returns
+    per-receiver stats.
+    """
     def rms(a, b, m):
         ok = ~np.isnan(a[:, 0]) & m
         return float(np.sqrt(np.mean(np.sum((a[ok, :2] - b[ok, :2]) ** 2, axis=1)))) if ok.any() else float("nan")

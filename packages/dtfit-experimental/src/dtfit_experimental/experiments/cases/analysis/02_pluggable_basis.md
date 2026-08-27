@@ -4,8 +4,8 @@
 power.** It lets dtfit *express* periodic/decay models cleanly, but on the tested
 data it did not improve accuracy, and on the LTSF benchmark it was a net **loss**.
 
-Source: [`../../src/dtfit/adaptations/basis_lsi.py`](../../src/dtfit/adaptations/basis_lsi.py),
-[`_spectral.py`](../../src/dtfit/adaptations/_spectral.py).
+Source: [`../../../basis_lsi.py`](../../../basis_lsi.py),
+[`_spectral.py`](../../../../../../dtfit/src/dtfit/_core/_spectral.py).
 Tested in: [Forecasting (4)](../04_realworld_forecasting/04_realworld_forecasting.ipynb),
 [LTSF (6)](../06_benchmark_ltsf/06_benchmark_ltsf.ipynb).
 

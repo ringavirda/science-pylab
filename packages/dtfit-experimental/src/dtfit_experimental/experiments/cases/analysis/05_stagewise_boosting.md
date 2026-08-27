@@ -4,7 +4,7 @@
 promotion candidate after #1: it *beat every baseline* on the one series whose
 structure it matched. Needs a confirming second domain to clear the gate.
 
-Source: [`../../src/dtfit/adaptations/boosting.py`](../../src/dtfit/adaptations/boosting.py).
+Source: [`../../../boosting.py`](../../../boosting.py).
 Tested in: [Forecasting (4)](../04_realworld_forecasting/04_realworld_forecasting.ipynb).
 
 ## What it is

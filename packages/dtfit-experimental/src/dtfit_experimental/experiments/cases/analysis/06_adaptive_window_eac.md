@@ -4,7 +4,7 @@
 localized-transient parameters that equal-span windows smear, but only one signal
 class has been demonstrated, so the evidence base is too narrow to promote.
 
-Source: [`../../src/dtfit/adaptations/multiresolution.py`](../../src/dtfit/adaptations/multiresolution.py).
+Source: [`../../../../../../dtfit/src/dtfit/methods/_eac.py`](../../../../../../dtfit/src/dtfit/methods/_eac.py).
 Tested in: [Noise & robustness (3)](../03_noise_robustness/03_noise_robustness.ipynb) (transient class).
 
 ## What it is
