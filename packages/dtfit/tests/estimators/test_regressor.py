@@ -79,9 +79,9 @@ def test_feature_names_in_(arctan_data):
 
 
 def test_zero_arg_constructible_and_clonable():
-    """scikit-learn contract: an estimator must be constructible with no args and
-    every ``__init__`` parameter must have a default (so ``clone`` and
-    meta-estimator introspection work)."""
+    """A scikit-learn estimator must construct with no arguments and give every
+    ``__init__`` parameter a default. ``clone`` and meta-estimator
+    introspection both rely on that."""
     import inspect
 
     sig = inspect.signature(NonlineRegressor.__init__)
@@ -91,16 +91,16 @@ def test_zero_arg_constructible_and_clonable():
     ]
     assert not required, f"__init__ params without defaults: {required}"
 
-    reg = NonlineRegressor()          # zero-arg construction
-    cloned = clone(reg)               # relies on get_params/set_params round-trip
+    reg = NonlineRegressor()
+    cloned = clone(reg)
     assert isinstance(cloned, NonlineRegressor)
     assert cloned.get_params() == reg.get_params()
     assert not hasattr(cloned, "coef_")
 
 
 def test_default_estimator_fits_affine():
-    """The default model is a runnable affine fit (so ``NonlineRegressor()`` is a
-    usable estimator, not merely constructible)."""
+    """The default model is an affine fit: ``NonlineRegressor()`` is usable,
+    not merely constructible."""
     rng = np.random.default_rng(0)
     x = np.linspace(-2.0, 2.0, 80)
     y = 1.5 + 0.7 * x + 0.01 * rng.standard_normal(x.size)
@@ -109,8 +109,8 @@ def test_default_estimator_fits_affine():
 
 
 def test_result_exposes_full_fitting_result(arctan_data):
-    """``fit`` stores the full FittingResult as ``result_``, so uncertainty is
-    reachable from the sklearn route."""
+    """``fit`` stores the whole FittingResult as ``result_``; that is how
+    uncertainty is reached from the sklearn route."""
     from dtfit import FittingResult
 
     x, y, _ = arctan_data
@@ -129,7 +129,7 @@ def test_result_exposes_full_fitting_result(arctan_data):
 
 
 def test_dict_p0_and_bounds_pass_through(arctan_data):
-    """Dict-keyed p0/bounds go through the estimator to the fitter untouched."""
+    """Dict-keyed ``p0`` and ``bounds`` reach the fitter and fit the data."""
     x, y, truth = arctan_data
     reg = NonlineRegressor(
         "a*atan(w*x)",
@@ -142,8 +142,8 @@ def test_dict_p0_and_bounds_pass_through(arctan_data):
 
 
 def test_nan_policy_forwarded(arctan_data):
-    """``nan_policy`` reaches the fitter: 'raise' rejects NaN, 'omit' drops the
-    bad pairs and still fits."""
+    """``nan_policy`` reaches the fitter. The default 'raise' rejects a NaN;
+    'omit' drops the bad pairs and still fits."""
     x, y, truth = arctan_data
     y_bad = y.copy()
     y_bad[3] = np.nan
@@ -158,10 +158,9 @@ def test_nan_policy_forwarded(arctan_data):
 
 
 def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
-    """Constructor kwargs are forwarded to ``fit_eac`` verbatim. A behavioral
-    outcome alone cannot distinguish a dropped kwarg (``robust=True`` or
-    ``loss="soft_l1"`` each rescue the outlier case on their own), so spy on
-    the call."""
+    """Constructor kwargs reach ``fit_eac`` verbatim. Behaviour alone cannot
+    catch a dropped kwarg here: ``robust=True`` and ``loss="soft_l1"`` each
+    rescue the outlier case on their own. Hence the spy."""
     x, y, _ = arctan_data
     captured = {}
 
@@ -188,8 +187,8 @@ def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
 
 
 def test_robust_loss_window_mode_forwarded(arctan_data):
-    """The robust levers rescue an outlier-contaminated fit end-to-end (EAC and
-    LSI routes); the per-kwarg forwarding guard is the spy test above."""
+    """The robust levers rescue an outlier-contaminated fit end to end, on both
+    the EAC and LSI routes. Per-kwarg forwarding is the spy test above."""
     x, y, truth = arctan_data
     y_out = y.copy()
     y_out[50] += 60.0  # gross outlier
@@ -216,8 +215,8 @@ def test_robust_loss_window_mode_forwarded(arctan_data):
 
 
 def test_sample_order_invariance(arctan_data):
-    """Shuffled samples give the same fit as ordered ones (the estimator sorts
-    by x before the integral fitters)."""
+    """The estimator sorts by x before the integral fitters, which makes
+    shuffled samples give the same fit as ordered ones."""
     x, y, _ = arctan_data
     rng = np.random.default_rng(1)
     perm = rng.permutation(x.size)
@@ -227,8 +226,8 @@ def test_sample_order_invariance(arctan_data):
 
 
 def test_pickle_round_trip(arctan_data):
-    """A fitted estimator pickles (the lambdified model is rebuilt on load) and
-    the original stays usable after being pickled."""
+    """A fitted estimator pickles, rebuilding its lambdified model on load.
+    The original stays usable afterwards."""
     import pickle
 
     x, y, _ = arctan_data
@@ -250,7 +249,7 @@ def test_plain_list_input(arctan_data):
 
 
 def test_sparse_input_rejected(arctan_data):
-    """Sparse X gets the standard scikit-learn 'dense data required' error."""
+    """Sparse X is refused with scikit-learn's own TypeError."""
     sparse = pytest.importorskip("scipy.sparse")
     x, y, _ = arctan_data
     with pytest.raises(TypeError, match="[Ss]parse"):
@@ -258,8 +257,9 @@ def test_sparse_input_rejected(arctan_data):
 
 
 def test_dict_p0_works_on_dsb_route(lint_exp_data):
-    """Dict p0 is documented for ALL method routes; DSB's positional-only
-    fit_dsb gets a normalized array from the estimator."""
+    """Dict ``p0`` is documented for every method route. ``fit_dsb`` takes
+    positional parameters only, so the estimator normalises the dict to an
+    array on its behalf."""
     x, y = lint_exp_data
     pos = NonlineRegressor(
         "a + b*x + c*exp(d*x)", "x", method="dsb",
@@ -276,13 +276,10 @@ def test_dict_p0_works_on_dsb_route(lint_exp_data):
         ).fit(x, y)
 
 
-# --- v0.3: callable models -------------------------------------------------
-
-
 def test_callable_model_fits_and_scores(arctan_data):
-    """A plain Python callable ``f(x, *params)`` fits and scores on the LSI
-    route; its parameter names come from the signature and the result carries a
-    numeric evaluator (no expression) so ``predict`` still works."""
+    """A plain callable ``f(x, a, w)`` fits on the LSI route. Its parameter
+    names come from the signature, and the result carries a numeric evaluator
+    in place of an expression, which keeps ``predict`` working."""
     x, y, truth = arctan_data
 
     def model(x, a, w):
@@ -292,7 +289,6 @@ def test_callable_model_fits_and_scores(arctan_data):
     assert reg.coef_.shape == (2,)
     assert reg.score(x, y) > 0.8
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
-    # A callable carries no expression: the result predicts via param_model.
     assert reg.result_.expr is None
     assert reg.result_.param_model is not None
     assert reg.result_.names == ("a", "w")
@@ -300,11 +296,11 @@ def test_callable_model_fits_and_scores(arctan_data):
 
 
 def test_callable_param_names_when_signature_opaque(arctan_data):
-    """A callable whose signature cannot be introspected (``*args``) is fit by
-    passing ``param_names``, which the estimator forwards to the fitter."""
+    """A callable with an opaque ``*args`` signature is fit by passing
+    ``param_names``, which the estimator forwards to the fitter."""
     x, y, truth = arctan_data
 
-    def model(x, *p):  # opaque signature -> names must be supplied
+    def model(x, *p):
         return p[0] * np.arctan(p[1] * x)
 
     reg = NonlineRegressor(
@@ -315,8 +311,9 @@ def test_callable_param_names_when_signature_opaque(arctan_data):
 
 
 def test_callable_and_param_names_forwarded_to_fitter(monkeypatch, arctan_data):
-    """The callable model and ``param_names`` reach the fitter untouched (a
-    behavioral outcome cannot prove ``param_names`` was forwarded, so spy)."""
+    """The callable model and ``param_names`` reach the fitter untouched. No
+    behavioural outcome can prove ``param_names`` was forwarded, so the test
+    spies on the call."""
     x, y, _ = arctan_data
     captured = {}
 
@@ -350,19 +347,16 @@ def test_callable_model_on_dsb_raises(lint_exp_data):
         NonlineRegressor(model, "x", method="dsb").fit(x, y)
 
 
-# --- v0.3: sample_weight ---------------------------------------------------
-
-
 def test_sample_weight_downweights_outliers(arctan_data):
-    """Down-weighting a contaminated region beats an unweighted fit: the weighted
-    coefficients land closer to the ground truth."""
+    """Down-weighting a contaminated region beats an unweighted fit: the
+    weighted coefficients land closer to the ground truth."""
     x, y, truth = arctan_data
     expected = np.array([truth["a"], truth["w"]])
     y_bad = y.copy()
     corrupt = (x > 4.0) & (x < 6.0)
-    y_bad[corrupt] += 25.0  # a whole contaminated band
+    y_bad[corrupt] += 25.0
     weight = np.ones_like(x)
-    weight[corrupt] = 1e-3  # trust the corrupted samples far less
+    weight[corrupt] = 1e-3  # near-zero trust in the corrupted band
     weighted = NonlineRegressor(
         "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
     ).fit(x, y_bad, sample_weight=weight)
@@ -376,9 +370,8 @@ def test_sample_weight_downweights_outliers(arctan_data):
 
 
 def test_sample_weight_forwarded_as_sigma(monkeypatch, arctan_data):
-    """``sample_weight`` becomes the fitter's ``sigma = 1/sqrt(weight)`` and is
-    forwarded as *relative* weights (``absolute_sigma`` left at its False
-    default)."""
+    """``sample_weight`` becomes the fitter's ``sigma = 1/sqrt(weight)``,
+    passed as relative weights with ``absolute_sigma`` left False."""
     x, y, _ = arctan_data
     captured = {}
 
@@ -402,11 +395,11 @@ def test_sample_weight_forwarded_as_sigma(monkeypatch, arctan_data):
 
 
 def test_zero_sample_weight_ignores_sample(arctan_data):
-    """A zero weight effectively drops its sample (mapped to a huge sigma) rather
-    than crashing on 1/sqrt(0); the fit still succeeds and is sensible."""
+    """A zero weight maps to a huge but finite sigma instead of crashing on
+    1/sqrt(0). The sample drops out and the fit still lands on the truth."""
     x, y, truth = arctan_data
     weight = np.ones_like(x)
-    weight[::7] = 0.0  # scatter some zero-weight samples
+    weight[::7] = 0.0
     reg = NonlineRegressor(
         "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
     ).fit(x, y, sample_weight=weight)
@@ -415,7 +408,6 @@ def test_zero_sample_weight_ignores_sample(arctan_data):
 
 
 def test_all_zero_sample_weight_raises(arctan_data):
-    """All-zero weights are an error (nothing to fit)."""
     x, y, _ = arctan_data
     with pytest.raises(ValueError, match=r"(?i)zero"):
         NonlineRegressor(
@@ -424,7 +416,7 @@ def test_all_zero_sample_weight_raises(arctan_data):
 
 
 def test_negative_sample_weight_raises(arctan_data):
-    """A negative weight is meaningless for a curve fit and raises."""
+    """A negative weight has no meaning for a curve fit."""
     x, y, _ = arctan_data
     weight = np.ones_like(x)
     weight[0] = -1.0
@@ -435,7 +427,7 @@ def test_negative_sample_weight_raises(arctan_data):
 
 
 def test_sample_weight_on_dsb_raises(lint_exp_data):
-    """DSB has no per-sample weighting: a ``sample_weight`` raises."""
+    """DSB has no per-sample weighting at all."""
     x, y = lint_exp_data
     with pytest.raises(ValueError, match=r"sample_weight is not supported"):
         NonlineRegressor(
@@ -443,12 +435,9 @@ def test_sample_weight_on_dsb_raises(lint_exp_data):
         ).fit(x, y, sample_weight=np.ones_like(x))
 
 
-# --- v0.3: fit-quality stats surfaced via result_ --------------------------
-
-
 def test_result_has_rsquared(arctan_data):
-    """The LSI fitter records the v0.3 fit-quality stats, reachable through
-    ``result_``."""
+    """The LSI fitter records the fit-quality stats and ``result_`` exposes
+    them."""
     x, y, _ = arctan_data
     reg = NonlineRegressor("a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]).fit(
         x, y
@@ -462,9 +451,9 @@ def test_result_has_rsquared(arctan_data):
 
 
 def test_sample_weight_with_nan_omit_both_routes(arctan_data):
-    """sample_weight + nan_policy='omit' + a NaN row must fit on BOTH the lsi and
-    eac routes (regression: the two fitters once disagreed on sigma length under
-    omit, so the lsi route raised while eac fit)."""
+    """``sample_weight`` plus ``nan_policy='omit'`` plus a NaN row must fit on
+    both the lsi and the eac route. The hazard is sigma length: the two fitters
+    have to agree on how many weights survive the dropped rows."""
     x, y, truth = arctan_data
     y = y.copy()
     y[7] = np.nan
@@ -477,12 +466,9 @@ def test_sample_weight_with_nan_omit_both_routes(arctan_data):
         assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.2)
 
 
-# --- v0.4: pandas in -> pandas out -----------------------------------------
-
-
 def test_predict_series_returns_aligned_series(arctan_data):
-    """fit on a Series x/y, then predict(Series) -> a Series carrying the input's
-    index whose values equal the plain-ndarray prediction (values unchanged)."""
+    """Fit on a Series x/y and predicting from a Series returns a Series that
+    carries the query index, holding the plain-ndarray prediction values."""
     pd = pytest.importorskip("pandas")
     x, y, _ = arctan_data
     idx = pd.RangeIndex(100, 100 + x.size)
@@ -495,13 +481,12 @@ def test_predict_series_returns_aligned_series(arctan_data):
     pred = reg.predict(pd.Series(xq, index=idxq))
     assert isinstance(pred, pd.Series)
     assert list(pred.index) == list(idxq)
-    # values are byte-for-byte the ndarray prediction (no numeric change)
     assert np.array_equal(pred.to_numpy(), reg.predict(xq))
 
 
 def test_predict_ndarray_still_ndarray(arctan_data):
-    """A plain ndarray (or list) input keeps returning an ndarray -- the pandas
-    branch must not leak into the non-pandas path."""
+    """An ndarray or list input keeps returning an ndarray. The pandas branch
+    must not leak into the non-pandas path."""
     x, y, _ = arctan_data
     reg = _reg().fit(x, y)
     out = reg.predict(x[:5])
@@ -512,27 +497,27 @@ def test_predict_ndarray_still_ndarray(arctan_data):
 
 
 def test_predict_single_col_dataframe_returns_series(arctan_data):
-    """A single-column DataFrame X predicts to a Series aligned to the frame's
-    row index."""
+    """A single-column DataFrame X predicts to a Series on the frame's row
+    index."""
     pd = pytest.importorskip("pandas")
     x, y, _ = arctan_data
-    # fit with a named single-column frame so feature_names_in_ matches the
-    # query frame (no sklearn feature-name warning at predict time).
+    # Fitting on a named single-column frame lines feature_names_in_ up with
+    # the query frame, keeping sklearn's feature-name warning out of the test.
     reg = _reg().fit(pd.DataFrame({"x": x}), y)
     idxq = pd.Index([3, 4, 5, 6, 7])
     df = pd.DataFrame({"x": x[:5]}, index=idxq)
     pred = reg.predict(df)
     assert isinstance(pred, pd.Series)
     assert list(pred.index) == list(idxq)
-    # values match an all-ndarray fit+predict (identical data -> identical fit),
-    # keeping the comparison free of sklearn's feature-name mismatch warning.
+    # identical data gives an identical fit, so the all-ndarray route is the
+    # reference for the values
     expected = _reg().fit(x, y).predict(x[:5])
     assert np.array_equal(pred.to_numpy(), expected)
 
 
 def test_sample_weight_as_series_works(arctan_data):
-    """A pandas Series sample_weight is coerced to ndarray and reaches the fitter
-    as sigma exactly like an ndarray weight."""
+    """A Series ``sample_weight`` is coerced to an ndarray and reaches the
+    fitter as sigma exactly like an ndarray weight."""
     pd = pytest.importorskip("pandas")
     x, y, truth = arctan_data
     weight = np.ones_like(x)
@@ -544,7 +529,6 @@ def test_sample_weight_as_series_works(arctan_data):
     weighted = NonlineRegressor(
         "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
     ).fit(x, y_bad, sample_weight=sw)
-    # same result as the equivalent ndarray weight
     weighted_np = NonlineRegressor(
         "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
     ).fit(x, y_bad, sample_weight=weight)

@@ -1,10 +1,9 @@
-"""Shared spectral-match solver (``dtfit._core._spectral``) -- bounds gating.
+"""Bounds gating in the shared solver ``dtfit._core._spectral``.
 
-The global (differential-evolution) stage needs a finite search box, but the
-local trf solve handles ``+/-inf`` bounds natively. ``solve_weighted_nlls``
-must therefore run DE only when every bound is finite while *always* passing
-the bounds to the local solve -- a partially-bounded problem stays constrained
-instead of being silently solved unbounded (the historical upstream behavior).
+The differential-evolution stage needs a finite search box; the local trf solve
+handles ``+/-inf`` bounds natively. ``solve_weighted_nlls`` gates DE on every
+bound being finite; the local solve receives the bounds either way. A partially
+bounded problem must stay constrained, never be quietly solved unbounded.
 """
 
 import numpy as np
@@ -26,8 +25,8 @@ def _weighted_problem(target):
 
 
 def test_mixed_bounds_run_local_solve_and_respect_bound():
-    # One parameter bounded (0, inf), one unbounded: DE cannot run (infinite
-    # box) but the trf solve must still receive and honour the bounds.
+    # One parameter bounded (0, inf), one unbounded. The infinite box rules
+    # out DE; the trf solve must still receive and honour the bounds.
     residual, sqrt_w, beta = _weighted_problem([-3.0, 2.0])
     guess = np.array([1.0, 1.0])
     coeffs, jac, converged, message, nfev = solve_weighted_nlls(
@@ -44,9 +43,9 @@ def test_mixed_bounds_run_local_solve_and_respect_bound():
 
 
 def test_mixed_bounds_without_p0_still_constrained():
-    # No seed supplied: the infinite box forbids DE, so the driver must fall
-    # back to a bounded local solve from the default guess -- not crash, and
-    # not drop the finite bound.
+    # No seed supplied. With DE ruled out the driver falls back to a bounded
+    # local solve from the default guess. It must neither crash nor drop the
+    # finite bound.
     residual, sqrt_w, beta = _weighted_problem([-1.0, 4.0])
     coeffs, _, converged, _, _ = solve_weighted_nlls(
         residual, sqrt_w, beta, np.ones(2), p0=None,
@@ -69,7 +68,7 @@ def test_all_finite_bounds_still_use_global_stage_reproducibly():
 
 
 def test_fit_lsi_with_mixed_bounds_converges_and_respects_bound():
-    # End-to-end through fit_lsi: one param bounded (0, inf), one unbounded.
+    # End to end through fit_lsi: parameter a is bounded, b is not.
     rng = np.random.default_rng(0)
     x = np.linspace(0.0, 2.0, 120)
     y = 2.5 * np.exp(-1.2 * x) + rng.normal(0, 0.02, x.size)

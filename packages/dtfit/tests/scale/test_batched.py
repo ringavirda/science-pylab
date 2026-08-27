@@ -1,9 +1,9 @@
-"""GEMM-batched, backend-pluggable projection (promoted from the experiment suite).
+"""GEMM-batched, backend-pluggable spectral projection.
 
-Covers: the batched GEMM projection equals the per-channel loop; the
-``project_integral`` factoring is numerically identical to the ``np.trapezoid``
-form (so the promoted ``PartitionedLSI`` is unaffected); ``fit_lsi_batched``
-recovers parameters across channels; and the backend registry behaves.
+The batched projection must equal the per-channel loop. The
+``project_integral`` factoring must reproduce ``np.trapezoid`` to roundoff.
+``PartitionedLSI`` is built on that same factoring, which is why the
+equivalence is checked here for every basis.
 """
 
 import numpy as np
@@ -28,7 +28,6 @@ def channels():
     return x, Y, params
 
 
-# --- the factoring is exact: Dᵀ(w⊙y) == np.trapezoid(y·D, x) ---------------- #
 @pytest.mark.parametrize("basis", ["legendre", "chebyshev", "fourier", "laguerre"])
 def test_project_integral_matches_trapezoid(basis):
     x = np.linspace(0.0, 2.0, 257)
@@ -39,7 +38,7 @@ def test_project_integral_matches_trapezoid(basis):
     trapz = np.trapezoid(y[:, None] * D, x[:, None] if basis != "laguerre" else None,
                          axis=0) if basis != "laguerre" else None
     if basis == "laguerre":
-        # laguerre integrates over u with e^-u folded into D already
+        # laguerre integrates over u, with e^-u already folded into D
         assert isinstance(b, LaguerreBasis)
         u = b._to_u(x)
         trapz = np.trapezoid(y[:, None] * D, u[:, None], axis=0)
@@ -53,7 +52,6 @@ def test_trapz_weights_reproduce_numpy():
     assert _trapz_weights(x) @ y == pytest.approx(np.trapezoid(y, x))
 
 
-# --- batched GEMM == per-channel loop -------------------------------------- #
 @pytest.mark.parametrize("basis", ["legendre", "chebyshev", "fourier", "laguerre"])
 def test_batched_spectra_equal_looped(channels, basis):
     x, Y, _ = channels
@@ -78,7 +76,6 @@ def test_project_spectra_shape_validation(channels):
         project_spectra(x, np.ones((x.size + 3, 2)), order=4)
 
 
-# --- fit recovers parameters across channels ------------------------------- #
 def test_fit_lsi_batched_recovers_all_channels(channels):
     x, Y, params = channels
     results = fit_lsi_batched(x, Y, "a*exp(b*t)", "t", order=6, p0=[1.0, 1.0])
@@ -96,7 +93,6 @@ def test_fit_lsi_batched_single_channel_returns_one(channels):
 
 
 def test_batched_matches_serial_fit_lsi(channels):
-    """The batched fit agrees with the stock per-channel fit_lsi result."""
     import dtfit as dt
 
     x, Y, _ = channels
@@ -107,14 +103,13 @@ def test_batched_matches_serial_fit_lsi(channels):
         np.testing.assert_allclose(r.coeffs, serial.coeffs, rtol=0.05, atol=0.05)
 
 
-# --- backend registry ------------------------------------------------------ #
 def test_numpy_backend_always_available():
     assert "numpy" in available_backends()
 
 
 def test_auto_backend_roundtrips():
-    # "auto" resolves to a GPU backend when present, else numpy; either way the
-    # asarray/to_host roundtrip must be lossless.
+    # "auto" picks a GPU backend where one is installed and numpy otherwise.
+    # Either way the asarray/to_host roundtrip must be lossless.
     bk = resolve_backend("auto")
     assert bk.name in {"numpy", "cupy", "torch"}
     arr = bk.asarray(np.arange(4.0))

@@ -1,4 +1,4 @@
-"""Overlapping-window ensemble (``ensemble_fit``) -- unit behaviour."""
+"""Overlapping-window ensemble fits (``ensemble_fit``)."""
 
 import numpy as np
 import pytest
@@ -59,11 +59,11 @@ def test_ensemble_rejects_bad_overlap(overlap):
 
 
 def test_ensemble_counts_failed_windows_and_warns():
-    """Per-window failures are no longer swallowed silently: they are counted,
-    the last error is kept, and a UserWarning is emitted."""
+    """A per-window failure is counted, its error kept, and a UserWarning
+    raised. None of it passes silently."""
     t, y, _ = _exp_data()
-    # NaN-poison a stretch of samples: subwindows covering it raise (default
-    # nan_policy="raise"), later subwindows stay clean and fit fine.
+    # NaN-poison a stretch of samples. Subwindows covering it raise under the
+    # default nan_policy="raise"; the later ones stay clean and fit.
     y = y.copy()
     y[100:140] = np.nan
     with pytest.warns(UserWarning, match="subwindow fits"):
@@ -83,9 +83,9 @@ def test_ensemble_clean_fit_has_no_failures():
 
 
 def test_ensemble_recovers_under_outliers():
-    """The median aggregation still recovers the parameters under spike
-    contamination (median over noise draws). The head-to-head superiority over a
-    plain fit is gated, per family, in tests/validation/test_outlier_robustness."""
+    """Median aggregation recovers the parameters under spike contamination.
+    The head-to-head advantage over a plain fit is gated per family in
+    tests/validation/test_outlier_robustness, not here."""
     truth = np.array([1.0, 0.9])
     err = lambda c: float(np.max(np.abs(c - truth) / truth))  # noqa: E731
     errs = []

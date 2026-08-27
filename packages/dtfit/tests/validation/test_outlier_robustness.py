@@ -1,9 +1,8 @@
-"""Outlier-robustness gate for the promoted ``ensemble_fit``.
+"""Outlier-robustness gate for ``ensemble_fit``.
 
-The Gaussian-noise corpus does not exercise outliers, so this is where the case
-``ensemble_fit`` was promoted *for* is actually measured: on spike-contaminated
-data the overlapping-window median must beat the plain whole-record fit. Guards
-the promotion against silent regression.
+The Gaussian-noise corpus never exercises outliers. This is where the case for
+``ensemble_fit`` is actually measured: on spike-contaminated data its
+overlapping-window median must beat the plain whole-record fit.
 """
 
 from __future__ import annotations
@@ -17,8 +16,8 @@ import dtfit as dt
 from accuracy.scenarios import SCENARIOS
 from accuracy.harness import ordered_params, param_err
 
-# Families where the whole-record fit is accurate on clean data, so the only
-# thing degrading it under contamination is the outliers themselves.
+# Families the whole-record fit already nails on clean data. Anything that
+# degrades it here is the contamination, not the family.
 _OUTLIER_FAMILIES = [
     "exponential", "exp_decay", "power_law", "michaelis_menten", "first_order",
 ]
@@ -35,8 +34,9 @@ def _errs(name):
         p0, _ = m._seed_arrays(x, y)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # active_ratio=0.8 is the leading-transient recipe this corpus was
-            # tuned with (the v0.2 default keeps all samples).
+            # active_ratio=0.8 confines the fit to the leading transient. The
+            # default keeps every sample; this corpus was tuned for the
+            # transient recipe.
             pe = param_err(scn, names,
                            dt.fit_eac(x, y, m.expr, m.var, p0=p0,
                                       active_ratio=0.8).coeffs)
@@ -50,8 +50,8 @@ def _errs(name):
 
 @pytest.mark.parametrize("name", _OUTLIER_FAMILIES)
 def test_ensemble_beats_plain_under_outliers(name):
-    """Per family: the ensemble's median recovery error under 4% spike outliers
-    is below the plain whole-record fit, and is itself usable."""
+    """Per family: under 4% spike contamination the ensemble's median recovery
+    error beats the plain fit and stays usable in absolute terms."""
     plain, ens = _errs(name)
     assert np.median(ens) < np.median(plain), (
         f"{name}: ensemble median {np.median(ens):.3f} "
@@ -60,15 +60,14 @@ def test_ensemble_beats_plain_under_outliers(name):
 
 
 def test_ensemble_pooled_robustness():
-    """Pooled across families+seeds, the ensemble roughly halves the median
-    error and dramatically cuts the mean (it never blows up on a bad window)."""
+    """Pooled across families and seeds, both the median and the mean error
+    drop. The mean is the interesting one: a single fit can blow up on a bad
+    window and the ensemble cannot."""
     P, E = [], []
     for name in _OUTLIER_FAMILIES:
         p, e = _errs(name)
         P.append(p)
         E.append(e)
     P, E = np.concatenate(P), np.concatenate(E)
-    # The ensemble lowers both the typical (median) and the average error -- the
-    # latter because, unlike a single fit, it never blows up on a bad window.
     assert np.median(E) < np.median(P)
     assert np.mean(E) < np.mean(P)

@@ -436,7 +436,20 @@ print(n, 'overlong added lines')
    a broken indent in an `Args:` block -- fix the docstring, not the config.
 6. Report the files changed and the verification output. Do not stage or commit.
 
-**Read the full prose of every file you touch, end to end, before reporting.**
+**Diff your prose against HEAD, block by block — do not only read it forwards.**
+This is the stronger of the two checks and it was learned the hard way. Reading
+the surviving text forwards cannot reliably find a word that is missing, because
+nothing on the page tells you it was ever there: one implementer read all 242 of
+its prose lines end to end, reported no losses, and had shipped
+"leaving the regenerated structure the same whatever the units of t" (HEAD:
+"...matches whatever the units of t **were**"). Its own trailing-off heuristic
+missed it too, because the sentence ends on a bare noun rather than a function
+word. Against HEAD the same loss is simply a deletion, and obvious. So: for every
+comment and docstring you changed, put the HEAD text and your replacement side by
+side and confirm every claim in the original either survives or was deliberately
+cut.
+
+**Then also read the full prose of every file you touch, end to end.**
 Not the diff hunks: the actual docstrings and comments as they now read. Four
 separate tasks lost a clause that a hunk-level view hid, in three different ways:
 a changelog sentence cut together with the conclusion it shared a semicolon with;
@@ -556,21 +569,10 @@ Known targets: changelog comments at `test_auto.py:495`, `test_dsb.py:36`, `test
 
 ### Task 10: dtfit/tests -- remaining subdirectories
 
-**KNOWN BASELINE DEVIATION -- read before running the guard.**
-`packages/dtfit/tests/core/test_native.py` already reports `LOGIC CHANGED`
-against HEAD, and that is correct and accepted. A separate fix corrected eight
-stale `dtfit._native` references to `dtfit._core._native` (the module the C
-extension actually builds to; `import dtfit._native` raises ModuleNotFoundError).
-Two of those eight sites are genuine string literals in this file, a pytest
-`reason=` and an assert message, so the guard sees a real AST difference:
-
-    reason="compiled dtfit._core._native not built (optional on this platform)"
-    assert K.HAVE_NATIVE, "dtfit._core._native not built -- run python build_native.py"
-
-Do NOT revert them and do NOT try to make the guard return `OK` for this file.
-Expect `1 of N file(s) changed more than prose` naming exactly this file, and
-confirm the only non-prose difference is those two strings. Any OTHER file
-reporting `LOGIC CHANGED` is a real defect.
+The stale-reference fix that once made `tests/core/test_native.py` report
+`LOGIC CHANGED` is now part of HEAD (commit 4d87a6b), so the guard is clean
+again for this directory. Expect a plain `OK`; any `LOGIC CHANGED` here is a
+real defect.
 
 **Files:** `packages/dtfit/tests/` -- `accuracy/` (4), `core/` (3), `diagnostics/` (1), `estimators/` (2), `scale/` (5), `streaming/` (2). 17 files.
 

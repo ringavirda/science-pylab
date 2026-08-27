@@ -22,7 +22,6 @@ def test_named_params_and_back_compat(fit):
     r, t, y = fit
     assert set(r.params) == {"a", "b"}
     assert r.params["a"] == pytest.approx(2.0, abs=0.1)
-    # back-compat: bare coeffs array + callable model
     assert r.coeffs.shape == (2,)
     assert np.asarray(r.model(t)).shape == t.shape
 
@@ -49,13 +48,12 @@ def test_serialization_roundtrip(fit):
     assert set(d) >= {"expr", "var", "names", "coeffs", "cov"}
     r2 = FittingResult.from_dict(d)
     assert np.allclose(r2.coeffs, r.coeffs)
-    assert np.allclose(r2.predict(t), r.predict(t))  # rebuilt model matches
-    assert r2.x_range == r.x_range  # training range survives the round trip
+    assert np.allclose(r2.predict(t), r.predict(t))
+    assert r2.x_range == r.x_range
 
 
 def test_convergence_flag_is_reported(fit):
     r, t, y = fit
-    # the iterative fitters report optimizer convergence; this clean fit converges
     assert r.converged is True
     assert isinstance(r.message, str) and r.message
     # eac populates it too
@@ -73,7 +71,7 @@ def test_predict_warns_only_on_extrapolation(fit):
     # past the fitted range: a UserWarning fires
     with pytest.warns(UserWarning, match="extrapolat"):
         r.predict(np.array([t[-1] + 10.0]), warn_extrapolation=True)
-    # opt-in only: default predict never warns
+    # opt-in only: the default call stays silent even past the range
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         r.predict(np.array([t[-1] + 10.0]))
@@ -86,8 +84,7 @@ def test_summary_is_str(fit):
 
 
 def test_no_expr_result_degrades_gracefully():
-    # a result built from only a callable (no expr) -> model() works but
-    # UQ/serialization are unavailable
+    # callable-only result: model() still works, to_dict() and UQ do not
     x = np.linspace(0, 1, 20)
     r = FittingResult(coeffs=np.array([0.0, 0.0, 1.0]), model=np.poly1d([1.0, 0.0, 0.0]))
     assert np.asarray(r.model(x)).shape == x.shape
@@ -95,10 +92,9 @@ def test_no_expr_result_degrades_gracefully():
         r.to_dict()
 
 
-# --- v0.3: param_model std band, fit-quality stats, absolute_sigma ---------
 def test_param_model_std_band_matches_expr_band(fit):
-    # A callable-only result (no expr) must reproduce the expr-based prediction
-    # std band by finite-differencing param_model, to ~1e-6.
+    # a callable-only result must reproduce the expr-based std band by
+    # finite-differencing param_model, to ~1e-6.
     r, t, y = fit
     coeffs = r.coeffs
 
@@ -155,11 +151,7 @@ def test_residuals_helper(fit):
     np.testing.assert_allclose(res, y - r.predict(t))
 
 
-# --- v0.4: pandas in -> pandas out on predict ------------------------------ #
 def test_predict_pandas_in_pandas_out(fit):
-    """When ``x`` is a pandas Series, ``predict`` returns a Series aligned to its
-    index with values identical to the ndarray prediction; an ndarray in still
-    returns an ndarray (guarded so a pandas-free env skips)."""
     pd = pytest.importorskip("pandas")
     r, t, _ = fit
     idx = pd.date_range("2024-01-01", periods=t.size, freq="D")
@@ -200,7 +192,7 @@ def test_covariance_absolute_sigma_invariants():
     cov_def_res = _covariance(jac, k * res, n)
     np.testing.assert_allclose(cov_def_res, k**2 * cov_def, rtol=1e-10)
 
-    # default cov is invariant to a global rescale of the whole problem
-    # (scaling jac AND res together, i.e. rescaling the assumed sigma)
+    # scaling jac and res together rescales the assumed sigma, not the fit,
+    # so the default cov comes out unchanged
     cov_def_global = _covariance(k * jac, k * res, n)
     np.testing.assert_allclose(cov_def_global, cov_def, rtol=1e-10)

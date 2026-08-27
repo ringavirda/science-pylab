@@ -1,18 +1,12 @@
 """Phase-1 accuracy gate: recovery across the whole model catalogue.
 
-Two complementary sweeps, so a doc example cannot land in an unvalidated regime:
+Every family is swept over a range of noise levels, once through the realistic
+user path and once through every batch method. Nothing documented can then land
+in a regime nobody measured.
 
-* :func:`test_recovery_matrix` -- the realistic user path (``Model.fit()``
-  self-seeded) on every catalogue family over a noise sweep, judged on parameter
-  recovery (identifiable families) or curve quality (weakly-identifiable ones),
-  and required to stay competitive with the ``scipy.curve_fit`` gold standard.
-* :func:`test_every_method_runs` -- every batch method on every family must
-  return a finite fit (no crash, NaN, or silent solver stall). This is the guard
-  that catches the singular-Jacobian class of bug (e.g. EAC on ``x**n`` at x=0).
-
-Thresholds are deliberately generous absolute ceilings *plus* a not-much-worse-
-than-baseline clause: tight enough to catch a real regression (a method that
-diverges or stalls), loose enough not to be noise-flaky.
+Thresholds are generous absolute ceilings paired with a clause allowing no
+more than a small margin over ``curve_fit``: tight enough to catch a method
+that diverges or stalls, loose enough not to fail on an unlucky noise draw.
 """
 
 from __future__ import annotations
@@ -55,9 +49,8 @@ def test_recovery_matrix(scn, noise):
         err = param_err(scn, names, est)
         cf_err = (param_err(scn, names, cf_popt)
                   if cf_popt is not None else np.inf)
-        # Generous absolute ceiling that grows with noise, OR within 3x of the
-        # gold-standard NLLS seeded the same way (the honest "no worse than a
-        # well-initialised curve_fit" clause). Either passing is fine.
+        # pass on the noise-scaled absolute ceiling, or on being within 3x of
+        # a curve_fit seeded exactly the same way, whichever is looser
         allowed = max(scn.tol + 2.0 * noise, 3.0 * cf_err)
         assert err <= allowed, (
             f"{scn.name} @ noise={noise}: param error {err:.3f} > {allowed:.3f} "
@@ -65,18 +58,18 @@ def test_recovery_matrix(scn, noise):
     else:  # curve-quality families (weak parameter identifiability)
         got = r2(clean, pred)
         cf_r2 = r2(clean, np.asarray(cf_pred, float)) if cf_popt is not None else -np.inf
-        # Meet the absolute R^2 floor (relaxed with noise) OR essentially tie the
-        # baseline -- the latter covers genuinely hard, ill-conditioned shapes
-        # (sums of exponentials) where even curve_fit cannot do better.
+        # meet the noise-relaxed R^2 floor, or essentially tie the baseline.
+        # The second clause covers ill-conditioned shapes like sums of
+        # exponentials, where curve_fit does no better either.
         floor = scn.r2_min - 1.5 * noise
         assert got >= floor or got >= cf_r2 - 0.02, (
             f"{scn.name} @ noise={noise}: R2 {got:.4f} < floor {floor:.4f} "
             f"and below baseline {cf_r2:.4f}. {scn.note}")
 
 
-# The corpus was tuned with the historical recipe defaults (LSI pre-filter on,
-# EAC leading-transient active region); v0.2 made both opt-in, so pass them
-# explicitly to keep judging the tuned recipe rather than the bare defaults.
+# This corpus was tuned with the LSI pre-filter on and the EAC active region
+# confined to the leading transient. Both are opt-in; passing them explicitly
+# keeps the sweep judging the tuned recipe rather than the bare defaults.
 _METHODS = {
     "lsi": lambda x, y, e, v, p0: fit_lsi(x, y, e, v, p0=p0, filter_data=True),
     "eac": lambda x, y, e, v, p0: fit_eac(x, y, e, v, p0=p0, active_ratio=0.8),
@@ -88,12 +81,12 @@ _RUN_IDS = [f"{s.name}-{m}" for s, m in _RUN_CASES]
 
 @pytest.mark.parametrize("scn,method", _RUN_CASES, ids=_RUN_IDS)
 def test_every_method_runs(scn, method):
-    """No method may crash, return NaN, or silently stall on any catalogue model.
+    """No method may crash, return NaN, or stall on any catalogue model.
 
-    Quality is not asserted here (the recommended pairing is gated above) -- this
-    is the numerical-sanity guard: every (model, method) combination the user
-    could pick must produce a finite fit and a finite curve, and the solver must
-    actually move off its seed when the seed is wrong.
+    Quality is gated above; this is the numerical-sanity half, and it is what
+    catches the singular-Jacobian family of bug (EAC on ``x**n`` at x = 0).
+    Every (model, method) pair a user could pick has to produce a finite fit
+    and a finite curve.
     """
     x, y, _ = scn.make(0.03, seed=1)
     m = scn.model()

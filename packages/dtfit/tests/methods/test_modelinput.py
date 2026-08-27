@@ -7,7 +7,7 @@ import sympy as sp
 from dtfit.methods import resolve_model, ModelSpec, result_kwargs
 
 
-# --- string / sympy.Expr / callable resolution ----------------------------
+# string / sympy.Expr / callable resolution
 def test_resolve_string_expr():
     spec = resolve_model("a*exp(b*t)", "t")
     assert isinstance(spec, ModelSpec)
@@ -46,18 +46,17 @@ def test_resolve_callable_param_names_override():
 
 
 def test_callable_names_are_signature_order_not_sorted():
-    # signature b-before-a must be preserved (unlike the symbolic sorted layout)
     def g(x, b, a):
         return b * x + a
 
     spec = resolve_model(g)
     assert spec.names == ("b", "a")
-    # the symbolic version of the SAME model sorts its names
+    # the symbolic spelling of the same model sorts its names
     sym = resolve_model("b*x + a", "x")
     assert sym.names == ("a", "b")
 
 
-# --- edge cases -----------------------------------------------------------
+# edge cases
 def test_symbolic_requires_var():
     with pytest.raises(ValueError, match="var is required"):
         resolve_model("a*t", None)
@@ -66,7 +65,7 @@ def test_symbolic_requires_var():
 def test_symbolic_param_names_validated():
     with pytest.raises(ValueError, match="do not match"):
         resolve_model("a*exp(b*t)", "t", param_names=["a", "c"])
-    # a matching (any-order) set is accepted; names stay canonical sorted
+    # a matching set in any order is accepted; the names stay sorted
     spec = resolve_model("a*exp(b*t)", "t", param_names=["b", "a"])
     assert spec.names == ("a", "b")
 
@@ -94,7 +93,7 @@ def test_bad_model_type_raises():
         resolve_model(123)  # type: ignore[arg-type]
 
 
-# --- eval / param_derivs numerics -----------------------------------------
+# eval / param_derivs numerics
 def test_eval_matches_lambdify_to_1e_12():
     expr = "a*exp(b*t) + c"
     spec = resolve_model(expr, "t")
@@ -176,7 +175,7 @@ def test_bound_model_is_fixed_coeff_closure():
     np.testing.assert_allclose(m(x), 2.0 * x + 1.0, atol=1e-12)
 
 
-# --- result_kwargs bridge -------------------------------------------------
+# result_kwargs bridge
 def test_result_kwargs_symbolic_vs_callable():
     sym = resolve_model("a*exp(b*t)", "t")
     kw = result_kwargs(sym, np.array([2.0, 0.5]))

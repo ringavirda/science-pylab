@@ -1,4 +1,4 @@
-"""Parallel batch fitting (dtfit.fit_many) -- correctness across backends."""
+"""Parallel batch fitting with ``dtfit.fit_many``: correctness per backend."""
 
 import numpy as np
 
@@ -40,7 +40,6 @@ def test_fit_many_threading_backend():
     probs = _problems()
     res = fit_many(probs, n_jobs=2, backend="threading")
     assert all(r.error is None for r in res)
-    # labels preserved in order
     assert [r.label for r in res] == [p.label for p in probs]
 
 

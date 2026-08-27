@@ -1,9 +1,9 @@
 """Compiled-kernel parity: the C backend must match the pure-Python fallback.
 
-These cover both ``dtfit._core._kernels`` directly (against ``scipy.integrate.simpson``
-/ NumPy) and the methods that consume them, with the native backend forced off
-to exercise the fallback. Results must be bit-for-bit-close regardless of which
-backend is active -- that is the whole contract of the optional extension.
+The kernels in ``dtfit._core._kernels`` are checked against
+``scipy.integrate.simpson`` and NumPy. The methods that consume them are then
+run twice, once with the native backend forced off. Both paths must agree to
+within roundoff; that is the contract of the optional extension.
 """
 
 import os
@@ -15,10 +15,9 @@ from scipy.integrate import simpson
 import dtfit._core._kernels as K
 from dtfit import EACFilter, LSIFilter, fit_eac, fit_lsi
 
-# The compiled extension is optional (pure-Python fallback otherwise) and is only
-# built on the Linux CI job, so tests that *require* it skip elsewhere. Where the
-# build is expected, CI sets ``DTFIT_REQUIRE_NATIVE`` so a missing/broken build is
-# a hard failure rather than a silent skip.
+# The extension is optional and only built on the Linux CI job; tests that
+# need it skip elsewhere. Where the build is expected, CI sets
+# ``DTFIT_REQUIRE_NATIVE`` and a missing or broken build is a hard failure.
 requires_native = pytest.mark.skipif(
     not K.HAVE_NATIVE, reason="compiled dtfit._core._native not built (optional on this platform)"
 )
@@ -32,9 +31,6 @@ def force_fallback(monkeypatch):
 
 
 def test_native_is_built():
-    # The compiled backend is optional. Only enforce it where the build is
-    # expected (``DTFIT_REQUIRE_NATIVE`` set, e.g. the Linux CI job that runs
-    # build_native.py); otherwise this platform uses the pure-Python fallback.
     if not os.environ.get("DTFIT_REQUIRE_NATIVE"):
         pytest.skip("native extension optional here; set DTFIT_REQUIRE_NATIVE to enforce")
     assert K.HAVE_NATIVE, "dtfit._core._native not built -- run python build_native.py"
@@ -60,7 +56,6 @@ def test_simpson_windows_multi_and_rows_match_scipy():
     )
     rows = K.simpson_windows_rows(Y, x, starts, stops)
     assert np.allclose(rows, ref, atol=1e-12)
-    # single-row path agrees with the 2-D path
     single = K.simpson_windows(Y[0], x, starts, stops)
     assert np.allclose(single, ref[0], atol=1e-12)
 
@@ -76,7 +71,6 @@ def test_legendre_project_matches_numpy():
 
 @requires_native
 def test_fallback_kernels_match_native():
-    """The pure-Python fallback returns the same numbers as the C backend."""
     x = np.linspace(0.0, 8.0, 97)
     Y = np.vstack([np.sin(x), x**2])
     starts, stops = np.array([0, 40]), np.array([40, 97])
@@ -104,10 +98,9 @@ def test_fallback_kernels_match_native():
 
 
 def test_fit_eac_backend_agnostic(arctan_data, force_fallback):
-    """fit_eac with the fallback recovers the same fit as the native backend."""
     x, y, _ = arctan_data
     fb = fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0]).coeffs
-    K.HAVE_NATIVE = True  # the fixture restores it after the test
+    K.HAVE_NATIVE = True  # monkeypatch puts the original back afterwards
     nat = fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0]).coeffs
     assert np.allclose(fb, nat, rtol=1e-9, atol=1e-9)
 

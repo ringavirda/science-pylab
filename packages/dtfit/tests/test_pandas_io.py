@@ -1,8 +1,8 @@
-"""Optional-pandas interop: Series / single-column DataFrame inputs, pandas-out
-predictions, and the ``dtfit._pandas`` helpers (index continuation, coercion).
+"""Optional-pandas interop: Series and single-column DataFrame inputs,
+pandas-out predictions, and the ``dtfit._pandas`` helpers.
 
-All pandas-dependent tests are gated behind ``importorskip`` so the suite still
-runs in a pandas-free environment; the ndarray paths are covered elsewhere.
+The module-level ``importorskip`` keeps a pandas-free environment green. The
+ndarray paths are covered elsewhere.
 """
 
 import numpy as np
@@ -24,17 +24,15 @@ pd = pytest.importorskip("pandas")
 
 @pytest.fixture
 def exp_xy():
-    """Exponential decay with known parameters (shared across the pandas tests)."""
+    """Exponential decay with known parameters."""
     rng = np.random.default_rng(0)
     x = np.linspace(0.0, 2.0, 80)
     y = 2.5 * np.exp(-1.2 * x) + rng.normal(0.0, 0.02, x.size)
     return x, y
 
 
-# --- HAS_PANDAS / predicates ----------------------------------------------- #
 def test_has_pandas_flag_true_when_installed():
-    # This module is skipped without pandas, so here the flag must be True and
-    # the predicates must recognize pandas containers (and reject plain arrays).
+    # the module-level importorskip already ran; the flag can only be True here
     assert HAS_PANDAS is True
     s = pd.Series([1.0, 2.0, 3.0])
     df = pd.DataFrame({"a": [1.0, 2.0]})
@@ -42,7 +40,6 @@ def test_has_pandas_flag_true_when_installed():
     assert is_dataframe(df) and not is_dataframe(s) and not is_dataframe([1, 2])
 
 
-# --- to_1d_array ------------------------------------------------------------ #
 def test_to_1d_array_series_and_single_col_dataframe():
     s = pd.Series([1.0, 2.0, 3.0])
     df1 = pd.DataFrame({"only": [1.0, 2.0, 3.0]})
@@ -61,12 +58,10 @@ def test_to_1d_array_multicol_dataframe_raises():
 def test_to_1d_array_ndarray_bit_identical():
     x = np.linspace(0.0, 1.0, 17)
     out = to_1d_array(x)
-    np.testing.assert_array_equal(out, x)  # values unchanged for the ndarray path
-    # a python list is coerced to a 1-D float array too
+    np.testing.assert_array_equal(out, x)
     np.testing.assert_array_equal(to_1d_array([1, 2, 3]), np.array([1.0, 2.0, 3.0]))
 
 
-# --- capture_index / as_series --------------------------------------------- #
 def test_capture_index_and_as_series_roundtrip():
     idx = pd.Index(["p", "q", "r"])
     s = pd.Series([1.0, 2.0, 3.0], index=idx)
@@ -75,12 +70,11 @@ def test_capture_index_and_as_series_roundtrip():
     assert capture_index(np.arange(3)) is None
     out = as_series(np.array([4.0, 5.0, 6.0]), got)
     assert isinstance(out, pd.Series) and list(out.index) == ["p", "q", "r"]
-    # index None -> plain ndarray (non-pandas callers untouched)
+    # a None index means a non-pandas caller: plain ndarray back
     plain = as_series(np.array([1.0, 2.0]), None)
     assert isinstance(plain, np.ndarray)
 
 
-# --- extend_index ----------------------------------------------------------- #
 def test_extend_index_datetime_daily():
     idx = pd.date_range("2024-01-01", periods=10, freq="D")
     fut = extend_index(idx, 3)
@@ -101,18 +95,17 @@ def test_extend_index_integer_index_constant_step():
 
 
 def test_extend_index_non_inferable_freq_returns_none():
-    # irregular datetime spacing -> pd.infer_freq cannot infer -> None
+    # irregular datetime spacing: pd.infer_freq has nothing to infer
     idx = pd.DatetimeIndex(["2024-01-01", "2024-01-03", "2024-01-08"])
     assert extend_index(idx, 2) is None
-    # a non-continuable (string) index -> None
+    # a string index is not continuable at all
     assert extend_index(pd.Index(["a", "b", "c"]), 2) is None
-    # horizon <= 0 / None index / empty index -> None
+    # degenerate arguments: no horizon, no index, empty index
     assert extend_index(pd.RangeIndex(0, 5), 0) is None
     assert extend_index(None, 3) is None
     assert extend_index(pd.RangeIndex(0, 0), 3) is None
 
 
-# --- fitters accept pandas inputs ------------------------------------------ #
 @pytest.mark.parametrize("fit", [fit_lsi, fit_eac])
 def test_fitters_accept_series_matches_ndarray(fit, exp_xy):
     x, y = exp_xy
@@ -140,19 +133,18 @@ def test_fitters_reject_multicol_dataframe(fit, exp_xy):
         fit(bad, pd.Series(y), "a*exp(b*x)", "x", p0=[1.0, -0.5])
 
 
-# --- predict: pandas in -> pandas out -------------------------------------- #
 def test_predict_series_returns_aligned_series(exp_xy):
     x, y = exp_xy
     r = fit_lsi(x, y, "a*exp(b*x)", "x", p0=[1.0, -0.5])
     idx = pd.date_range("2024-01-01", periods=x.size, freq="D")
     xs = pd.Series(x, index=idx)
 
-    y_arr = r.predict(x)                 # ndarray in -> ndarray out
-    y_ser = r.predict(xs)               # Series in -> Series out
+    y_arr = r.predict(x)
+    y_ser = r.predict(xs)
     assert isinstance(y_arr, np.ndarray)
     assert isinstance(y_ser, pd.Series)
     assert list(y_ser.index) == list(idx)
-    np.testing.assert_allclose(y_ser.to_numpy(), y_arr)  # values identical
+    np.testing.assert_allclose(y_ser.to_numpy(), y_arr)
 
 
 def test_predict_series_return_std_pair(exp_xy):
@@ -187,16 +179,15 @@ def test_predict_ndarray_still_ndarray(exp_xy):
 
 
 def test_extend_index_datetime_inferred_freq():
-    # freq-less but regularly-spaced DatetimeIndex: index.freq is None, so the
-    # pd.infer_freq(index) fallback must supply the frequency (a regression that
-    # drops the infer_freq call would otherwise pass unnoticed).
+    # regularly spaced but freq-less. index.freq is None here, leaving
+    # pd.infer_freq as the only source of the frequency; drop that call and
+    # nothing else in the suite notices.
     idx = pd.DatetimeIndex(["2024-01-01", "2024-01-02", "2024-01-03"])
     assert idx.freq is None  # forces the right operand of `index.freq or ...`
     fut = extend_index(idx, 2)
     assert list(fut) == list(pd.date_range("2024-01-04", periods=2, freq="D"))
 
 
-# --- multivariate boundary: a clear, guiding error at every entry point ----- #
 def test_multivariate_x_raises_clear_error_everywhere():
     import dtfit as dt
     rng = np.random.default_rng(0)
@@ -216,14 +207,14 @@ def test_multivariate_x_raises_clear_error_everywhere():
         with pytest.raises(ValueError) as exc:
             entry()
         msg = str(exc.value)
-        # every message must state the 1-D scope and point to the escape hatch
+        # each message must state the 1-D scope and name the escape hatch
         assert "one-dimensional" in msg or "single input feature" in msg
         assert "compose 1-D models" in msg
 
 
 def test_column_vector_is_accepted_not_flagged_multivariate():
-    # a single-column (n, 1) array/DataFrame is a column vector, not multivariate:
-    # to_1d_array squeezes it; only >1 column is rejected.
+    # an (n, 1) array or DataFrame is a column vector, not multivariate:
+    # to_1d_array squeezes it, and only a second column is rejected.
     x = np.linspace(0.0, 2.0, 60)
     col = to_1d_array(x.reshape(-1, 1), "x")
     assert col.shape == (60,)

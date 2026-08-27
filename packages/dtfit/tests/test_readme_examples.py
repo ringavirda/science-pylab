@@ -1,10 +1,9 @@
-"""Executable smoke test of the README's advertised public-API snippets.
+"""Smoke test for the README quick-start snippets.
 
-The wiki and notebooks are the narrative docs; this guards the quick-start
-*code* against silent API drift (a rename / signature change that would make the
-front-page examples stop working). Each test mirrors one README block and only
-asserts it runs and returns something well-shaped -- not numerical accuracy,
-which the validation suite covers.
+Each test mirrors one README block and asserts only that it runs and returns
+something well-shaped; numerical accuracy is the validation suite's job. What
+this catches is a rename or signature change that would leave the front page
+advertising an API nobody can call.
 """
 
 import numpy as np

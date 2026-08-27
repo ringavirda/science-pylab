@@ -1,11 +1,10 @@
 """Phase-2 default-config robustness: the bare public entry points must work.
 
-The docs and notebooks call the library with *defaults* -- ``models.x().fit``,
+The docs and notebooks call the library on defaults: ``models.x().fit``,
 ``NonlineRegressor(expr).fit``, ``suggest_models(x, y)``, ``fit_lsi(x, y, expr,
-var)`` with no hand-tuned ``p0`` -- yet the historical tests always fed a good
-seed and a method-favourable dataset. These tests exercise the default paths
-across the catalogue and require they either produce a finite, usable fit or
-fail loudly; nothing may silently return NaN or a stalled seed.
+var)`` and no hand-tuned ``p0``. These tests run those paths across the whole
+catalogue and require each to produce a finite, usable fit or to fail loudly.
+Nothing may quietly return NaN or a stalled seed.
 """
 
 from __future__ import annotations
@@ -19,19 +18,19 @@ import dtfit as dt
 from accuracy.scenarios import SCENARIOS
 from accuracy.harness import ordered_params, r2, param_err, predict
 
-# fourier_series is intentionally outside the default suggest_models sweep (a
-# parametric factory offered separately), so a periodic signal is expected to
-# surface its fundamental `sine` instead -- not a miss.
+# fourier_series is a parametric factory offered outside the default
+# suggest_models sweep. A periodic signal surfacing its fundamental `sine`
+# is the expected answer here, not a miss.
 _SUGGEST_CASES = [s for s in SCENARIOS if s.factory_name != "fourier_series"]
 
 
 @pytest.mark.parametrize("scn", _SUGGEST_CASES, ids=[s.name for s in _SUGGEST_CASES])
 def test_suggest_recommends_true_family(scn):
-    """The recommender must shortlist + rank the true family in the top 3.
+    """The recommender must shortlist and rank the true family in the top 3.
 
-    Guards the shape-detection regression where noisy sigmoids / saturating
-    curves were tagged oscillatory and their families dropped, so an epidemic
-    (logistic) curve came back recommended as `sine`.
+    Guards the shape-detection failure where a noisy sigmoid or saturating
+    curve gets tagged oscillatory and its family dropped, leaving a logistic
+    epidemic curve recommended as `sine`.
     """
     x, y, _ = scn.make(0.03, seed=0)
     with warnings.catch_warnings():
@@ -41,12 +40,11 @@ def test_suggest_recommends_true_family(scn):
         f"{scn.name}: true family not in top-3 {names}. {scn.note}")
 
 
-# A representative spread (one per non-oscillatory category) fit through the
-# sklearn estimator with *all* defaults (p0=None -> ones, k_star=5,
-# filter_data=True). Oscillatory models are deliberately excluded: the bare
-# NonlineRegressor does not auto-apply the oscillatory recipe (it has no
-# freq_param), so a cycle must be fit via Model.fit / auto_estimate or by
-# passing freq_param -- see test_oscillatory_needs_recipe_path and the LSI docs.
+# One model per non-oscillatory category, fit through the sklearn estimator on
+# its defaults alone (p0=None -> ones, k_star=5, no pre-filter). Oscillatory
+# models are excluded on purpose: the bare NonlineRegressor has no freq_param
+# and never applies the oscillatory recipe. See
+# test_oscillatory_needs_recipe_path below.
 _REGRESSOR_MODELS = [
     "linear", "exponential", "exp_decay", "logistic", "gaussian",
     "michaelis_menten",
@@ -65,22 +63,22 @@ def test_nonline_regressor_defaults(name, method):
     pred = reg.predict(x)
     assert np.all(np.isfinite(reg.coef_))
     assert np.all(np.isfinite(pred))
-    # A bare-default fit on a clean signal should still be a usable curve.
+    # a bare-default fit on a clean signal must still be a usable curve
     assert r2(clean, pred) > 0.9, f"{name}/{method}: R2={r2(clean, pred):.3f}"
 
 
 def test_oscillatory_needs_recipe_path():
-    """Documents a real usage limit: a cycle is only recovered through the
-    oscillatory recipe (Model.fit / auto_estimate / freq_param), *not* the bare
-    NonlineRegressor whose smoothing + low default order erase the cycle."""
+    """A cycle is recovered only through the oscillatory recipe: Model.fit,
+    auto_estimate, or an explicit freq_param. Smoothing at the bare
+    NonlineRegressor's low default order erases it."""
     scn = next(s for s in SCENARIOS if s.name == "sine")
     x, y, clean = scn.make(0.03, seed=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        # recommended path: routes through the oscillatory recipe -> recovers
+        # recommended path: routes through the oscillatory recipe
         good = scn.model().fit(x, y)
         good_r2 = r2(clean, predict(good, x))
-        # bare regressor (no recipe): a documented underperformer on cycles
+        # bare regressor, no recipe: the documented underperformer on cycles
         bare = dt.NonlineRegressor(scn.model().expr, "x", method="lsi").fit(x, y)
         bare_r2 = r2(clean, bare.predict(x))
     assert good_r2 > 0.98, f"recipe path should recover the cycle, got {good_r2:.3f}"
@@ -99,17 +97,17 @@ def test_dsb_regressor_additive():
                                   method="dsb").fit(x, y)
     pred = reg.predict(x)
     assert np.all(np.isfinite(pred))
-    # DSB is the analytical reference: under noise it matches the data's noisy
-    # high-order polynomial spectrum, so it behaves as a curve fit, not an exact
-    # point estimator (see dsb.md). A usable curve, not near-perfect recovery.
+    # under noise DSB matches the data's noisy high-order polynomial spectrum,
+    # behaving as a curve fit rather than an exact point estimator (see
+    # dsb.md). The threshold therefore asks for a usable curve, no more.
     assert r2(clean, pred) > 0.90
 
 
 @pytest.mark.parametrize("scn", SCENARIOS, ids=[s.name for s in SCENARIOS])
 def test_self_seeded_fit_is_accurate(scn):
-    """The headline doc path -- ``models.family().fit(x, y)`` self-seeded -- must
-    recover the truth (params families) or fit the curve (weak-id families) on a
-    lightly-noised signal, with no hand-written p0."""
+    """The headline doc path, ``models.family().fit(x, y)`` with no hand-made
+    p0, must recover the truth (params families) or fit the curve (weak-id
+    families) on a lightly-noised signal."""
     x, y, clean = scn.make(0.02, seed=7)
     names = ordered_params(scn)
     with warnings.catch_warnings():

@@ -1,8 +1,7 @@
-"""Execute every example script so the guides stay in step with the API.
+"""Run every script under examples/ as an executable form of the docs.
 
-The examples/ scripts are the runnable documentation; running them here turns a
-public-API rename or signature change into a failing test instead of a stale doc.
-Each script is headless (prints only) and fast.
+A public-API rename or signature change fails here instead of leaving a stale
+guide behind. Each script prints only and finishes in seconds.
 """
 
 import subprocess

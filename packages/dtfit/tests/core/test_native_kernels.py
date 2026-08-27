@@ -1,9 +1,8 @@
-"""Native kernels stay numerically identical to the NumPy/SciPy fallback.
+"""Native kernels agree with the NumPy/SciPy reference to roundoff.
 
-Guards the GIL-release refactor of dtfit._core._native: dropping the GIL around the
-pure compute loops must not change any result. Also exercises concurrent calls
-from multiple threads to catch a botched GIL handshake (which would deadlock or
-corrupt output).
+``dtfit._core._native`` drops the GIL around its compute loops. Releasing it
+must not change any result, and calls arriving concurrently from several
+threads must neither deadlock nor corrupt their output.
 """
 
 from concurrent.futures import ThreadPoolExecutor

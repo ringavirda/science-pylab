@@ -39,7 +39,7 @@ def test_composition_builds_combined_expr():
     x = np.linspace(0, 20, 300)
     y = 0.5 * x + 3 * np.sin(2 * np.pi * x / 4) + rng.normal(0, 0.2, x.size)
     r = m.fit(x, y)
-    # the cycle is seeded on the detrended residual -> a genuinely good fit
+    # the cycle is seeded on the detrended residual; that is why 0.95 holds
     from dtfit.diagnostics import fit_report
     assert fit_report(r, x, y)["r2"] > 0.95
 
@@ -57,7 +57,7 @@ def test_suggest_models_ranks_true_family_first():
     ranked = suggest_models(t, y, top=3)
     assert ranked, "no suggestions returned"
     names = [s.name for s in ranked]
-    # the exponential should be the most parsimonious good fit -> top of the list
+    # the exponential is the most parsimonious good fit for this data
     assert "exponential" in names[:2]
     assert ranked[0].r2 > 0.95
 
@@ -141,10 +141,9 @@ def test_model_from_raw_expr():
 
 
 def test_seed_arrays_keeps_partial_bounds():
-    # A seeder that bounds one parameter but leaves another unbounded must keep
-    # BOTH pairs: the solvers skip the global (DE) stage on infinite bounds, but
-    # the local solve still honours the finite ones. Mixed bounds used to be
-    # dropped wholesale (returned as None).
+    # A seeder that bounds one parameter and leaves another unbounded must keep
+    # both pairs. The solvers skip the global (DE) stage on infinite bounds,
+    # and the local solve still honours the finite ones.
     def seed(x, y):
         return {"a": (2.0, -np.inf, np.inf), "s": (0.5, 1e-3, np.inf)}
 
@@ -156,8 +155,8 @@ def test_seed_arrays_keeps_partial_bounds():
 
 
 def test_seed_arrays_fully_unbounded_maps_to_none():
-    # An all-(-inf, inf) seed carries no constraint: it maps to None so the
-    # solver keeps the unconstrained (LM) path instead of the bounded one.
+    # An all-(-inf, inf) seed carries no constraint. Mapping it to None keeps
+    # the solver on the unconstrained (LM) path instead of the bounded one.
     def seed(x, y):
         return {"a": (2.0, -np.inf, np.inf)}
 
@@ -168,8 +167,8 @@ def test_seed_arrays_fully_unbounded_maps_to_none():
 
 
 def test_partial_bounds_survive_to_solver(monkeypatch):
-    # The (possibly partially-infinite) seeded bounds must reach the estimator
-    # untouched through Model.fit's auto route.
+    # Seeded bounds, partly infinite or not, reach the estimator untouched
+    # through Model.fit's auto route.
     captured = {}
 
     def fake_auto(x, y, expr, var, **kwargs):
@@ -202,8 +201,8 @@ def test_partial_bounds_positivity_guard_respected():
 
 
 def test_suggest_models_warns_on_failed_candidate():
-    # A candidate whose fit errors must be skipped with a UserWarning naming
-    # it (never silently), and the surviving families still get ranked.
+    # A candidate whose fit errors is skipped with a UserWarning naming it,
+    # never silently. The surviving families still get ranked.
     def bad_seed(x, y):
         raise RuntimeError("boom")
 
@@ -218,20 +217,18 @@ def test_suggest_models_warns_on_failed_candidate():
     assert "linear" in names
 
 
-# --- callable models -------------------------------------------------------
+# callable models
 def _decay(x, a, b, c):
-    """f(x) = a*exp(-b*x) + c -- signature order (a, b, c)."""
+    """f(x) = a*exp(-b*x) + c, signature order (a, b, c)."""
     return a * np.exp(-b * x) + c
 
 
 def _line_ba(x, b, a):
-    """f(x) = a*x + b -- signature order (b, a) != sorted (a, b)."""
+    """f(x) = a*x + b, signature order (b, a), not sorted (a, b)."""
     return a * x + b
 
 
 def test_callable_model_attributes_and_signature_order():
-    # A callable Model exposes is_symbolic=False, no expr, the callable in .func,
-    # and its parameters in *signature* order (not sorted).
     m = Model.from_callable(_decay, name="cdecay", shape="bulk")
     assert m.is_symbolic is False
     assert m.expr is None
@@ -239,14 +236,12 @@ def test_callable_model_attributes_and_signature_order():
     assert m.params == ("a", "b", "c")
     assert "callable" in repr(m).lower() or "<callable>" in repr(m)
 
-    # Signature order is preserved verbatim, even when it differs from sorted.
+    # signature order survives even where it differs from sorted
     m2 = Model.from_callable(_line_ba, name="cline")
     assert m2.params == ("b", "a")
 
 
 def test_callable_model_recovers_params_lsi_and_auto():
-    # A callable Model fits and recovers its parameters through both an explicit
-    # engine (lsi) and the shape-routed auto path.
     m = Model.from_callable(_decay, name="cdecay", shape="bulk")
     rng = np.random.default_rng(0)
     x = np.linspace(0, 5, 200)
@@ -256,12 +251,11 @@ def test_callable_model_recovers_params_lsi_and_auto():
         assert r.params["a"] == pytest.approx(3.0, abs=0.1)
         assert r.params["b"] == pytest.approx(0.8, abs=0.1)
         assert r.params["c"] == pytest.approx(1.0, abs=0.1)
-        # coefficients / names line up with the callable's signature order.
+        # coefficients and names line up with the callable's signature order
         assert tuple(r.names) == ("a", "b", "c")
 
 
 def test_callable_model_fits_via_eac():
-    # The explicit equal-areas engine also accepts the callable straight through.
     m = Model.from_callable(_decay, name="cdecay", shape="bulk")
     rng = np.random.default_rng(1)
     x = np.linspace(0, 5, 200)
@@ -273,8 +267,8 @@ def test_callable_model_fits_via_eac():
 
 
 def test_callable_model_self_seeds_through_fit(monkeypatch):
-    # A callable Model's seeder feeds p0/bounds in *signature* order and the raw
-    # callable is passed straight through to the fitter (which resolves it).
+    # A callable Model's seeder feeds p0/bounds in signature order. The raw
+    # callable reaches the fitter for it to resolve.
     captured: dict = {}
 
     def fake_lsi(x, y, model, var, **kw):
@@ -306,7 +300,7 @@ def test_callable_model_self_seed_end_to_end():
     rng = np.random.default_rng(2)
     x = np.linspace(0, 5, 200)
     y = 3.0 * np.exp(-0.8 * x) + 1.0 + rng.normal(0, 0.02, x.size)
-    r = m.fit(x, y, method="lsi")  # p0/bounds come from the seeder
+    r = m.fit(x, y, method="lsi")
     assert r.params["b"] == pytest.approx(0.8, abs=0.1)
     assert r.params["a"] == pytest.approx(3.0, abs=0.15)
 
@@ -328,8 +322,8 @@ def test_callable_model_param_names_for_varargs():
 
 
 def test_callable_model_constructor_accepts_callable_with_param_names():
-    # The constructor path (not only from_callable) accepts a callable and an
-    # explicit param_names override.
+    # The constructor takes a callable and a param_names override too, not
+    # only from_callable.
     m = Model(_decay, "t", name="cdecay", param_names=("a", "b", "c"))
     assert m.is_symbolic is False
     assert m.var == "t"
@@ -341,8 +335,8 @@ def test_callable_model_constructor_accepts_callable_with_param_names():
 
 
 def test_callable_model_add_raises():
-    # Composition requires symbolic operands: any callable operand raises a clear
-    # TypeError, in either position and for callable+callable.
+    # Composition requires symbolic operands. A callable in either position,
+    # or on both, raises a clear TypeError.
     m = Model.from_callable(_decay, name="cdecay")
     sym = Model("q*x", "x", name="lin")
     with pytest.raises(TypeError, match="cannot compose a callable model"):
@@ -354,24 +348,24 @@ def test_callable_model_add_raises():
 
 
 def test_symbolic_model_behavior_unchanged():
-    # A symbolic (string) Model keeps the historical attributes: is_symbolic,
-    # the expression string, no callable, sorted parameter order.
+    # A symbolic (string) Model: is_symbolic set, the expression string kept,
+    # no callable, and sorted parameter order.
     m = Model("a*exp(b*x)", "x", name="exp", shape="bulk")
     assert m.is_symbolic is True
     assert m.expr == "a*exp(b*x)"
     assert m.func is None
     assert m.params == ("a", "b")  # sorted
-    # composition still works between two symbolic models.
+    # composition works between two symbolic models
     combined = m + Model("c*x", "x", name="lin")
     assert combined.is_symbolic is True
     assert "c" in combined.params
 
 
-# --- custom model registration --------------------------------------------
+# custom model registration
 @pytest.fixture
 def clean_catalog():
-    # Registration mutates the module-global CATALOG in place; snapshot and
-    # restore it so a test's registrations never leak into other tests.
+    # Registration mutates the module-global CATALOG in place. Snapshot and
+    # restore it so one test's registrations never leak into another.
     from dtfit.models import _catalog
     snapshot = dict(_catalog.CATALOG)
     try:
@@ -382,8 +376,8 @@ def clean_catalog():
 
 
 def _make_myline():
-    # A zero-arg factory returning a fresh custom Model (default category
-    # 'general', which is outside the recommender's known shape vocabulary).
+    # A zero-arg factory returning a fresh custom Model. Its category defaults
+    # to 'general', outside the recommender's known shape vocabulary.
     def seed(x, y):
         a1, a0 = np.polyfit(x, y, 1)
         return {"a0": (float(a0), -np.inf, np.inf),
@@ -395,9 +389,9 @@ def test_register_adds_to_catalog_and_all_models(clean_catalog):
     assert "myline" not in models.CATALOG
     models.register("myline", _make_myline)
     assert "myline" in models.CATALOG
-    # all_models() returns fresh instances of every catalogued family, custom too
+    # all_models() covers custom families as well as builtins
     assert any(m.name == "myline" for m in models.all_models())
-    # a fresh instance every call (factory-based, not a shared object)
+    # a fresh instance every call, since the catalog stores factories
     a, b = models.CATALOG["myline"](), models.CATALOG["myline"]()
     assert a is not b and a.name == b.name == "myline"
 
@@ -409,7 +403,7 @@ def test_register_makes_model_visible_to_suggest(clean_catalog):
     y = 2.0 * t + 1.0 + rng.normal(0, 0.05, t.size)
     ranked = suggest_models(t, y)
     names = [s.name for s in ranked]
-    # the registered family is considered and (being the true structure) fits
+    # the registered family is considered, and it is the true structure here
     assert "myline" in names
     top = next(s for s in ranked if s.name == "myline")
     assert top.r2 > 0.99
@@ -445,7 +439,7 @@ def test_register_collision_raises_and_overwrite_replaces(clean_catalog):
 
 
 def test_register_overwrite_builtin_warns(clean_catalog):
-    # Shadowing a shipped family is allowed with overwrite=True but is flagged.
+    # Shadowing a shipped family is allowed with overwrite=True, but flagged.
     with pytest.warns(UserWarning, match="builtin"):
         models.register("linear", _make_myline, overwrite=True)
     assert models.CATALOG["linear"] is _make_myline

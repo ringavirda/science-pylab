@@ -1,10 +1,9 @@
-"""Shared scoring + fitting helpers for the accuracy corpus.
+"""Scoring and fitting helpers shared by the accuracy corpus.
 
-One implementation of "fit this scenario, score the recovery / curve quality,
-and what would the gold-standard NLLS baseline do" -- used by the Phase-1 gate,
-the Phase-3 seed-robustness tests, the Phase-4 golden snapshot and the
-``dtfit-experimental`` exploration harness, so every consumer judges a fit the
-same way.
+Fitting a scenario, scoring its recovery or its curve quality, running the
+gold-standard NLLS baseline against it: each is implemented once here. The
+accuracy gate, the seed-robustness tests, the golden snapshot and the
+``dtfit-experimental`` harness all judge a fit through the same code.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ def ordered_params(scn: Scenario) -> list[str]:
 
 
 def r2(clean: np.ndarray, pred: np.ndarray) -> float:
-    """R^2 of ``pred`` against the *clean* signal (true-recovery curve quality)."""
+    """R^2 of ``pred`` against the clean signal, not the noisy observations."""
     pred = np.asarray(pred, float)
     if pred.ndim == 0:
         pred = np.full_like(clean, float(pred))
@@ -53,10 +52,11 @@ def predict(res, x: np.ndarray) -> np.ndarray:
 
 
 def metrics_for(scn: Scenario, noise: float, seed: int = 0) -> dict:
-    """Recovery metrics for the realistic self-seeded ``Model.fit`` path -- the
-    single measurement the golden baseline snapshots and the regression guard
-    re-checks. Returns ``{"perr", "r2", "metric"}`` (NaN/inf folded to a large
-    finite sentinel so the JSON round-trips)."""
+    """Recovery metrics for the self-seeded ``Model.fit`` path. This is the
+    measurement the golden baseline snapshots and the regression guard
+    re-checks. Returns ``{"metric", "perr", "r2"}``; a non-finite ``perr``
+    becomes 1e9 and a non-finite ``r2`` becomes -1e9, which keeps the dict
+    JSON-serialisable."""
     import warnings
 
     names = ordered_params(scn)
@@ -74,9 +74,11 @@ def metrics_for(scn: Scenario, noise: float, seed: int = 0) -> dict:
 
 
 def curve_fit_baseline(scn: Scenario, x, y, names):
-    """``(popt, pred)`` from ``scipy.curve_fit`` with the model's data-driven
-    seed -- the Levenberg-Marquardt gold standard the methods are measured
-    against. Returns ``(None, reason)`` if it fails."""
+    """``(popt, pred)`` from ``scipy.optimize.curve_fit``, seeded by the
+    model's own data-driven guess. This is the reference NLLS fit the methods
+    are measured against. A bounded scenario goes down curve_fit's trf branch
+    while an unbounded one uses Levenberg-Marquardt. Returns
+    ``(None, reason)`` if curve_fit raises."""
     m = scn.model()
     t = sp.Symbol(m.var)
     f = sp.sympify(m.expr)

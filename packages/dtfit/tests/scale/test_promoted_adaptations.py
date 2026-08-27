@@ -1,12 +1,11 @@
-"""Promotions from the domain validation suite into the stable API.
+"""Adaptive EAC windows, the LSI oscillatory recipe and the fused detector.
 
-Covers the three levers promoted alongside the batched/partitioned estimators:
-
-* ``fit_eac(window_mode="curvature")`` -- curvature-adaptive EAC windows (#6),
-  validated on concentrated transients;
-* the ``fit_lsi`` **oscillatory recipe** (``oscillatory=`` / ``freq_param=`` plus
-  ``fft_frequency_seed``), which recovers a sinusoid the smoothed default erases;
-* ``FusedChiSquareDetector`` -- the multi-axis fused fault detector on a
+* ``fit_eac(window_mode="curvature")``: curvature-adaptive EAC windows, aimed
+  at concentrated transients;
+* the ``fit_lsi`` oscillatory recipe (``oscillatory=`` / ``freq_param=`` with
+  ``fft_frequency_seed``), which recovers a sinusoid the smoothed default
+  erases;
+* ``FusedChiSquareDetector``, the multi-axis fault detector on a
   ``FilterBank``.
 """
 
@@ -23,7 +22,6 @@ from dtfit import (
 )
 
 
-# --- #6 adaptive-window EAC ------------------------------------------------- #
 def test_adaptive_eac_recovers_transient():
     rng = np.random.default_rng(4)
     t = np.linspace(0, 3, 400)
@@ -42,7 +40,6 @@ def test_adaptive_eac_uniform_mode_runs():
     assert abs(r.coeffs[0] - 1.5) < 0.3
 
 
-# --- LSI oscillatory recipe + FFT seed ------------------------------------- #
 def test_fft_frequency_seed_finds_dominant_cycle():
     t = np.linspace(0, 4 * np.pi, 400)
     y = 2.0 * np.sin(1.5 * t)
@@ -56,11 +53,11 @@ def test_oscillatory_recipe_recovers_sine_where_default_fails():
     y = 2.0 * np.sin(w_true * t) + rng.normal(0, 0.05, t.size)
 
     osc = fit_lsi(t, y, "A*sin(w*x)", "x", freq_param="w", p0=[1.0, 1.0])
-    names = ["A", "w"]  # sympy sorts params; A before w
+    names = ["A", "w"]  # sympy sorts the parameters, so A comes before w
     w_osc = osc.coeffs[names.index("w")]
     assert abs(w_osc - w_true) < 0.1
 
-    # the smoothed low-order default cannot lock the cycle without the recipe
+    # without the recipe the smoothed low-order default cannot lock the cycle
     plain = fit_lsi(t, y, "A*sin(w*x)", "x", p0=[1.0, 1.0])
     w_plain = plain.coeffs[names.index("w")]
     assert abs(w_osc - w_true) <= abs(w_plain - w_true)
@@ -70,7 +67,8 @@ def test_oscillatory_flag_forces_filter_off_and_raises_order():
     rng = np.random.default_rng(2)
     t = np.linspace(0, 6 * np.pi, 400)
     y = np.sin(2.0 * t) + rng.normal(0, 0.05, t.size)
-    # bounds path: the global search brackets the frequency; recipe still helps.
+    # the bounds path: a global search brackets the frequency; the recipe
+    # still helps
     r = fit_lsi(t, y, "A*sin(w*x)", "x", oscillatory=True,
                 bounds=[(0.1, 5.0), (0.5, 4.0)])
     assert abs(r.coeffs[1] - 2.0) < 0.2
@@ -82,7 +80,6 @@ def test_freq_param_unknown_raises():
         fit_lsi(t, np.sin(t), "A*sin(w*x)", "x", freq_param="omega")
 
 
-# --- fused multi-axis chi2 detector ---------------------------------------- #
 OSC = "A*exp(-z*w*t)*sin(w*sqrt(1-z**2)*t)"
 
 

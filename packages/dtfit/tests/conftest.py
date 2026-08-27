@@ -6,7 +6,7 @@ import pytest
 
 @pytest.fixture
 def exp_data():
-    """Exponential decay y = 2.5 * exp(-1.2 x) on a modest domain (LSI-friendly)."""
+    """Exponential decay y = 2.5 * exp(-1.2 x) on a short LSI-friendly span."""
     rng = np.random.default_rng(0)
     x = np.linspace(0, 2, 80)
     y = 2.5 * np.exp(-1.2 * x) + rng.normal(0, 0.05, x.size)

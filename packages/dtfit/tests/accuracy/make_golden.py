@@ -1,13 +1,13 @@
 """Regenerate the golden accuracy baseline.
 
-Snapshots the recovery metrics of the realistic ``Model.fit`` path for every
-scenario x noise level into ``golden_baseline.json``. Run deliberately, after an
-*intended* accuracy change, and review the diff::
+Snapshots the recovery metrics of ``Model.fit`` for every scenario x noise
+level into ``golden_baseline.json``. Run it only after an accuracy change you
+meant to make, then read the diff::
 
     python -m accuracy.make_golden        # from packages/dtfit/tests
 
-The Phase-4 guard (:mod:`test_accuracy_regression`) fails if any scenario later
-drifts worse than this snapshot by more than its tolerance.
+:mod:`test_accuracy_regression` fails if a scenario later drifts worse than
+this snapshot by more than its tolerance.
 """
 
 from __future__ import annotations

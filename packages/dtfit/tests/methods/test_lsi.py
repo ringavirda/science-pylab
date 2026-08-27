@@ -33,7 +33,7 @@ def test_lsi_auto_order(exp_data):
     assert abs(b - true["b"]) < 0.3
 
 
-# --- p0 / bounds normalization (dict + positional forms) -------------------- #
+# p0 / bounds normalization: dict and positional forms
 def test_lsi_dict_p0_matches_positional(exp_data):
     x, y, _ = exp_data
     pos = fit_lsi(x, y, "a*exp(b*x)", "x", p0=[1.0, -0.5]).coeffs
@@ -43,8 +43,8 @@ def test_lsi_dict_p0_matches_positional(exp_data):
 
 def test_lsi_partial_dict_bounds(exp_data):
     x, y, true = exp_data
-    # Only 'a' is bounded; 'b' stays unbounded -- the dict may be partial (and
-    # the mixed finite/infinite box must still constrain the local solve).
+    # Only 'a' is bounded; 'b' stays unbounded. A bounds dict may be partial,
+    # and the resulting mixed box must still constrain the local solve.
     result = fit_lsi(x, y, "a*exp(b*x)", "x", p0=[1.0, -0.5],
                      bounds={"a": (0.0, 10.0)})
     a, b = result.coeffs
@@ -68,8 +68,8 @@ def test_lsi_bounds_lo_above_hi_raises(exp_data):
 
 
 def test_lsi_filter_data_defaults_off(exp_data, monkeypatch):
-    """v0.2: fitters must not silently modify user data -- the Savitzky-Golay
-    pre-filter is opt-in. Verify the default path never calls it."""
+    """A fitter must not quietly modify the caller's data, so the
+    Savitzky-Golay pre-filter is opt-in and the default path never calls it."""
     import dtfit.methods._lsi as _lsi_mod
     x, y, _ = exp_data
     called = []
@@ -85,8 +85,8 @@ def test_lsi_filter_data_defaults_off(exp_data, monkeypatch):
 def test_lsi_robust_message_reflects_inner_solver(exp_data):
     x, y, _ = exp_data
     result = fit_lsi(x, y, "a*exp(b*x)", "x", p0=[1.0, -0.5], robust=True)
-    # The robust path must carry the last inner solver's status, not the old
-    # hard-coded 'robust IRLS' success constant.
+    # The message carries the last inner solver's status rather than a fixed
+    # 'robust IRLS' constant.
     assert result.message != "robust IRLS"
     assert result.message.startswith("robust IRLS (")
 
@@ -94,15 +94,16 @@ def test_lsi_robust_message_reflects_inner_solver(exp_data):
 def test_lsi_robust_converged_flag_propagates_inner_failure(
     monkeypatch, exp_data
 ):
-    """The ``converged`` FLAG (not just the message) must reflect the last
-    inner IRLS solve: wrap ``least_squares`` to report failure and the result
+    """The ``converged`` flag, not only the message, reflects the last inner
+    IRLS solve. With ``least_squares`` wrapped to report failure, the result
     must not claim success."""
     import types
 
     import dtfit.methods._lsi as _lsi_mod
 
     x, y, _ = exp_data
-    y = y + 0.05 * np.random.default_rng(0).standard_normal(y.size)  # sigma > 0
+    # noise so the IRLS residual scale is non-zero
+    y = y + 0.05 * np.random.default_rng(0).standard_normal(y.size)
 
     real_ls = _lsi_mod.least_squares
 

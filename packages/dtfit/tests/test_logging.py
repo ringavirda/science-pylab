@@ -13,7 +13,7 @@ def test_echo_logs_message_and_values_at_debug(caplog):
 
 
 def test_echo_is_silent_below_its_level(caplog):
-    # echo logs at DEBUG by default, so it is silent when only INFO is captured
+    # echo defaults to DEBUG, below the INFO level captured here
     with caplog.at_level(logging.INFO, logger="dtfit"):
         echo("hidden-message")
     assert "hidden-message" not in caplog.text

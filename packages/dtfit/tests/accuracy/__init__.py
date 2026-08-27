@@ -1,7 +1,7 @@
-"""Accuracy-validation corpus: ground-truth scenarios across the model catalogue.
+"""Accuracy corpus: ground-truth scenarios across the model catalogue.
 
-Shared by the Phase-1 accuracy-matrix gate, the Phase-3 seed-robustness tests and
-the Phase-4 golden-regression guard, and by the exploration harness in
-``dtfit-experimental``. One place defines *what good looks like* for every
-catalogued family, so a doc example cannot land in a regime nothing validates.
+The accuracy-matrix gate, the seed-robustness tests and the golden-regression
+guard all read their cases from here, as does the exploration harness in
+``dtfit-experimental``. Every catalogued family has exactly one definition of
+what a good fit looks like.
 """

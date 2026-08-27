@@ -1,9 +1,8 @@
-"""Fused map-reduce + GEMM-batched LSI (``PartitionedBatchLSI``).
+"""Fused map-reduce and GEMM-batched LSI: ``PartitionedBatchLSI``.
 
-Covers: chunked multi-channel accumulation equals the whole-array batched
-projection *and* the per-channel ``PartitionedLSI`` (exact, additive); the
-associative ``merge`` reduces partitions exactly; parameter recovery across
-channels; and shape/validation behaviour.
+The accumulation is exact and additive. Chunked multi-channel updates must
+land on the whole-array batched projection as well as on the per-channel
+``PartitionedLSI``, with ``merge`` reducing partitions losslessly.
 """
 
 import numpy as np
@@ -27,8 +26,9 @@ def channels():
 
 
 def _chunked(x, Y, order=6, chunk=512, basis="legendre", domain=None):
-    # domain defaults to the data's own range; for a distributed merge pass the
-    # *global* domain so every worker projects onto the same basis.
+    # The domain defaults to the data's own range. A distributed merge must
+    # instead be given the global domain, or the workers project onto
+    # different bases.
     dom = (float(x[0]), float(x[-1])) if domain is None else domain
     acc = PartitionedBatchLSI(
         "a*exp(b*t)", "t", domain=dom,
@@ -40,7 +40,6 @@ def _chunked(x, Y, order=6, chunk=512, basis="legendre", domain=None):
 
 @pytest.mark.parametrize("basis", ["legendre", "chebyshev", "fourier", "laguerre"])
 def test_fused_spectra_equal_whole_array(channels, basis):
-    """Chunked fused accumulation == one whole-array batched projection."""
     x, Y, _, _ = channels
     fused = _chunked(x, Y, basis=basis).spectra()
     whole = project_spectra(x, Y, order=6, basis=basis, backend="numpy")
@@ -48,7 +47,6 @@ def test_fused_spectra_equal_whole_array(channels, basis):
 
 
 def test_fused_spectrum_equals_per_channel_partitioned(channels):
-    """Each fused channel == the single-channel PartitionedLSI on that column."""
     x, Y, _, _ = channels
     fused = _chunked(x, Y).spectra()
     for c in (0, 3, 7):
@@ -59,8 +57,8 @@ def test_fused_spectrum_equals_per_channel_partitioned(channels):
 
 
 def test_merge_is_exact_associative_reduce(channels):
-    """Two workers on disjoint sub-ranges (sharing the global domain + boundary
-    sample) merge to exactly the single-pass result."""
+    """Two workers on disjoint sub-ranges merge to exactly the single-pass
+    result, given the global domain and a shared boundary sample."""
     x, Y, _, _ = channels
     g = (float(x[0]), float(x[-1]))                  # global domain for both
     half = x.size // 2
@@ -95,8 +93,9 @@ def test_channel_count_mismatch_raises(channels):
 
 
 def test_update_accepts_plain_lists(channels):
-    # ``update`` coerces array-likes up front: list-of-lists chunks accumulate
-    # exactly the ndarray-fed state (and never touch ``.shape`` on the raw args).
+    # ``update`` coerces its arguments before touching them: list-of-lists
+    # chunks accumulate exactly the ndarray-fed state. Nothing reads
+    # ``.shape`` off the raw arguments.
     x, Y, _, _ = channels
     ref = PartitionedBatchLSI(
         "a*exp(b*t)", "t", domain=(0.0, 10.0), n_channels=Y.shape[1], order=6)

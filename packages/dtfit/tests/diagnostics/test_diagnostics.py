@@ -23,7 +23,7 @@ def test_fit_report_keys_and_quality(exp_fit):
         assert key in rep
     assert rep["n"] == y.size and rep["n_params"] == 2
     assert rep["r2"] > 0.99
-    # cov present -> params + stderr included
+    # a covariance is available, so params and stderr are reported too
     assert "params" in rep and "stderr" in rep
     assert set(rep["params"]) == {"a", "b"}
 
@@ -31,7 +31,7 @@ def test_fit_report_keys_and_quality(exp_fit):
 def test_fit_report_aic_bic_prefer_correct_model(exp_fit):
     r, t, y = exp_fit
     good = fit_report(r, t, y)
-    # an underspecified linear model should score worse (higher) on AIC/BIC
+    # an underspecified linear model scores worse (higher) on AIC/BIC
     bad = fit_report(fit_lsi(t, y, "a0 + a1*t", "t", p0=[1.0, 1.0]), t, y)
     assert good["aic"] < bad["aic"] and good["bic"] < bad["bic"]
 
@@ -44,7 +44,6 @@ def test_residual_diagnostics(exp_fit):
     assert np.isfinite(d["lag1_autocorr"])
 
 
-# --- displays (require matplotlib, the 'viz' extra) ----------------------- #
 def test_fit_display_from_estimator(arctan_data):
     plt = pytest.importorskip("matplotlib.pyplot")
     plt.switch_backend("Agg")

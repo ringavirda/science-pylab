@@ -1,4 +1,4 @@
-"""Package surface: public API, submodule importability, and carve-out."""
+"""Package surface: public names, submodule importability, removed modules."""
 
 import importlib
 import pkgutil

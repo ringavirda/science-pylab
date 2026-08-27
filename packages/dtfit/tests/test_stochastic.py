@@ -1,9 +1,9 @@
-"""Tests for the promoted ``dtfit.stochastic`` package -- the stochastic-series
-solution (fit deterministic functionals of a random process to characterize /
-forecast / generate it, plus the streaming filter).
+"""Tests for ``dtfit.stochastic``: fitting deterministic functionals of a
+random process to characterize, forecast, and generate it, plus the streaming
+filter.
 
-Self-contained: ground-truth generators are defined here so stable ``dtfit`` does
-not depend on the experimental experiment harness.
+The ground-truth generators are defined here rather than imported from the
+experimental harness; stable dtfit must not depend on it.
 """
 
 from typing import cast
@@ -19,7 +19,6 @@ from dtfit.stochastic import (
 )
 
 
-# --- ground-truth generators ------------------------------------------------ #
 def gen_ar1(n, phi, rng, sigma=1.0, burn=200):
     e = rng.normal(0.0, sigma, n + burn)
     x = np.empty(n + burn)
@@ -69,7 +68,6 @@ def gen_trend_cycle(n, slope, period, amp, noise_sd, rng):
     return t, y
 
 
-# --- the functional estimators (each feeds fit_lsi/fit_eac) ----------------- #
 def test_sample_acf_white_noise_is_a_spike():
     acf = sample_acf(np.random.default_rng(0).standard_normal(4000), 12)
     assert acf[0] == pytest.approx(1.0)
@@ -93,7 +91,7 @@ def _gen_ar2(n, p1, p2, seed):
 
 def test_fit_ar_recovers_ar2_order_and_coeffs():
     orders = [ar_order(_gen_ar2(2000, 0.5, 0.3, s)) for s in range(7)]
-    assert max(set(orders), key=orders.count) == 2      # AR(2) selected
+    assert max(set(orders), key=orders.count) == 2
     fit = fit_ar(_gen_ar2(4000, 0.5, 0.3, 1))
     assert fit["order"] == 2
     assert np.allclose(np.asarray(fit["phi"], dtype=float), [0.5, 0.3], atol=0.08)
@@ -104,8 +102,9 @@ def test_ar_order_white_noise_is_zero():
 
 
 def test_ar_p_not_mislabeled_long_memory():
-    """The router classifies a genuine finite-order AR as mean-reverting, not
-    long memory (the AR(p) veto), at any order including a near-unit-root AR(1)."""
+    """A genuine finite-order AR must classify as mean-reverting, not long
+    memory. The AR(p) veto is what stops a near-unit-root AR(1) from reading
+    as long memory."""
     for series in (_gen_ar2(3000, 0.5, 0.3, 0),        # AR(2)
                    gen_ar1(3000, 0.95, np.random.default_rng(0))):  # near-unit AR(1)
         m = fit_stochastic(series)
@@ -114,9 +113,9 @@ def test_ar_p_not_mislabeled_long_memory():
 
 
 def test_strong_long_memory_still_detected():
-    """A strong ARFIMA (d=0.4, H~0.9) is detected as long memory -- reading the
-    raw-residual Hurst no longer under-detects it (the AR(1)-whitened innovations
-    used to)."""
+    """A strong ARFIMA (d=0.4, H~0.9) must read as long memory. Detection has
+    to work off the raw-residual Hurst; AR(1)-whitened innovations under-detect
+    it."""
     got = sum(fit_stochastic(gen_arfima(4096, 0.4, np.random.default_rng(s)))
               .has_long_memory for s in range(5))
     assert got >= 4
@@ -142,8 +141,8 @@ def test_simulate_student_t_has_fat_tails_and_unit_scale():
     m = fit_stochastic(x)
     sn = m.simulate(5000, seed=0, dist="normal")
     st = m.simulate(5000, seed=0, dist="t", df=4)
-    assert float(kurtosis(st)) > float(kurtosis(sn)) + 1.5     # fatter tails
-    assert abs(np.std(st) - np.std(sn)) < 0.25 * np.std(sn)    # same scale
+    assert float(kurtosis(st)) > float(kurtosis(sn)) + 1.5
+    assert abs(np.std(st) - np.std(sn)) < 0.25 * np.std(sn)
 
 
 def test_long_memory_simulate_variance_matches_sigma():
@@ -151,13 +150,11 @@ def test_long_memory_simulate_variance_matches_sigma():
     for H in (0.7, 0.9):
         stds = [np.std(_sim_long_memory(2000, H, 1.0, np.random.default_rng(s)))
                 for s in range(6)]
-        assert abs(float(np.mean(stds)) - 1.0) < 0.1          # realized std ~ sigma
+        assert abs(float(np.mean(stds)) - 1.0) < 0.1
 
 
 def test_hurst_aggvar_recovers_long_memory():
-    # aggregated-variance Hurst is a stable-package public export; cover it here
-    # (previously only exercised via the experimental suite). Noisier than the
-    # spectral estimator, so a looser band + more seeds.
+    # aggvar is noisier than the spectral estimator: wider band, more seeds.
     H = 0.8
     ests = [hurst_aggvar(gen_arfima(4096, 0.3,
             np.random.default_rng(60 + s)))["H"] for s in range(5)]
@@ -166,9 +163,9 @@ def test_hurst_aggvar_recovers_long_memory():
 
 
 def test_hurst_aggvar_eac_matches_loglog():
-    # the equal-areas (linear-space power-law) branch must recover the same
-    # long-memory slope as the log-log fit -- a regression guard for the p0/bounds
-    # ordering (it previously pinned H at 1.0 from swapped seed/bound order).
+    # the equal-areas (linear-space power-law) branch must land on the same
+    # long-memory slope as the log-log fit. Swapping the p0 and bounds
+    # arguments pins H at exactly 1.0, and only this comparison catches it.
     x = gen_arfima(4096, 0.3, np.random.default_rng(77))
     h_eac = hurst_aggvar(x, method="eac")["H"]
     h_lsi = hurst_aggvar(x, method="lsi")["H"]
@@ -205,7 +202,6 @@ def test_decompose_recovers_trend_and_cycle():
     assert abs(slope - 0.02) / 0.02 < 0.30
 
 
-# --- the merged batch solution: fit_stochastic + Stochastic().fit() --------- #
 def test_merged_white_noise_reports_no_structure():
     m = fit_stochastic(np.random.default_rng(0).standard_normal(1500))
     assert isinstance(m, StochasticModel)
@@ -237,7 +233,8 @@ def test_merged_trend_cycle_detected_and_forecasts():
 
 
 def test_stochastic_model_convention_fit():
-    """`dtfit.Stochastic().fit(series)` returns the same StochasticModel."""
+    """``Stochastic().fit()`` is the estimator-shaped wrapper: the same
+    StochasticModel as ``fit_stochastic``, also kept on ``model_``."""
     y = gen_ar1(1200, 0.7, np.random.default_rng(1))
     s = Stochastic()
     m = s.fit(y)
@@ -258,12 +255,11 @@ def test_forecaster_control():
         fit_stochastic(y, forecaster="nonsense")
 
 
-# --- time-axis units, short-series honesty, surfaced stage failures --------- #
 def test_time_axis_units_do_not_change_seasonality_or_forecast():
-    """Regression for the sample-units/t-units seasonal bug: the period is
-    FFT-detected in SAMPLE units, so on a non-unit time axis (seconds, years)
-    it must be converted to t units before the seasonal fit -- previously any
-    such axis fit the wrong frequency and erased the seasonal component."""
+    """The period is FFT-detected in SAMPLE units. On a non-unit time axis it
+    has to be converted to t units before the seasonal fit; skip that
+    conversion and a seconds- or years-like axis fits the wrong frequency and
+    erases the seasonal component entirely."""
     t, y = gen_trend_cycle(600, 0.02, 50.0, 3.0, 1.0, np.random.default_rng(5))
     m1 = fit_stochastic(y, t)
     m2 = fit_stochastic(y, 0.5 * t)             # seconds-like axis, dt = 0.5
@@ -275,12 +271,12 @@ def test_time_axis_units_do_not_change_seasonality_or_forecast():
         assert m.cycle_period == pytest.approx(m1.cycle_period)
         assert m.n_harmonics == m1.n_harmonics
         assert m.cycle_amp == pytest.approx(m1.cycle_amp, rel=1e-6)
-        # the trend slope IS in t units, so it rescales with the spacing
+        # the trend slope, by contrast, is in t units and rescales with dt
         assert m.trend_slope == pytest.approx(m1.trend_slope / dt, rel=1e-6)
         # forecast horizons are in SAMPLES -> equivalent forecasts on any axis
         assert np.allclose(m.forecast(40), m1.forecast(40))
     # simulate()'s captured mean maps sample indices onto the fitted t axis,
-    # so the regenerated structure matches whatever the units of t were
+    # leaving the regenerated structure the same whatever t's units are.
     idx = np.arange(m1.n, dtype=float)
     assert np.allclose(m1._mean_fn(idx), m2._mean_fn(idx))
 
@@ -292,7 +288,7 @@ def test_period_kwarg_is_in_samples_on_any_time_axis():
     m = fit_stochastic(y, 0.5 * t, period=40)   # 40 SAMPLES, not 40 t-units
     assert m.has_cycle and m.seasonal and m.cycle_period == 40.0
     # the fundamental amplitude only comes out right if the sample-unit period
-    # was converted to t units before the seasonal fit (it was ~0 before)
+    # was converted to t units first; without that it collapses to ~0
     assert abs(m.cycle_amp - 3.0) < 0.5
 
 
@@ -305,9 +301,9 @@ def test_short_series_fallback_warns_and_is_visible_in_the_name():
     assert m.forecaster_name == "random walk (short-series fallback)"
     pt, lo, hi = m.forecast(5, return_conf_int=True)  # RW band via the prefix
     assert pt.shape == (5,) and np.all(hi >= lo)
-    # the band must WIDEN with horizon (the sqrt(h) random-walk fan): the
-    # suffixed name still has to key the RW band via its prefix, not fall
-    # through to the constant trend-stationary band
+    # the band has to widen with horizon (the sqrt(h) random-walk fan). The
+    # suffixed name must still key the RW band by its prefix rather than
+    # falling through to the constant trend-stationary band.
     assert np.all(np.diff(hi - lo) > 0)
     # a single-candidate regime has nothing to select among -> no fallback tag
     m2 = fit_stochastic(np.random.default_rng(0).standard_normal(40))
@@ -367,7 +363,6 @@ def test_unit_root_gate_falls_back_with_a_warning(monkeypatch):
         assert st._is_nonstationary(rw)          # AR(1)-coefficient fallback
 
 
-# --- the generative model: simulate round-trip ------------------------------ #
 @pytest.mark.parametrize("gen,attr", [
     (lambda r: gen_trend_cycle(600, 0.02, 50.0, 3.0, 1.0, r)[1], "has_cycle"),
     (lambda r: gen_ar1(1500, 0.7, r), "has_mean_reversion"),
@@ -385,7 +380,6 @@ def test_simulate_reproducible_and_finite():
     assert a.shape == (m.n,) and np.all(np.isfinite(a)) and np.allclose(a, b)
 
 
-# --- the streaming filter --------------------------------------------------- #
 def test_filter_tracks_ar1_phi_online():
     for phi in (0.3, 0.6, 0.85):
         errs = [abs(StochasticFilter(halflife=300, warmup=100).partial_fit(
@@ -406,14 +400,13 @@ def test_filter_detects_persistence_break_with_low_false_alarm():
         if any(1500 <= t <= 1900 for t in f.flag_times_):
             hits += 1
     assert hits >= 4
-    # stationary stream -> few false alarms
+    # the other half of the gate: a stationary stream must stay quiet
     fa = [StochasticFilter(warmup=80, settle=500, z_thresh=4.0).partial_fit(
         gen_ar1(3000, 0.6, np.random.default_rng(30 + s))).n_flags_
         for s in range(5)]
     assert np.mean(fa) <= 1.5
 
 
-# --- the vendored statsmodels-free unit-root gate --------------------------- #
 def test_unit_root_gate_verdicts_without_statsmodels():
     from dtfit.stochastic._model import _is_nonstationary
     rng = np.random.default_rng(0)
@@ -423,11 +416,9 @@ def test_unit_root_gate_verdicts_without_statsmodels():
     assert not _is_nonstationary(rng.standard_normal(400))
 
 
-# --- pandas in -> pandas out (optional dependency; ndarray path unchanged) --- #
 def test_fit_stochastic_series_forecast_is_a_future_indexed_series():
-    """Fitting on a Series with a DatetimeIndex remembers the index; the point
-    forecast is a Series on the length-h FUTURE index, and its values are exactly
-    the ndarray-fit model's forecast (only the wrapping is pandas-aware)."""
+    """Only the index handling is pandas-aware; the forecast values come
+    straight from the ndarray path."""
     pd = pytest.importorskip("pandas")
     _, y = gen_trend_cycle(600, 0.02, 50.0, 3.0, 1.0, np.random.default_rng(5))
     idx = pd.date_range("2000-01-01", periods=y.size, freq="D")
@@ -441,7 +432,7 @@ def test_fit_stochastic_series_forecast_is_a_future_indexed_series():
     # the future index continues the training index at its inferred daily freq
     expect = pd.date_range(idx[-1] + pd.Timedelta(days=1), periods=h, freq="D")
     assert fc.index.equals(expect)
-    # values are bit-identical to the ndarray-fit forecast
+    # exact equality, not allclose: the wrapping must not touch the values
     ndfc = ma.forecast(h)
     assert isinstance(ndfc, np.ndarray)
     assert np.array_equal(fc.to_numpy(), ndfc)
@@ -457,12 +448,12 @@ def test_fit_stochastic_series_conf_int_is_three_aligned_series():
     pt, lo, hi = ms.forecast(h, return_conf_int=True)
     for obj in (pt, lo, hi):
         assert isinstance(obj, pd.Series) and len(obj) == h
-    # the three bands share one future index, and it continues the training index
+    # the three bands share one future index, and it continues the training one
     assert pt.index.equals(lo.index) and pt.index.equals(hi.index)
     assert pt.index.equals(
         pd.date_range(idx[-1] + pd.Timedelta(days=1), periods=h, freq="D"))
     assert np.all(hi.to_numpy() >= lo.to_numpy())
-    # values identical to the ndarray path
+    # exact equality again: all three bands come through the ndarray path
     apt, alo, ahi = ma.forecast(h, return_conf_int=True)
     assert np.array_equal(pt.to_numpy(), apt)
     assert np.array_equal(lo.to_numpy(), alo)
@@ -470,8 +461,8 @@ def test_fit_stochastic_series_conf_int_is_three_aligned_series():
 
 
 def test_fit_stochastic_ndarray_forecast_is_unchanged_ndarrays():
-    """An ndarray-fit model returns plain ndarrays with or without pandas
-    installed (the pandas path is entered only when an index was remembered)."""
+    """The pandas wrapping is gated on a remembered index rather than on
+    pandas being importable; an ndarray fit stays ndarray either way."""
     m = fit_stochastic(gen_ar1(1500, 0.7, np.random.default_rng(2)))
     assert m._index is None
     fc = m.forecast(10)
@@ -481,8 +472,8 @@ def test_fit_stochastic_ndarray_forecast_is_unchanged_ndarrays():
 
 
 def test_fit_stochastic_integer_index_forecast_continues_step():
-    """A step-2 integer index (RangeIndex) is continued by its step in the
-    forecast labels (the freq-not-inferable integer-like fallback)."""
+    """A step-2 RangeIndex is continued by its step: the integer-like fallback
+    for indexes whose frequency pandas cannot infer."""
     pd = pytest.importorskip("pandas")
     y = gen_ar1(1500, 0.7, np.random.default_rng(2))
     idx = pd.RangeIndex(10, 10 + 2 * y.size, 2)
@@ -492,8 +483,8 @@ def test_fit_stochastic_integer_index_forecast_continues_step():
 
 
 def test_fit_stochastic_unit_root_series_forecast_is_indexed():
-    """The unit-root branch (a different StochasticModel return path) also
-    remembers the index and emits a future-indexed Series forecast."""
+    """The unit-root branch builds its StochasticModel on a separate return
+    path. That path has to remember the index as well."""
     pd = pytest.importorskip("pandas")
     y = np.cumsum(np.random.default_rng(1).standard_normal(1500))
     idx = pd.date_range("2010-01-01", periods=y.size, freq="D")

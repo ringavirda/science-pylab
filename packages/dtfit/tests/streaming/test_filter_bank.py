@@ -1,4 +1,4 @@
-"""FilterBank -- a bank of independent streaming filters runs in parallel."""
+"""FilterBank: a bank of independent streaming filters runs in parallel."""
 
 from typing import Any
 
@@ -40,8 +40,9 @@ def test_filter_bank_threaded_matches_serial():
 
 
 def test_filter_bank_process_backend_matches_serial():
-    """The process backend (separate interpreters, true GIL-free parallelism) must
-    return bit-identical results to the serial driver, with tracking aligned."""
+    """The process backend runs the filters in separate interpreters, free of
+    the GIL. It must still reproduce the serial driver to 1e-12, with the drift
+    counts exact and the tracking aligned."""
     t, Y, bs = _streams(K=4, n=300)
     kw: dict[str, Any] = dict(
         p0=[1.0, 0.3], window_size=40, q_diag=[1e-4, 1e-3], r=0.3
@@ -71,9 +72,9 @@ def test_filter_bank_matches_standalone_filters():
 
 
 def test_filter_bank_skips_nan_sample_without_shape_corruption():
-    """A NaN observation in one stream is skipped at ingestion (with a
-    warning); the bank's readout shapes stay intact and the poisoned stream's
-    estimate is unaffected (the skipped step returns the filter unchanged)."""
+    """A NaN observation in one stream is skipped at ingestion, with a warning.
+    The readout shapes stay intact and the poisoned stream still recovers its
+    parameter, because the skipped step leaves its filter untouched."""
     t, Y, bs = _streams(K=3, n=300)
     Y[150, 1] = np.nan
     kw: dict[str, Any] = dict(

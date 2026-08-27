@@ -1,15 +1,13 @@
-"""EAC v0.3: callable models, sigma weighting, solver_options, diagnostics.
+""":func:`dtfit.fit_eac` beyond a plain string model:
 
-Covers the additive v0.3 surface layered onto :func:`dtfit.fit_eac`:
-
-* three model-input forms (string / :class:`sympy.Expr` / callable) via
-  :func:`dtfit.methods.resolve_model`, with the forward-difference Jacobian on
-  the callable path;
-* per-sample ``sigma`` -> per-window weighted least squares and the
-  ``absolute_sigma`` covariance semantics (matching ``scipy.curve_fit``);
-* ``solver_options`` forwarding;
-* the fit-quality diagnostics (``rss`` / ``tss`` / ``n_obs`` / ``nfev`` /
-  ``cost`` and the ``.rsquared`` / ``.aic`` / ``.bic`` they feed).
+* the three model-input forms (string, :class:`sympy.Expr`, callable) that
+  :func:`dtfit.methods.resolve_model` accepts, with a forward-difference
+  Jacobian standing in for the analytic one on the callable path;
+* per-sample ``sigma`` turning the area system into weighted least squares,
+  and the ``absolute_sigma`` covariance semantics of ``scipy.curve_fit``;
+* ``solver_options`` reaching the underlying solver;
+* the ``rss`` / ``tss`` / ``n_obs`` / ``nfev`` / ``cost`` diagnostics and the
+  ``.rsquared`` / ``.aic`` / ``.bic`` they feed.
 """
 
 import numpy as np
@@ -19,11 +17,11 @@ import sympy as sp
 from dtfit import fit_eac
 
 
-# --- callable models & the FD Jacobian ------------------------------------- #
+# callable models and the finite-difference Jacobian
 def test_eac_callable_matches_string_expr(arctan_data):
     """A plain ``f(x, a, w)`` callable recovers the truth and lands on the same
-    optimum as the equivalent sympy string (the objective is identical; only the
-    Jacobian differs -- analytic vs forward-difference)."""
+    optimum as the equivalent sympy string: the objective is identical, and
+    only the Jacobian differs, analytic against forward-difference."""
     x, y, true = arctan_data
 
     def f(x, a, w):
@@ -38,9 +36,9 @@ def test_eac_callable_matches_string_expr(arctan_data):
 
 
 def test_eac_callable_fd_jacobian_saturating():
-    """The forward-difference Jacobian (callable path) converges on a saturating
-    model with no symbolic form supplied, and still yields a covariance from the
-    overdetermined area system."""
+    """The forward-difference Jacobian converges on a saturating model given no
+    symbolic form at all, and the overdetermined area system still yields a
+    covariance."""
     rng = np.random.default_rng(0)
     x = np.linspace(0, 6, 300)
     y = 3.0 * (1.0 - np.exp(-0.9 * x)) + rng.normal(0, 0.02, x.size)
@@ -57,8 +55,8 @@ def test_eac_callable_fd_jacobian_saturating():
 
 
 def test_eac_callable_uses_signature_parameter_order(arctan_data):
-    """A callable's parameters follow SIGNATURE order, not the sorted-name order
-    a symbolic model uses -- here ``(w, a)`` even though sorted would be
+    """A callable's parameters follow signature order, not the sorted-name
+    order a symbolic model uses: here ``(w, a)`` where sorting would give
     ``(a, w)``."""
     x, y, true = arctan_data
 
@@ -72,9 +70,9 @@ def test_eac_callable_uses_signature_parameter_order(arctan_data):
 
 
 def test_eac_callable_result_predicts_but_does_not_serialize(arctan_data):
-    """A callable-only result carries a bound model + ``param_model`` (no
-    ``expr``): ``predict`` works (incl. the finite-differenced std band) but
-    ``to_dict`` raises, as for any expression-less fit."""
+    """A callable-only result carries a bound model and ``param_model`` but no
+    ``expr``, so ``predict`` works, std band included, while ``to_dict`` raises
+    as it does for any expression-less fit."""
     x, y, _ = arctan_data
 
     def f(x, a, w):
@@ -92,14 +90,13 @@ def test_eac_callable_result_predicts_but_does_not_serialize(arctan_data):
 
 
 def test_eac_callable_without_analytic_derivative_fits():
-    """A callable with no closed-form (sympy) derivative -- a piecewise
-    ``np.where`` model -- still fits via the forward-difference Jacobian."""
+    """A piecewise ``np.where`` model has no closed-form sympy derivative and
+    still fits through the forward-difference Jacobian."""
     rng = np.random.default_rng(2)
     x = np.linspace(0, 5, 200)
     y = 3.0 * (1.0 - np.exp(-0.8 * x)) + rng.normal(0, 0.02, x.size)
 
     def piecewise_sat(x, a, k):
-        # A guard sympy cannot differentiate symbolically; FD handles it.
         return a * np.where(x > 0, 1.0 - np.exp(-k * x), 0.0)
 
     res = fit_eac(x, y, piecewise_sat, p0=[1.0, 1.0])
@@ -132,14 +129,15 @@ def test_eac_sympy_expr_input_serializes(arctan_data):
     res = fit_eac(x, y, a * sp.atan(w * xt), "x", p0=[1.0, 1.0])
     assert isinstance(res.expr, str)
     assert abs(res.params["a"] - true["a"]) < 0.5
-    d = res.to_dict()  # symbolic -> serializable
+    d = res.to_dict()
     assert d["expr"] == res.expr
 
 
-# --- sigma weighting & absolute_sigma -------------------------------------- #
+# sigma weighting and absolute_sigma
 def test_eac_sigma_weighting_improves_heteroscedastic_fit():
     """Weighting each window's area residual by ``1/sigma_area`` down-weights a
-    noisy tail, giving a markedly better fit than the unweighted system."""
+    noisy tail and beats the unweighted system. One noise draw can go either
+    way, so the claim is the median over 24 seeds and a win in most of them."""
     a_true, b_true = 2.5, 1.0
     x = np.linspace(0, 4, 240)
     clean = a_true * np.exp(-b_true * x)
@@ -174,7 +172,7 @@ def test_eac_sigma_validation(arctan_data):
 def test_eac_absolute_sigma_covariance_semantics(arctan_data):
     """``absolute_sigma`` matches ``scipy.curve_fit``: with ``False`` the
     covariance is invariant to a global rescale of ``sigma``; with ``True`` it
-    scales by that factor squared. The coefficients are unchanged either way."""
+    scales by that factor squared. Coefficients are unchanged either way."""
     x, y, _ = arctan_data
     sigma = 0.05 * (1.0 + x / 5.0)
 
@@ -191,24 +189,22 @@ def test_eac_absolute_sigma_covariance_semantics(arctan_data):
                   sigma=10.0 * sigma, absolute_sigma=True)
     # Absolute errors: a 10x larger sigma is a 100x larger covariance.
     np.testing.assert_allclose(rt2.cov, 100.0 * rt1.cov, rtol=1e-6)
-    # Coefficients do not depend on the covariance mode.
     np.testing.assert_allclose(rt1.coeffs, rf1.coeffs, rtol=1e-8, atol=1e-8)
 
 
-# --- solver_options & diagnostics ------------------------------------------ #
+# solver_options and diagnostics
 def test_eac_solver_options_threads_through(arctan_data):
     x, y, _ = arctan_data
     # An option that actually bites: capping the evaluations stops the solver
-    # early (recorded honestly in nfev / converged).
+    # short of convergence, and both facts are recorded.
     capped = fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0],
                      solver_options={"max_nfev": 3})
     full = fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0])
-    # The cap bites: far fewer evaluations than the full fit and it stops before
-    # convergence. (Assert the invariant, not an absolute count -- scipy's LM
-    # nfev bookkeeping under max_nfev varies by version.)
+    # Assert the invariant, not a count: scipy's LM nfev bookkeeping under
+    # max_nfev varies by version.
     assert capped.nfev is not None and capped.nfev < full.nfev
     assert capped.converged is False
-    # An unknown option must reach least_squares and raise -- proof it forwards.
+    # An unknown option reaches least_squares and raises: proof it forwards.
     with pytest.raises(TypeError, match="unexpected keyword"):
         fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0],
                 solver_options={"definitely_not_an_option": 1})
@@ -234,8 +230,8 @@ def test_eac_records_fit_diagnostics(arctan_data):
 
 
 def test_eac_robust_nfev_sums_over_inner_solves(arctan_data):
-    """The robust IRLS path reports the SUM of its inner re-solves' nfev, so it
-    is at least the single-solve count and stays honest about the extra work."""
+    """The robust IRLS path reports the sum of its inner re-solves' nfev, never
+    less than the single-solve count."""
     x, y, _ = arctan_data
     plain = fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0])
     robust = fit_eac(x, y, "a*atan(w*x)", "x", p0=[1.0, 1.0], robust=True)

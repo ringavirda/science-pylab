@@ -1,21 +1,6 @@
-"""Regression guards for the correctness / capability hardening pass.
+"""Regression guards: one test per invariant that a past fix established.
 
-Each test pins an invariant that a specific fix established, so the fix cannot
-silently regress:
-
-* covariance stays symmetric & PD over a long stream (streaming Joseph-ish
-  symmetrization);
-* the SVD covariance is finite for ill-conditioned Jacobians;
-* ``fit_eac(loss="soft_l1")`` actually engages robustness (auto ``f_scale``);
-* curvature placement never crashes on short/smooth data;
-* a one-member ensemble does not report zero uncertainty;
-* wrong-length ``p0`` raises a clear error;
-* ``PartitionedEAC.merge`` is exactly additive / order-independent;
-* the model recommender shortlists cycles under a trend;
-* trend/seasonal forecast bands do not fan out like a random walk;
-* ``nan_policy="omit"`` fits gappy data;
-* ``coast_cov`` grows with gap length;
-* ``Model.fit(method="adaptive")`` forwards seeded bounds.
+They share no other theme. The per-module suites cover the features themselves.
 """
 
 from __future__ import annotations
@@ -30,9 +15,6 @@ from dtfit import (
 from dtfit.scale import PartitionedEAC
 
 
-# --------------------------------------------------------------------------- #
-# streaming covariance: symmetric & positive-semidefinite over a long stream
-# --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("Filter", [LSIFilter, EACFilter])
 def test_streaming_covariance_stays_symmetric_and_psd(Filter):
     rng = np.random.default_rng(0)
@@ -44,15 +26,12 @@ def test_streaming_covariance_stays_symmetric_and_psd(Filter):
     assert np.allclose(P, P.T, atol=1e-9), "covariance drifted asymmetric"
     eig = np.linalg.eigvalsh(0.5 * (P + P.T))
     assert eig.min() >= -1e-9, f"covariance lost PD: min eig {eig.min():.2e}"
-    # stderr_ is therefore real & finite
+    # a PSD covariance is what keeps stderr_ real and finite
     assert all(np.isfinite(v) for v in flt.stderr_.values())
 
 
-# --------------------------------------------------------------------------- #
-# covariance from the SVD is finite even for an ill-conditioned Jacobian
-# --------------------------------------------------------------------------- #
 def test_svd_covariance_finite_for_illconditioned_model():
-    # a, b nearly trade off (a*exp(b*t) with tiny curvature over a short span)
+    # a and b nearly trade off: tiny curvature over a very short span
     x = np.linspace(0.0, 0.05, 60)
     y = 2.0 * np.exp(0.1 * x) + 1e-4 * np.random.default_rng(1).standard_normal(x.size)
     r = fit_lsi(x, y, "a*exp(b*t)", "t")
@@ -60,14 +39,10 @@ def test_svd_covariance_finite_for_illconditioned_model():
         assert np.all(np.isfinite(r.cov)), "ill-conditioned covariance not finite"
 
 
-# --------------------------------------------------------------------------- #
-# robust loss actually engages (auto f_scale) vs the old inert default
-# --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("fitter", [fit_eac, fit_lsi])
 def test_robust_integral_beats_nonrobust_under_dense_outliers(fitter):
-    """`robust=True` (per-sample IRLS winsorization of the integrand) recovers
-    parameters under dense per-sample outliers where the plain integral is
-    dragged, and does not harm a clean fit."""
+    """``robust=True`` applies per-sample IRLS winsorization to the integrand.
+    That is what survives outliers dense enough to drag the plain integral."""
     rng = np.random.default_rng(3)
     x = np.linspace(0.1, 4.0, 240)
     true = (2.5, -0.6)
@@ -101,17 +76,14 @@ def test_soft_l1_beats_linear_under_outliers():
         return (abs(r.params["a"] - true[0]) / abs(true[0])
                 + abs(r.params["b"] - true[1]) / abs(true[1]))
 
-    # active_ratio=0.8 is the leading-transient recipe this case was tuned
-    # with (the v0.2 default keeps all samples).
+    # active_ratio=0.8 confines the fit to the leading transient. The default
+    # keeps every sample; this case was tuned for the transient recipe.
     lin = fit_eac(x, y, "a*exp(b*t)", "t", active_ratio=0.8)
     rob = fit_eac(x, y, "a*exp(b*t)", "t", active_ratio=0.8,
                   loss="soft_l1")  # auto f_scale
     assert relerr(rob) < 0.6 * relerr(lin), "robust loss did not engage"
 
 
-# --------------------------------------------------------------------------- #
-# curvature placement degrades gracefully on short / flat data (no crash)
-# --------------------------------------------------------------------------- #
 def test_curvature_falls_back_on_short_flat_data():
     x = np.linspace(0.0, 1.0, 9)
     y = 1.0 + 0.5 * x  # nearly flat -> curvature edges may collapse
@@ -119,23 +91,17 @@ def test_curvature_falls_back_on_short_flat_data():
     assert np.all(np.isfinite(r.coeffs))
 
 
-# --------------------------------------------------------------------------- #
-# one-member ensemble must not report zero (overconfident) uncertainty
-# --------------------------------------------------------------------------- #
 def test_single_member_ensemble_not_overconfident():
     x = np.linspace(0.0, 3.0, 30)  # tiny record -> at most one usable window
     y = 2.0 * np.exp(-0.5 * x) + 0.01 * np.random.default_rng(4).standard_normal(x.size)
     res = ensemble_fit(x, y, "a*exp(b*t)", "t", n_windows=8)
     if res.members.shape[0] < 2:
         se = res.stderr()
-        # not all-zero: either the analytic fallback covariance or NaN, never a
-        # fabricated 0.0 that reads as perfect certainty.
+        # the analytic fallback covariance or NaN are both fine here; a
+        # fabricated 0.0 would read as certainty from a single member.
         assert not all(v == 0.0 for v in se.values())
 
 
-# --------------------------------------------------------------------------- #
-# wrong-length p0 raises a clear, early error
-# --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("fitter", [fit_lsi, fit_eac])
 def test_wrong_length_p0_raises(fitter):
     x = np.linspace(0.1, 3.0, 60)
@@ -144,9 +110,6 @@ def test_wrong_length_p0_raises(fitter):
         fitter(x, y, "a*exp(b*t)", "t", p0=[1.0, 2.0, 3.0])  # model has 2 params
 
 
-# --------------------------------------------------------------------------- #
-# PartitionedEAC.merge is exactly additive & order-independent
-# --------------------------------------------------------------------------- #
 def test_partitioned_eac_merge_is_associative():
     rng = np.random.default_rng(0)
     x = np.sort(rng.uniform(0, 10, 503))
@@ -158,7 +121,7 @@ def test_partitioned_eac_merge_is_associative():
     for nchunks in (2, 3, 5, 10):
         idx = np.array_split(np.arange(x.size), nchunks)
         for reverse in (False, True):
-            # rebuild fresh accumulators each pass (merge mutates in place)
+            # fresh accumulators every pass: merge mutates in place
             accs = []
             for ii in idx:
                 a = PartitionedEAC("a*exp(b*t)", "t", domain=(0, 10), n_windows=8)
@@ -172,9 +135,6 @@ def test_partitioned_eac_merge_is_associative():
                 f"merge not additive for {nchunks} chunks (reverse={reverse})")
 
 
-# --------------------------------------------------------------------------- #
-# recommender shortlists a cycle riding a trend; a logistic stays non-cyclic
-# --------------------------------------------------------------------------- #
 def test_suggest_shortlists_cycle_under_trend():
     t = np.arange(240, dtype=float)
     rng = np.random.default_rng(0)
@@ -183,24 +143,19 @@ def test_suggest_shortlists_cycle_under_trend():
     assert any("sin" in n or "oscill" in n or "damped" in n for n in names), names
 
 
-# --------------------------------------------------------------------------- #
-# trend/seasonal forecast bands do not grow like a random walk
-# --------------------------------------------------------------------------- #
 def test_trend_seasonal_forecast_bands_do_not_fan_out():
     t = np.arange(400, dtype=float)
     rng = np.random.default_rng(5)
     y = 0.02 * t + 2.0 * np.sin(2 * np.pi * t / 30) + 0.2 * rng.standard_normal(t.size)
     m = fit_stochastic(y)
-    # deterministic-mean forecasters must give a ~flat band (not a RW/LM fan)
+    # only a deterministic-mean forecaster owes a flat band; a RW or LM fan
+    # is the correct answer for the others
     if m.forecaster_name.startswith(("trend", "seasonal")):
         _, lo, hi = m.forecast(40, return_conf_int=True)
         width = hi - lo
         assert width[-1] <= 1.5 * width[0] + 1e-9, "bands fan out like a random walk"
 
 
-# --------------------------------------------------------------------------- #
-# nan_policy="omit" fits gappy data; default still raises
-# --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("fitter", [fit_lsi, fit_eac])
 def test_nan_policy_omit(fitter):
     x = np.linspace(0.2, 3.0, 200)
@@ -213,9 +168,6 @@ def test_nan_policy_omit(fitter):
 
 
 def test_regressor_coast_rolls_model_forward():
-    """A fused (drift-poly + regressor) model can coast past the window using the
-    supplied future regressor, reducing to predict at the anchor; and still raises
-    when no future regressor is given."""
     f = LSIFilter("a + b*t + c*t**2 + k*acc", "t", regressors="acc",
                   order=4, p0=[0.0, 0.5, 0.2, 1.0])
     rng = np.random.default_rng(0)
@@ -230,11 +182,10 @@ def test_regressor_coast_rolls_model_forward():
     # drop-in at the anchor
     at_anchor = f.predict(np.array([a]), regressors={"acc": np.sin(a)})[0]
     assert abs(coasted[0] - at_anchor) < 1e-9
-    # regressor genuinely enters the roll-forward: a different future regressor
-    # gives a different coast
+    # proves the regressor really enters the roll-forward
     other = f.coast(xs, order=1, regressors={"acc": np.sin(xs) + 5.0})
     assert not np.allclose(coasted[1:], other[1:])
-    # without a future regressor it must raise (unknown future exogenous input)
+    # an unknown future exogenous input must raise rather than be guessed at
     with pytest.raises(NotImplementedError):
         f.coast(xs)
 
@@ -251,9 +202,6 @@ def test_coast_cov_grows_with_gap():
     assert cov[-1] > cov[0], "coast_cov must grow across a gap"
 
 
-# --------------------------------------------------------------------------- #
-# Model.fit(method="adaptive") forwards the self-seeded bounds
-# --------------------------------------------------------------------------- #
 def test_model_adaptive_forwards_bounds(monkeypatch):
     import dtfit.models._model as _mod
     from dtfit.models._catalog import CATALOG

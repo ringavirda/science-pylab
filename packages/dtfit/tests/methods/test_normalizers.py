@@ -1,5 +1,5 @@
-"""Shared p0/bounds normalizers (``dtfit.methods.normalize_p0`` /
-``normalize_bounds``) -- the one place every batch fitter's input forms are
+"""Shared p0/bounds normalizers: ``dtfit.methods.normalize_p0`` and
+``normalize_bounds`` are the one place every batch fitter's input forms get
 canonicalized."""
 
 import numpy as np
@@ -10,7 +10,7 @@ from dtfit.methods import normalize_bounds, normalize_p0
 NAMES = ["a", "b", "w"]
 
 
-# --- normalize_p0 ------------------------------------------------------------
+# normalize_p0
 def test_p0_none_passes_through():
     assert normalize_p0(None, NAMES) is None
 
@@ -41,7 +41,7 @@ def test_p0_dict_unknown_name_raises():
         normalize_p0({"a": 1.0, "b": 2.0, "w": 3.0, "z": 4.0}, NAMES)
 
 
-# --- normalize_bounds ---------------------------------------------------------
+# normalize_bounds
 def test_bounds_none_passes_through():
     assert normalize_bounds(None, NAMES) is None
 
@@ -75,8 +75,8 @@ def test_bounds_scipy_tuple_scalars_broadcast():
 
 
 def test_bounds_two_param_ambiguity_reads_as_pairs():
-    # Documented rule: for n == 2 a 2-tuple of two 2-sequences is interpreted
-    # as per-parameter (lo, hi) pairs, not the scipy (lo_array, hi_array) form.
+    # The documented tie-break: at n == 2 a 2-tuple of two 2-sequences reads as
+    # per-parameter (lo, hi) pairs, not as scipy's (lo_array, hi_array).
     out = normalize_bounds(([0, 1], [2, 3]), ["a", "b"])
     assert out == [(0.0, 1.0), (2.0, 3.0)]
 
@@ -102,9 +102,9 @@ def test_bounds_wrong_count_raises():
 
 
 def test_bounds_lo_equals_hi_rejected_with_param_name():
-    """Degenerate lo == hi boxes are rejected up front with the parameter
-    named -- scipy's trf would otherwise crash with an opaque message on some
-    solver paths while DE tolerated it on others."""
+    """A degenerate lo == hi box is rejected up front, with the parameter
+    named. Left through, it crashes scipy's trf with an opaque message on some
+    solver paths while DE tolerates it on others."""
     with pytest.raises(ValueError, match=r"'a'.*strictly less"):
         normalize_bounds([(2.0, 2.0), (0.0, 10.0)], ["a", "b"])
     with pytest.raises(ValueError, match=r"'b'.*strictly less"):
