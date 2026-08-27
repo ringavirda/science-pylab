@@ -33,6 +33,11 @@ These apply to every task. Copied verbatim from the spec.
 - Ruff's 79-column limit holds throughout.
 
 **Hard rules:**
+- **Nothing in this repository is committed by an implementer or by the
+  controller.** No `git add`, no `git commit`, no `git rm`, no branch or tag
+  operations. Work is left in the working tree for the repository owner to
+  review and commit. This overrides any commit instruction elsewhere in this
+  plan or in any skill template.
 - Public API is frozen. No renaming, adding, or removing any symbol exported from a package `__init__.py`. If a change appears to require one, stop and raise it.
 - Phase 1 changes no logic. `tools/prose_guard.py` must report OK for every file before a Phase 1 commit.
 - Out of scope: `dis/`, `papers/` (git-ignored, `.gitignore:189-190`), `wiki/`, Jupyter notebooks, `packages/dtfit/docs/api/*.md`, and the React Native app under `packages/dtfit-hardware/mobile/`.
@@ -45,7 +50,40 @@ These apply to every task. Copied verbatim from the spec.
 | `packages/dtfit-experimental/tests` | 72 passed | 8.72s |
 | `packages/dtfit-hardware/tests` | 5 passed | 1.27s |
 
-Read pytest's exit status from `PIPESTATUS`, never from a pipeline ending in `tail`. A pipeline reports `tail`'s status, which masked a real pytest failure during baselining.
+Ruff, mypy, and the docs build are equally part of this project's definition of green:
+
+| gate | command | run from | baseline |
+|---|---|---|---|
+| ruff | `python -m ruff check packages/` | repo root | `All checks passed!` |
+| mypy | `python -m mypy` | `packages/dtfit/` | `Success: no issues found in 45 source files` |
+| docs | `python -m mkdocs build --strict` | `packages/dtfit/` | exit 0 |
+
+**Toolchain gotchas -- read before running anything.**
+
+1. **mypy and mkdocs must be run from `packages/dtfit/`.** Their configuration
+   lives in `packages/dtfit/pyproject.toml` (`[tool.mypy] files = ["src/dtfit"]`,
+   `ignore_missing_imports = true`). Run mypy from the repo root instead and the
+   config is never loaded: it reports 38 phantom `[import-untyped]` errors for
+   sympy and scipy.stats. Those are an artifact of the wrong working directory,
+   not a regression. Do not chase them, and do not install stubs to silence them.
+
+2. **Always invoke tools as `.venv/Scripts/python.exe -m <tool>`, never as a bare
+   `pytest` / `mypy` / `mkdocs` command.** This repo was moved on disk
+   (`F:/repos/fallen-traces/science-nonline` -> `F:/repos/science-nonline`).
+   The editable-install `.pth` files were repaired, but the
+   `.venv/Scripts/*.exe` console-script launchers still embed the old
+   interpreter path in their shebang and **fail silently with exit 1**.
+   `ruff.exe` is a native binary and survives; nothing else does.
+
+3. **Read pytest's exit status from `PIPESTATUS`**, never from a pipeline ending
+   in `tail`. A pipeline reports `tail`'s status, which masked a real pytest
+   failure during baselining.
+
+4. **`mkdocs build --strict` is the only gate that catches a malformed
+   docstring.** mkdocstrings renders `Args:`/`Returns:`/`Raises:` blocks from
+   `packages/dtfit/src`; a broken indent in a rewritten block fails the strict
+   build while pytest and ruff both stay green. Every task that edits
+   `packages/dtfit/src` must run it.
 
 ---
 
@@ -333,24 +371,34 @@ Note: pytest inserts the test file's directory into `sys.path` (rootdir auto-ins
 Run: `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src`
 Expected: `OK: 44 file(s) prose-identical to HEAD (0 new).`, exit 0.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Report, do not commit**
 
-```bash
-git add tools/prose_guard.py tools/test_prose_guard.py
-git commit -m "tools: add prose guard for the comment cleanup"
-```
+Leave both files in the working tree, unstaged. Report the file list and the
+verification output. Committing is the repository owner's call, not yours.
 
 ---
 
 ## Phase 1 -- Prose
 
-Every Phase 1 task follows the identical five-step shape below. `<PATHS>` is the task's file set and `<SUITE>` its package suite.
+Every Phase 1 task follows the identical shape below. `<PATHS>` is the task's file set and `<SUITE>` its package suite.
 
 1. Rewrite prose in `<PATHS>` per the Global Constraints.
 2. `.venv/Scripts/python.exe tools/prose_guard.py HEAD <PATHS>` -> expect `OK`, exit 0. A `LOGIC CHANGED` line means revert that file's logic edit; the guard is not advisory.
 3. `.venv/Scripts/python.exe -m ruff check <PATHS>` -> expect no findings (79-column limit).
 4. `.venv/Scripts/python.exe -m pytest <SUITE> -q; echo "EXIT=${PIPESTATUS[0]}"` -> expect the recorded baseline, `EXIT=0`.
-5. Commit.
+5. **Only for tasks editing `packages/dtfit/src` (Tasks 2-7)**, from `packages/dtfit/`:
+
+   ```bash
+   cd packages/dtfit
+   ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"
+   ../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"
+   cd ../..
+   ```
+
+   Expected: `Success: no issues found in 45 source files`, `MYPY_EXIT=0`,
+   `MKDOCS_EXIT=0`. A mkdocs failure after a docstring rewrite is almost always
+   a broken indent in an `Args:` block -- fix the docstring, not the config.
+6. Report the files changed and the verification output. Do not stage or commit.
 
 Because the guard proves logic is untouched, a test failure at step 4 means a docstring was load-bearing -- a doctest, or a `__doc__` read at runtime. Investigate rather than reverting wholesale.
 
@@ -364,7 +412,8 @@ Known targets: `_spectral.py` carries 60 comment lines in 507; `types.py::Fittin
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src/dtfit/_core packages/dtfit/src/dtfit/__about__.py packages/dtfit/src/dtfit/__init__.py packages/dtfit/src/dtfit/_pandas.py packages/dtfit/src/dtfit/_signal.py packages/dtfit/src/dtfit/auto.py packages/dtfit/src/dtfit/log.py packages/dtfit/src/dtfit/types.py` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/src` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> 906 passed, 2 skipped, 17 xfailed, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/src && git commit -m "docs(dtfit): tighten prose in core and top-level modules"`
+- [ ] **Step 5:** From `packages/dtfit/`: `cd packages/dtfit && ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"` -> `Success: no issues found in 45 source files`, `MYPY_EXIT=0`; then `../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"` -> `MKDOCS_EXIT=0`; then `cd ../..`. A mkdocs failure here is almost always a broken indent in a rewritten `Args:` block -- fix the docstring, not the config.
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 3: dtfit/src -- methods
 
@@ -376,7 +425,8 @@ Known targets: `fit_eac` (107-line docstring), `fit_lsi` (105), `_eac.py` module
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src/dtfit/methods` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/src/dtfit/methods` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/src && git commit -m "docs(dtfit): tighten prose in methods"`
+- [ ] **Step 5:** From `packages/dtfit/`: `cd packages/dtfit && ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"` -> `Success: no issues found in 45 source files`, `MYPY_EXIT=0`; then `../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"` -> `MKDOCS_EXIT=0`; then `cd ../..`. A mkdocs failure here is almost always a broken indent in a rewritten `Args:` block -- fix the docstring, not the config.
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 4: dtfit/src -- models
 
@@ -388,7 +438,8 @@ Known targets: `_suggest.py` is the densest file in the package (39 comment line
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src/dtfit/models` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/src/dtfit/models` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/src && git commit -m "docs(dtfit): tighten prose in models"`
+- [ ] **Step 5:** From `packages/dtfit/`: `cd packages/dtfit && ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"` -> `Success: no issues found in 45 source files`, `MYPY_EXIT=0`; then `../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"` -> `MKDOCS_EXIT=0`; then `cd ../..`. A mkdocs failure here is almost always a broken indent in a rewritten `Args:` block -- fix the docstring, not the config.
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 5: dtfit/src -- streaming
 
@@ -402,7 +453,8 @@ Do not restructure these files -- they are cohesive and public API. Phase 2 leav
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src/dtfit/streaming` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/src/dtfit/streaming` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/src && git commit -m "docs(dtfit): tighten prose in streaming filters"`
+- [ ] **Step 5:** From `packages/dtfit/`: `cd packages/dtfit && ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"` -> `Success: no issues found in 45 source files`, `MYPY_EXIT=0`; then `../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"` -> `MKDOCS_EXIT=0`; then `cd ../..`. A mkdocs failure here is almost always a broken indent in a rewritten `Args:` block -- fix the docstring, not the config.
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 6: dtfit/src -- stochastic
 
@@ -414,7 +466,8 @@ Known targets: `_model.py` (128 comment lines in 646) including the changelog co
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src/dtfit/stochastic` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/src/dtfit/stochastic` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/src && git commit -m "docs(dtfit): tighten prose in stochastic"`
+- [ ] **Step 5:** From `packages/dtfit/`: `cd packages/dtfit && ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"` -> `Success: no issues found in 45 source files`, `MYPY_EXIT=0`; then `../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"` -> `MKDOCS_EXIT=0`; then `cd ../..`. A mkdocs failure here is almost always a broken indent in a rewritten `Args:` block -- fix the docstring, not the config.
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 7: dtfit/src -- scale, estimators, diagnostics
 
@@ -426,7 +479,8 @@ Known targets: `estimators/_regressor.py` (56 comment lines in 418; `NonlineRegr
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/src/dtfit/scale packages/dtfit/src/dtfit/estimators packages/dtfit/src/dtfit/diagnostics` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/src` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/src && git commit -m "docs(dtfit): tighten prose in scale, estimators, diagnostics"`
+- [ ] **Step 5:** From `packages/dtfit/`: `cd packages/dtfit && ../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"` -> `Success: no issues found in 45 source files`, `MYPY_EXIT=0`; then `../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"` -> `MKDOCS_EXIT=0`; then `cd ../..`. A mkdocs failure here is almost always a broken indent in a rewritten `Args:` block -- fix the docstring, not the config.
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 8: dtfit/tests -- root and validation
 
@@ -438,7 +492,7 @@ Known targets: `test_improvements.py` opens with a 17-line bulleted module docst
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/tests` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/tests` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/tests && git commit -m "test(dtfit): tighten prose in root and validation tests"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 9: dtfit/tests -- methods and models
 
@@ -450,7 +504,7 @@ Known targets: changelog comments at `test_auto.py:495`, `test_dsb.py:36`, `test
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/tests/methods packages/dtfit/tests/models` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/tests` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/tests && git commit -m "test(dtfit): tighten prose in methods and models tests"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 10: dtfit/tests -- remaining subdirectories
 
@@ -462,7 +516,7 @@ Known targets: `streaming/test_streaming.py` (90 comment lines in 869) including
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit/tests` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit/tests` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> baseline, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit/tests && git commit -m "test(dtfit): tighten prose in remaining test suites"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 11: experimental -- package top level and experiment entry points
 
@@ -474,7 +528,7 @@ Known targets: the package `__init__.py` has a 70-line module docstring includin
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit-experimental/src/dtfit_experimental` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit-experimental/src` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> 72 passed, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit-experimental/src && git commit -m "docs(experimental): tighten prose in package top level"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 12: experimental -- cases
 
@@ -488,7 +542,7 @@ The `cases/` tree is a deliberate counterpart to `domains/` -- per-adaptation is
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit-experimental/src/dtfit_experimental/experiments/cases` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit-experimental/src` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> 72 passed, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit-experimental/src && git commit -m "docs(experimental): tighten prose in case studies"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 13: experimental -- common and domains
 
@@ -502,7 +556,7 @@ Prose only here. The structural split of `forecasting`, `stochastic_series`, `pa
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit-experimental/src/dtfit_experimental/experiments/common packages/dtfit-experimental/src/dtfit_experimental/experiments/domains` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit-experimental/src` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> 72 passed, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit-experimental/src && git commit -m "docs(experimental): tighten prose in common and domains"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 14: experimental -- tests
 
@@ -514,7 +568,7 @@ Known target: changelog comment at `test_classical_stochastic.py:81` ("the previ
 - [ ] **Step 2:** `.venv/Scripts/python.exe tools/prose_guard.py HEAD packages/dtfit-experimental/tests` -> `OK`
 - [ ] **Step 3:** `.venv/Scripts/python.exe -m ruff check packages/dtfit-experimental/tests` -> no findings
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> 72 passed, `EXIT=0`
-- [ ] **Step 5:** `git add -A packages/dtfit-experimental/tests && git commit -m "test(experimental): tighten prose in tests"`
+- [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 15: hardware -- Python and firmware
 
@@ -531,7 +585,7 @@ The firmware is C++, so `prose_guard.py` does not cover it. Apply the same prose
 - [ ] **Step 3:** Rewrite prose in the 14 firmware `.ino`/`.h` files per Global Constraints. No guard available; re-read each diff.
 - [ ] **Step 4:** `.venv/Scripts/python.exe -m ruff check packages/dtfit-hardware` -> no findings
 - [ ] **Step 5:** `.venv/Scripts/python.exe -m pytest packages/dtfit-hardware/tests -q; echo "EXIT=${PIPESTATUS[0]}"` -> 5 passed, `EXIT=0`
-- [ ] **Step 6:** `git add -A packages/dtfit-hardware && git commit -m "docs(hardware): tighten prose in host link and firmware"`
+- [ ] **Step 6:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 16: Organization fixes
 
@@ -579,9 +633,13 @@ Expected: `0 broken`.
 - [ ] **Step 4: Delete the approved files**
 
 ```bash
-git rm -r img/
+rm -rf img/
 rm -f __pycache__/_diag_variants.cpython-314.pyc
 ```
+
+`img/` is tracked, so this leaves 7 deletions showing in `git status`. Do not
+run `git rm` and do not commit -- the owner reviews the deletion before it is
+recorded.
 
 - [ ] **Step 5: Confirm nothing referenced `img/`**
 
@@ -592,12 +650,9 @@ grep -rn "img/" --include='*.md' --include='*.py' --include='*.yml' . \
 
 Expected: no output. If anything appears, fix the reference before committing.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Report, do not commit**
 
-```bash
-git add -A
-git commit -m "chore: repoint stale analysis links, drop unused img assets"
-```
+Report the repointed links, the deleted paths, and the `grep` output from Step 5.
 
 ---
 
@@ -649,13 +704,14 @@ Expected: `SURFACE UNCHANGED`. Delete both scratch files before committing.
 Run: `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"`
 Expected: 72 passed, `EXIT=0`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Clean up scratch and report**
 
 ```bash
 rm -f forecasting_before.txt forecasting_after.txt
-git add -A packages/dtfit-experimental/src
-git commit -m "refactor(experimental): split forecasting backend by study"
 ```
+
+Then report the new module list, the `SURFACE UNCHANGED` confirmation, and the
+suite output. Do not stage or commit.
 
 ### Task 18: Split `experiments/domains/stochastic_series/backend.py`
 
@@ -698,13 +754,14 @@ Expected: `SURFACE UNCHANGED`.
 Run: `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"`
 Expected: 72 passed, `EXIT=0`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Clean up scratch and report**
 
 ```bash
 rm -f stochastic_before.txt stochastic_after.txt
-git add -A packages/dtfit-experimental/src
-git commit -m "refactor(experimental): split stochastic_series backend by study"
 ```
+
+Then report the new module list, the `SURFACE UNCHANGED` confirmation, and the
+suite output. Do not stage or commit.
 
 ### Task 19: Split `experiments/common/baselines.py`
 
@@ -747,13 +804,14 @@ Expected: `SURFACE UNCHANGED`.
 Run: `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"`
 Expected: 72 passed, `EXIT=0`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Clean up scratch and report**
 
 ```bash
 rm -f baselines_before.txt baselines_after.txt
-git add -A packages/dtfit-experimental/src
-git commit -m "refactor(experimental): split baselines by family"
 ```
+
+Then report the new module list, the `SURFACE UNCHANGED` confirmation, and the
+suite output. Do not stage or commit.
 
 ### Task 20: Split `dtfit_hardware/compare_real.py`
 
@@ -794,13 +852,14 @@ Expected: `SURFACE UNCHANGED`.
 Run: `.venv/Scripts/python.exe -m pytest packages/dtfit-hardware/tests -q; echo "EXIT=${PIPESTATUS[0]}"`
 Expected: 5 passed, `EXIT=0`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Clean up scratch and report**
 
 ```bash
 rm -f compare_before.txt compare_after.txt
-git add -A packages/dtfit-hardware
-git commit -m "refactor(hardware): split compare_real into load, score, report"
 ```
+
+Then report the new module list, the `SURFACE UNCHANGED` confirmation, and the
+suite output. Do not stage or commit.
 
 ### Task 21: Split `experiments/domains/parameter_estimation/backend.py`
 
@@ -841,13 +900,14 @@ Expected: `SURFACE UNCHANGED`.
 Run: `.venv/Scripts/python.exe -m pytest packages/dtfit-experimental/tests -q; echo "EXIT=${PIPESTATUS[0]}"`
 Expected: 72 passed, `EXIT=0`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Clean up scratch and report**
 
 ```bash
 rm -f paramest_before.txt paramest_after.txt
-git add -A packages/dtfit-experimental/src
-git commit -m "refactor(experimental): split parameter_estimation backend by study"
 ```
+
+Then report the new module list, the `SURFACE UNCHANGED` confirmation, and the
+suite output. Do not stage or commit.
 
 ---
 
@@ -863,13 +923,18 @@ git commit -m "refactor(experimental): split parameter_estimation backend by stu
 
 Expected: 906 / 72 / 5 passed, `EXIT=0` each.
 
-- [ ] **Lint clean across all three packages**
+- [ ] **Lint, types, and docs clean**
 
 ```bash
 .venv/Scripts/python.exe -m ruff check packages/
+cd packages/dtfit
+../../.venv/Scripts/python.exe -m mypy; echo "MYPY_EXIT=$?"
+../../.venv/Scripts/python.exe -m mkdocs build --strict; echo "MKDOCS_EXIT=$?"
+cd ../..
 ```
 
-Expected: `All checks passed!`.
+Expected: `All checks passed!`, `Success: no issues found in 45 source files`,
+`MYPY_EXIT=0`, `MKDOCS_EXIT=0`.
 
 - [ ] **Prose reduced**
 
