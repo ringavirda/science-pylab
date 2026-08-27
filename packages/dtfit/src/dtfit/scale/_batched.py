@@ -1,24 +1,24 @@
-"""GEMM-batched, backend-pluggable LSI projection (promoted from the experiment suite).
+"""GEMM-batched, backend-pluggable LSI projection.
 
-The data side of LSI is an integral ``β_j = ∫ y·φ_j dx`` which factors as a
-matrix product ``β = Dᵀ·(w⊙y)`` (design matrix ``D`` and trapezoid weights ``w``;
-see :func:`dtfit._core._spectral._trapz_weights`). Stacking ``B`` channels
-that share a sampling grid into the columns of ``Y`` turns the whole batch into a
-single GEMM ``S = Dᵀ·(w⊙Y)``:
+The data side of LSI is an integral ``β_j = ∫ y·φ_j dx`` that factors into a
+matrix product ``β = Dᵀ·(w⊙y)`` with design matrix ``D`` and trapezoid
+weights ``w`` (see :func:`dtfit._core._spectral._trapz_weights`). Stack ``B``
+channels that share a sampling grid into the columns of ``Y`` and the whole
+batch becomes a single GEMM ``S = Dᵀ·(w⊙Y)``:
 
-* on CPU it dispatches to multithreaded BLAS instead of a Python per-channel loop;
-* on a GPU backend (``cupy`` / ``torch``) it runs on cuBLAS, where the projection
-  amortizes the kernel launch / transfer over all ``B`` channels.
+* on CPU it dispatches to multithreaded BLAS rather than a Python
+  per-channel loop;
+* on a ``cupy`` or ``torch`` backend it runs on cuBLAS, amortizing the kernel
+  launch and the transfer over all ``B`` channels.
 
-This is the form that makes the projection scale: it raises the arithmetic work
-done per byte read (``B`` outputs per input column), which is exactly what a
-bandwidth-bound reduction needs to benefit from a GPU.
+Batching is what makes the projection scale: it raises the arithmetic work
+done per byte read to ``B`` outputs per input column, the intensity a
+bandwidth-bound reduction has to reach before a GPU can help it at all.
 
-The reduction stays *exact and additive* (it is the same projection as
-:class:`dtfit.PartitionedLSI`), so a batched projection can still be summed across
-a domain partition. Validated across the big-data domain study (~50x the
-per-channel loop on the 321-channel real panel, bit-identical) and **promoted to
-the stable API**.
+The reduction stays exact and additive. It is the same projection as
+:class:`dtfit.PartitionedLSI`, so a batched projection can still be summed
+across a domain partition. On the 321-channel panel of the big-data study it
+ran ~50x faster than the per-channel loop, bit-identical.
 """
 
 from __future__ import annotations
@@ -41,9 +41,10 @@ def project_spectra(
 ) -> np.ndarray:
     """Empirical spectra of ``B`` channels sharing grid ``x``, in one GEMM.
 
-    ``Y`` is ``(n, B)`` (a column per channel) or ``(n,)`` for one channel;
-    returns ``(B, n_coef)`` (or ``(n_coef,)`` for a single channel). ``backend``
-    is a name (``"auto"``/``"numpy"``/``"cupy"``/``"torch"``) or a :class:`Backend`.
+    ``Y`` is ``(n, B)``, a column per channel, or ``(n,)`` for one channel.
+    The return is ``(B, n_coef)``, or ``(n_coef,)`` for a single channel.
+    ``backend`` is a name (``"auto"``, ``"numpy"``, ``"cupy"``, ``"torch"``)
+    or a :class:`Backend`.
     """
     x = np.asarray(x, float)
     Y = np.asarray(Y)  # preserve dtype; the backend controls compute precision
@@ -73,12 +74,13 @@ def fit_lsi_batched(
     bounds: list[tuple[float, float]] | None = None,
     **basis_kwargs: object,
 ) -> FittingResult | list[FittingResult]:
-    """Fit one LSI model per channel of ``Y`` (shared grid ``x``); projections batched.
+    """Fit one LSI model per channel of ``Y`` on the shared grid ``x``.
 
-    All channels' empirical spectra are computed in a single GEMM via ``backend``;
-    each channel's small spectral-match solve then runs on the host (it is
-    ``len(params)``-dimensional and negligible). ``Y`` is ``(n, B)`` or ``(n,)``;
-    returns a list of :class:`FittingResult` (or one for a single channel).
+    Every channel's empirical spectrum comes out of one batched GEMM on
+    ``backend``. The per-channel spectral match then solves on the host,
+    where it is only ``len(params)``-dimensional and costs nothing. ``Y`` is
+    ``(n, B)`` or ``(n,)``; the return is a list of :class:`FittingResult`,
+    or a single one for a single channel.
     """
     x = np.asarray(x, float)
     Y = np.asarray(Y)  # preserve dtype; the backend controls compute precision

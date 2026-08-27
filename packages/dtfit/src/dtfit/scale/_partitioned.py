@@ -1,38 +1,22 @@
-"""Map-reduce / partitioned LSI & EAC (promoted from the experiment suite).
+"""Map-reduce / partitioned LSI and EAC.
 
-The empirical LSI spectrum coefficient is an integral ``∫ y·φ_j dx`` and an EAC
-window area is an integral ``∫ y dx``. Integrals are **additive over a partition
-of the domain**, so the data-side sufficient statistic can be accumulated chunk
-by chunk and summed -- an associative reduce. This turns the batch methods into
-**exact one-pass, distributed estimators**: a stream of arbitrary length is
-processed in fixed memory (O(order) state), and a partitioned dataset is fitted
-by reducing per-partition partial statistics with no re-pass over the data.
+The empirical LSI spectrum coefficient is an integral ``∫ y·φ_j dx`` and an
+EAC window area is an integral ``∫ y dx``. Integrals are additive over a
+partition of the domain, meaning the data-side sufficient statistic can be
+accumulated chunk by chunk and summed in an associative reduce. That turns
+the batch methods into one-pass, distributable estimators: a stream of
+arbitrary length is processed in fixed ``O(order)`` state, and a partitioned
+dataset is fitted by reducing per-partition partial statistics with no second
+pass over the data.
 
-* :class:`PartitionedLSI` accumulates the basis-projection integrals per chunk
-  (and merges across workers), then solves the usual LSI spectral match once. The
-  reduce is exact relative to its own trapezoid projection; parity with
-  :func:`dtfit.fit_lsi` (which adds Savitzky-Golay pre-filtering, auto/robust
-  order selection and a least-squares Legendre projection) is asymptotic on dense
-  uniform data, not bit-exact.
-* :class:`PartitionedEAC` accumulates per-window areas the same way. Its windows
-  are placed uniformly in the domain value (not by sample index as batch
-  ``fit_eac``), so it is a streaming/distributed *approximation* of the EAC
-  criterion -- consistent with batch EAC asymptotically, not identical.
+* :class:`PartitionedLSI` accumulates basis-projection integrals.
+* :class:`PartitionedEAC` accumulates per-window areas.
+* :class:`PartitionedBatchLSI` does both at once for many channels, fusing
+  the volume partition with a GEMM over the channel axis.
 
-Both require the **global domain fixed up front** (so every chunk projects onto
-the same basis); pass it to the constructor.
-
-This adaptation was validated across the big-data and parallel workloads of the
-experiment suite and **promoted to the stable API** -- it is re-exported from
-``dtfit`` and is the supported way to do one-pass / distributed (map-reduce)
-fitting.
-
-* :class:`PartitionedBatchLSI` is the fused, GEMM-batched **multi-channel**
-  variant: it combines the volume partition of :class:`PartitionedLSI` with the
-  channel batch of :func:`dtfit.project_spectra` into a single one-pass
-  estimator (flat ``O(channels x order)`` memory over volume *and* one matmul
-  over channels). Promoted after the big-data domain study confirmed the
-  GB-scale flat-memory result.
+All three need the global domain fixed up front, since every chunk has to
+project onto the same basis; pass it to the constructor. Each class states
+how exact its own reduce is.
 """
 
 from __future__ import annotations
@@ -53,6 +37,11 @@ from dtfit.methods._common import model_params, _covariance
 class PartitionedLSI:
     """Streaming / distributed LSI via an additive basis-projection reduce.
 
+    The reduce is exact relative to its own trapezoid projection. Parity with
+    :func:`dtfit.fit_lsi`, which adds Savitzky-Golay pre-filtering,
+    auto/robust order selection and a least-squares Legendre projection, is
+    asymptotic on dense uniform data rather than bit-exact.
+
     Usage::
 
         acc = PartitionedLSI("a*exp(b*t)", "t", domain=(0, 10), order=6)
@@ -60,8 +49,8 @@ class PartitionedLSI:
             acc.update(x_chunk, y_chunk)
         result = acc.fit(p0=[1.0, 1.0])      # FittingResult
 
-    Workers can each build their own accumulator and be combined with
-    :meth:`merge` (the reduce step).
+    Workers can each build their own accumulator and combine them with
+    :meth:`merge`, the reduce step.
     """
 
     def __init__(
@@ -83,16 +72,16 @@ class PartitionedLSI:
     def update(self, x_chunk: np.ndarray, y_chunk: np.ndarray) -> "PartitionedLSI":
         """Fold one chunk's partial projection integrals into the accumulator.
 
-        Consecutive ``update`` calls are made **exactly** additive (equal to a
-        single whole-domain projection) by carrying the previous chunk's last
-        sample into the next, so the interval connecting two disjoint chunks is
-        not dropped by the trapezoid rule. Feed chunks in domain order.
+        Consecutive ``update`` calls are exactly additive, equal to a single
+        whole-domain projection, because the previous chunk's last sample is
+        carried into the next one. The trapezoid rule then never drops the
+        interval connecting two disjoint chunks. Feed chunks in domain order.
         """
         x = np.atleast_1d(np.asarray(x_chunk, dtype=float))
         y = np.atleast_1d(np.asarray(y_chunk, dtype=float))
-        # count from the coerced array (a list/tuple chunk has no ``.shape``,
-        # a 0-d scalar chunk behaves as one sample), before the boundary carry
-        # below extends it
+        # count from the coerced array: a list/tuple chunk has no ``.shape``
+        # and a 0-d scalar chunk stands for one sample. Must happen before
+        # the boundary carry below extends x.
         n_orig = x.shape[0]
         if self._last is not None and x.size:
             x = np.concatenate([[self._last[0]], x])
@@ -106,10 +95,10 @@ class PartitionedLSI:
     def merge(self, other: "PartitionedLSI") -> "PartitionedLSI":
         """Associative reduce: combine another accumulator's partial sums.
 
-        Exact when the partitions **share boundary samples** (each partition
-        includes the sample where the next begins), so every connecting interval
-        belongs to exactly one partition; otherwise additive up to one trapezoid
-        interval per partition boundary.
+        Exact when the partitions share boundary samples, that is when each
+        partition includes the sample where the next one begins and every
+        connecting interval belongs to exactly one partition. Otherwise it is
+        additive only up to one missing trapezoid interval per boundary.
         """
         self._s += other._s
         self.n_samples += other.n_samples
@@ -128,18 +117,19 @@ class PartitionedLSI:
 class PartitionedEAC:
     """Streaming / distributed EAC via additive per-window area accumulation.
 
-    The domain is split into ``n_windows`` value-uniform windows; each chunk adds
-    the exact windowed integral of its piecewise-linear interpolant into the
-    windows it overlaps (an interval straddling a window edge is split at the edge
-    so no area is lost). The model is then matched to the reduced data areas with
-    the same overdetermined least-squares solve as batch EAC, using a Simpson
-    quadrature of the model over each window (converges to the true window
-    integral, unlike a single midpoint sample).
+    The domain is split into ``n_windows`` value-uniform windows. Each chunk
+    adds the exact windowed integral of its piecewise-linear interpolant into
+    the windows it overlaps, splitting any interval that straddles a window
+    edge at that edge so no area is lost. The model is then matched to the
+    reduced data areas with the same overdetermined least-squares solve as
+    batch EAC, using a Simpson quadrature of the model over each window.
+    Simpson converges to the true window integral; a single midpoint sample
+    would bias on curved windows.
 
-    Because the windows are placed by domain value (not by sample index as batch
-    :func:`dtfit.fit_eac`), this is a streaming/distributed *approximation* of the
-    EAC criterion -- it recovers the same parameters as batch EAC asymptotically
-    on dense, roughly uniform data, not bit-for-bit.
+    The windows are placed by domain value, not by sample index as in batch
+    :func:`dtfit.fit_eac`, making this a streaming approximation of the EAC
+    criterion. It recovers the same parameters as batch EAC asymptotically on
+    dense, roughly uniform data, not bit for bit.
     """
 
     #: model-side quadrature nodes per window (odd -> Simpson exact for cubics)
@@ -167,16 +157,16 @@ class PartitionedEAC:
         self._qnodes = self.edges[:-1, None] + frac[None, :] * np.diff(self.edges)[:, None]
 
     def _accumulate(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Add the exact windowed integral of the piecewise-linear interpolant of
-        ``(x, y)`` into ``self._areas`` (fully vectorized).
+        """Add the exact windowed integral of the piecewise-linear
+        interpolant of ``(x, y)`` into ``self._areas``, fully vectorized.
 
-        The interior window edges that fall inside the chunk are spliced into the
-        grid as extra, linearly-interpolated nodes, so every resulting segment
-        lies entirely within one window; each segment's trapezoid area is then
-        binned to its window in a single ``np.add.at``. Splitting at the edges is
-        what stops an interval straddling a window boundary from being dropped, so
-        the per-window areas sum to the exact trapezoid integral partitioned at
-        the true edges.
+        Interior window edges falling inside the chunk are spliced into the
+        grid as extra, linearly-interpolated nodes, leaving every resulting
+        segment entirely within one window; each segment's trapezoid area is
+        then binned to its window in a single ``np.add.at``. Splitting at the
+        edges is what stops an interval straddling a window boundary from
+        being dropped, and it makes the per-window areas sum to the exact
+        trapezoid integral partitioned at the true edges.
         """
         edges = self.edges
         ie = edges[1:-1]
@@ -195,12 +185,20 @@ class PartitionedEAC:
         np.add.at(self._areas, wk, seg)
 
     def _add_interval(self, xa: float, ya: float, xb: float, yb: float) -> None:
-        """Add the single connecting trapezoid interval ``[xa, xb]`` (the merge
-        twin of :meth:`update`'s boundary carry)."""
+        """Add the single connecting trapezoid interval ``[xa, xb]``, the
+        merge twin of :meth:`update`'s boundary carry."""
         if xb > xa:
             self._accumulate(np.array([xa, xb]), np.array([ya, yb]))
 
     def update(self, x_chunk: np.ndarray, y_chunk: np.ndarray) -> "PartitionedEAC":
+        """Fold one chunk's window areas into the accumulator.
+
+        As in :class:`PartitionedLSI`, the previous chunk's last sample is
+        carried into this one, keeping the connecting interval in the
+        integral. The very first sample seen is kept too, for :meth:`merge`
+        to stitch a neighbouring partition against. Feed chunks in domain
+        order.
+        """
         x = np.asarray(x_chunk, dtype=float)
         y = np.asarray(y_chunk, dtype=float)
         n_orig = x.size
@@ -217,15 +215,15 @@ class PartitionedEAC:
         return self
 
     def merge(self, other: "PartitionedEAC") -> "PartitionedEAC":
-        """Associative reduce, made **exact** by stitching the partition boundary.
+        """Associative reduce, made exact by stitching the partition boundary.
 
-        Summing ``_areas`` alone drops the trapezoid interval connecting one
-        partition's last sample to the next's first sample (that interval was
-        never integrated by either accumulator) -- a partition-boundary error
-        that makes the reduce order-dependent. Here the connecting interval is
-        added explicitly (the reduce twin of :meth:`update`'s boundary carry), so
-        merging disjoint domain-ordered partitions equals processing them in one
-        pass. Partitions must be disjoint; order between the two is inferred.
+        Summing ``_areas`` alone would drop the trapezoid interval connecting
+        one partition's last sample to the next's first sample, because
+        neither accumulator ever integrated it, and the reduce would come out
+        order-dependent. That interval is added explicitly, the reduce twin
+        of :meth:`update`'s boundary carry. Merging disjoint domain-ordered
+        partitions then equals processing them in one pass. Partitions must
+        be disjoint; the order between the two is inferred.
         """
         left, right = self, other
         if (self._first is not None and other._last is not None
@@ -251,9 +249,8 @@ class PartitionedEAC:
         nodes = self._qnodes  # (m, _Q)
 
         def model_areas(c: np.ndarray) -> np.ndarray:
-            # Simpson quadrature of the model over each window: converges to the
-            # true window integral (the midpoint rule this replaced biased on
-            # curved windows), consistent with the trapezoid-integrated data area.
+            # Simpson quadrature of the model over each window, to match the
+            # trapezoid-integrated data areas.
             fv = np.asarray(f_func(nodes, *c), dtype=float)
             if fv.shape != nodes.shape:
                 fv = np.broadcast_to(fv, nodes.shape)
@@ -274,25 +271,23 @@ class PartitionedEAC:
 
 
 class PartitionedBatchLSI:
-    """Fused map-reduce + GEMM-batched LSI for **many channels** in one pass.
+    """Fused map-reduce and GEMM-batched LSI for many channels in one pass.
 
     Combines the two big-data levers that :class:`PartitionedLSI` and
-    :func:`dtfit.project_spectra` provide *separately*:
+    :func:`dtfit.project_spectra` provide separately:
 
-    * the **volume** partition of :class:`PartitionedLSI` -- the empirical
-      spectrum is an additive integral, so a stream of arbitrary length is
-      reduced in fixed ``O(channels x order)`` memory, exact and one-pass;
-    * the **channel** batch of :func:`dtfit.project_spectra` -- ``B`` channels
-      sharing the sampling grid are projected in a *single* GEMM
-      ``S = Dᵀ·(w⊙Y)`` per chunk, dispatched through a pluggable array backend
+    * the volume partition of :class:`PartitionedLSI`, reducing a stream of
+      arbitrary length in fixed ``O(channels x order)`` memory;
+    * the channel batch of :func:`dtfit.project_spectra`, projecting the
+      ``B`` channels that share the sampling grid in one GEMM
+      ``S = Dᵀ·(w⊙Y)`` per chunk, through a pluggable array backend
       (NumPy/BLAS, or cupy/torch on a GPU).
 
-    The fusion is exact because the projection is **linear across channels** and
-    **additive over the domain**: each chunk's ``(B, n_coef)`` partial integrals
-    are folded into the accumulator, :meth:`merge` reduces accumulators across
-    workers/partitions, and :meth:`fit` solves each channel's small spectral
-    match. The result is flat memory over volume *and* one matmul (GPU-able) over
-    channels.
+    Fusing them stays exact because the projection is linear across channels
+    and additive over the domain. Each chunk's ``(B, n_coef)`` partial
+    integrals are folded into the accumulator, :meth:`merge` reduces
+    accumulators across workers and partitions, and :meth:`fit` solves each
+    channel's small spectral match.
 
     Usage::
 
@@ -332,8 +327,8 @@ class PartitionedBatchLSI:
         """Fold one chunk's ``B``-channel partial projection into the accumulator.
 
         ``Y_chunk`` is ``(n_chunk, B)``. As in :class:`PartitionedLSI`, the
-        previous chunk's last row is carried into this one so the connecting
-        interval is integrated exactly (feed chunks in domain order).
+        previous chunk's last row is carried into this one, keeping the
+        connecting interval in the integral. Feed chunks in domain order.
         """
         x = np.atleast_1d(np.asarray(x_chunk, dtype=float))
         Y = np.atleast_1d(np.asarray(Y_chunk))
@@ -344,9 +339,9 @@ class PartitionedBatchLSI:
                 f"Y_chunk has {Y.shape[1]} channels but accumulator holds "
                 f"{self.n_channels}."
             )
-        # count from the coerced array (a list/tuple chunk has no ``.shape``,
-        # a 0-d scalar chunk behaves as one sample), before the boundary carry
-        # below extends it
+        # count from the coerced array: a list/tuple chunk has no ``.shape``
+        # and a 0-d scalar chunk stands for one sample. Must happen before
+        # the boundary carry below extends x.
         n_orig = x.shape[0]
         if self._last_x is not None and self._last_y is not None and x.size:
             x = np.concatenate([[self._last_x], x])

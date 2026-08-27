@@ -1,4 +1,4 @@
-"""Compile the dtfit._native C extension with clang (standalone dev builder).
+"""Compile the dtfit._core._native C extension with clang (standalone dev builder).
 
 The package works in pure Python without this step; building it swaps the
 compiled numeric kernels in for the SciPy/NumPy fallbacks (see
@@ -81,7 +81,7 @@ def includes() -> tuple[str, str]:
 
 def output_path() -> Path:
     """Extension filename with the interpreter's ABI suffix (importable as
-    ``dtfit._native``)."""
+    ``dtfit._core._native``)."""
     suffix = sysconfig.get_config_var("EXT_SUFFIX") or (
         ".pyd" if os.name == "nt" else ".so"
     )

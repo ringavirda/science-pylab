@@ -1,13 +1,13 @@
 """Visualization helpers following scikit-learn's ``Display`` convention.
 
-Each class exposes ``from_estimator`` / ``from_predictions`` constructors and a
-``plot`` method. Plotting draws onto a supplied or freshly created Matplotlib
-``Axes``, stores the artists as ``ax_`` / ``figure_`` / ... attributes, and
-returns the display instance -- it never calls ``plt.show()``, so the caller
-controls rendering.
+Each class exposes ``from_estimator`` and ``from_predictions`` constructors
+plus a ``plot`` method. Plotting draws onto a supplied or freshly created
+Matplotlib ``Axes``, stores the artists as ``ax_``, ``figure_`` and the rest,
+and returns the display instance. It never calls ``plt.show()``: rendering is
+the caller's to control.
 
-Matplotlib is an optional dependency (the ``viz`` extra); importing this module
-does not require it, but constructing a plot does.
+Matplotlib is an optional dependency, the ``viz`` extra. Importing this
+module does not require it; constructing a plot does.
 """
 
 from __future__ import annotations
@@ -146,8 +146,12 @@ class FitDisplay:
 class ResidualsDisplay:
     """Residuals (``y_true - y_pred``) plotted against the predicted values.
 
-    Annotates the axes with R^2 and RMSE. Attributes set after :meth:`plot`:
-    ``ax_``, ``figure_`` and ``scatter_``.
+    The axes title carries R^2 and RMSE.
+
+    Attributes set after :meth:`plot`:
+        ax_: The Matplotlib axes with the plot.
+        figure_: The figure containing ``ax_``.
+        scatter_: The residual scatter ``PathCollection``.
     """
 
     def __init__(
@@ -172,6 +176,7 @@ class ResidualsDisplay:
         ax=None,
         **kwargs,
     ) -> "ResidualsDisplay":
+        """Build and plot a display from a fitted estimator and data."""
         y_pred = np.asarray(estimator.predict(X), dtype=float).ravel()
         disp = cls(y, y_pred, estimator_name=estimator.__class__.__name__)
         return disp.plot(ax=ax, **kwargs)
@@ -186,6 +191,7 @@ class ResidualsDisplay:
         estimator_name: Optional[str] = None,
         **kwargs,
     ) -> "ResidualsDisplay":
+        """Build and plot a display from raw predictions."""
         disp = cls(y_true, y_pred, estimator_name=estimator_name)
         return disp.plot(ax=ax, **kwargs)
 

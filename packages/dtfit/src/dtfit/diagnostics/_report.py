@@ -1,11 +1,10 @@
 """Fit-aware diagnostics for a :class:`dtfit.FittingResult`.
 
-Unlike the generic ``(y_true, y_pred)`` scalar metrics in ``sklearn.metrics`` /
-``scipy.stats`` (use those for plain numbers), these are **specific to evaluating
-a fitted dtfit model**: they take the :class:`FittingResult` itself so they can
-report parameter uncertainty, information criteria for *model comparison* (the
-"which model" question the domain studies turn on), and whether the residuals
-still carry structure the model missed.
+The generic ``(y_true, y_pred)`` scalar metrics in ``sklearn.metrics`` and
+``scipy.stats`` cover plain numbers. These take the :class:`FittingResult`
+itself, and can therefore report parameter uncertainty, information criteria
+for comparing candidate models, and whether the residuals still carry
+structure the model missed.
 """
 
 from __future__ import annotations
@@ -31,14 +30,15 @@ def _basic_stats(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
 
 
 def fit_report(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
-    """Goodness-of-fit + parsimony report for a fitted model on ``(x, y)``.
+    """Goodness-of-fit and parsimony report for a fitted model on ``(x, y)``.
 
-    Returns a dict with sample/parameter counts, ``rss``/``rmse``/``r2``, the
-    **AIC and BIC** (Gaussian-likelihood, for comparing candidate models on the
-    same data), the Durbin-Watson statistic (≈2 = no residual autocorrelation),
-    and -- when the fit carries a covariance -- the parameter values and standard
-    errors. AIC/BIC make this the building block for model selection: fit several
-    candidates and keep the lowest IC.
+    The returned dict holds the sample and parameter counts, ``rss``,
+    ``rmse`` and ``r2``, the Gaussian-likelihood ``aic`` and ``bic`` for
+    comparing candidates fitted to the same data, and ``durbin_watson``
+    (≈2 means no residual autocorrelation). ``converged`` appears when the
+    result reports it, and ``params`` with ``stderr`` when the fit carries a
+    covariance. To select a model, fit several candidates and keep the
+    lowest information criterion.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float).ravel()
@@ -66,12 +66,15 @@ def fit_report(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
 
 
 def residual_diagnostics(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
-    """Tests for **structure the model left in the residuals**.
+    """Tests for structure the model left behind in its residuals.
 
-    A structured (DT) fit should leave white-noise residuals; leftover
-    autocorrelation means the model class is wrong (e.g. a trend with no cycle on
-    a seasonal series). Returns the residuals plus the Durbin-Watson and lag-1
-    autocorrelation statistics and a normality p-value (Shapiro-Wilk).
+    A structured (DT) fit should leave white-noise residuals. Leftover
+    autocorrelation means the model class is wrong, the usual case being a
+    trend with no cycle fitted to a seasonal series. The returned dict holds
+    the residuals with their ``mean`` and ``std``, the Durbin-Watson and
+    lag-1 autocorrelation statistics, and a Shapiro-Wilk normality p-value.
+    That p-value is NaN unless ``3 <= n <= 5000``, the range where the test
+    applies.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float).ravel()

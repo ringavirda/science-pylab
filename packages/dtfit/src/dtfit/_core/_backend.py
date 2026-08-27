@@ -1,19 +1,15 @@
 """Pluggable array backend for the GEMM-batched projection.
 
 The batched LSI/EAC projection is a single matrix product ``Dᵀ·(w⊙Y)`` (see
-:mod:`dtfit.scale._batched`). That primitive runs unchanged on NumPy/BLAS
-(CPU) or on a GPU array library, so we keep the math in one place and swap only
-*where the arrays live*:
+:mod:`dtfit.scale._batched`). It is written with plain ``@``, ``*`` and
+``.T``. A :class:`Backend` only has to move arrays to and from a device:
 
-* ``numpy``  -- always available; multithreaded BLAS GEMM on the CPU.
-* ``cupy``   -- drop-in NumPy-API GPU arrays (cuBLAS), if installed + a GPU.
-* ``torch``  -- CUDA tensors, if installed + ``torch.cuda.is_available()``.
+* ``numpy``: always available, multithreaded BLAS GEMM on the CPU.
+* ``cupy``: NumPy-API GPU arrays on cuBLAS, given an install and a GPU.
+* ``torch``: CUDA tensors, given an install and ``torch.cuda.is_available()``.
 
-A :class:`Backend` only has to move an array to/from its device; the projection
-code uses plain ``@``, ``*`` and ``.T``, which every backend supports. This is
-why GPU support is a *backend choice*, not a rewrite -- the projection is a GEMM
-with very low arithmetic intensity, so the GPU pays off only when the data is
-already resident (see the throughput experiment), but the code path is identical.
+The projection has very low arithmetic intensity; a GPU only pays off once the
+data is already resident on it.
 """
 
 from __future__ import annotations
@@ -24,7 +20,7 @@ import numpy as np
 
 
 class Backend:
-    """Moves arrays on/off a compute device; arithmetic stays generic (``@``/``*``)."""
+    """Moves arrays on and off a compute device. Arithmetic stays generic."""
 
     def __init__(
         self,
@@ -37,7 +33,7 @@ class Backend:
         self._to_host = to_host
 
     def asarray(self, a: Any) -> Any:
-        """Place ``a`` on this backend's device with the backend dtype."""
+        """Put ``a`` on this backend's device with the backend dtype."""
         return self._asarray(a)
 
     def to_host(self, a: Any) -> np.ndarray:
@@ -72,7 +68,7 @@ def _torch_backend(dtype: Any) -> Backend:  # pragma: no cover - requires a GPU
 
 
 def available_backends() -> list[str]:
-    """Backends usable here: always ``numpy``, plus GPU ones that import + have a device."""
+    """Backends usable here: ``numpy``, plus any GPU one that has a device."""
     out = ["numpy"]
     try:  # pragma: no cover - depends on environment
         import cupy  # noqa: F401
@@ -91,16 +87,15 @@ def available_backends() -> list[str]:
 
 
 def resolve_backend(name: str = "auto", *, dtype: Any = "float64") -> Backend:
-    """Build a :class:`Backend` by name; ``"auto"`` prefers a GPU when present."""
+    """Build a :class:`Backend` by name. ``"auto"`` prefers a GPU."""
     avail = available_backends()
     if name == "auto":
         name = "cupy" if "cupy" in avail else ("torch" if "torch" in avail else "numpy")
     if name == "numpy":
         return _numpy_backend(dtype)
     if name in ("cupy", "torch") and name not in avail:
-        # Known GPU backend, just not installed/available here: give the same
-        # actionable message as an unknown name rather than a raw ImportError
-        # from deep inside the backend factory.
+        # A known name with no device behind it: report it like an unknown
+        # name instead of an ImportError from inside the factory.
         raise ValueError(
             f"backend {name!r} is not available (install it / a working GPU); "
             f"available: {avail}"

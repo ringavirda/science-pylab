@@ -1,8 +1,8 @@
-"""Regime-appropriate forecasters + rolling-origin backtest model selection for
-:func:`dtfit.stochastic.fit_stochastic`. Each ``(train, h) -> array`` candidate
-(random walk, drift, mean reversion, local-slope / curvature trend, multi-harmonic
-seasonal continuation) is backtested and the RMSE-optimal one is chosen, defaulting
-to the random walk when nothing beats it."""
+"""Regime-appropriate forecasters and rolling-origin backtest model selection
+for :func:`dtfit.stochastic.fit_stochastic`. Each ``(train, h) -> array``
+candidate (random walk, drift, mean reversion, local-slope or curvature trend,
+multi-harmonic seasonal continuation) is backtested, and the RMSE-optimal one
+wins; the random walk is the default when nothing beats it."""
 
 from __future__ import annotations
 
@@ -20,9 +20,8 @@ __all__ = ["FORECASTERS"]
 def _bind_forecaster(
     fn: Callable[..., Any], y: np.ndarray
 ) -> Callable[[int], np.ndarray]:
-    """Bind a ``(train, h) -> array`` forecaster to the fitted series, yielding the
-    ``h -> array`` closure stored on the model (a typed helper rather than a
-    default-arg lambda, so the captured series is explicit)."""
+    """Bind a ``(train, h) -> array`` forecaster to the fitted series, yielding
+    the ``h -> array`` closure stored on the model."""
     def _f(h: int) -> np.ndarray:
         return np.asarray(fn(y, h), dtype=float)
     return _f
@@ -38,8 +37,8 @@ def _fc_drift(tr: np.ndarray, h: int) -> np.ndarray:
 
 
 def _fc_meanrev(tr: np.ndarray, h: int) -> np.ndarray:
-    """AR(1) mean reversion toward the sample mean (the level-series model for a
-    persistent-but-stationary series: interest rates, spreads)."""
+    """AR(1) mean reversion toward the sample mean: the level-series model for
+    a persistent but stationary series such as interest rates or spreads."""
     mu = float(tr.mean())
     x = tr - mu
     if x.size < 3:
@@ -50,8 +49,9 @@ def _fc_meanrev(tr: np.ndarray, h: int) -> np.ndarray:
 
 
 def _local_slope(tr: np.ndarray, period: float | None = None) -> float:
-    """Slope of a line through the recent portion (so an accelerating trend like
-    CO2 is extrapolated at its *current* rate, not the flatter global average)."""
+    """Slope of a line through the recent portion, so that an accelerating
+    trend like CO2 is extrapolated at its current rate instead of the flatter
+    global average."""
     n = tr.size
     k = n if period is None else min(n, max(2 * int(period), n // 3, 10))
     k = int(max(10, min(k, n)))
@@ -61,18 +61,18 @@ def _local_slope(tr: np.ndarray, period: float | None = None) -> float:
 
 def _trend_fit_extrap(series: np.ndarray, h: int,
                       period: float | None = None) -> np.ndarray:
-    """Curvature-aware trend extrapolation via a **dtfit LSI** quadratic fit over
-    the recent window, evaluated at the future window indices and anchored at the
-    **fitted** last value (NOT the raw last value).
+    """Curvature-aware trend extrapolation from an LSI quadratic fit over the
+    recent window, evaluated at the future indices and anchored at the fitted
+    last value.
 
-    A local straight line mis-extrapolates a curved trend badly (an accelerating
-    series like CO2): a quadratic LSI trend captures the curvature and forecasts
-    it far better. Anchoring at the *fitted* value (rather than the raw last
-    sample) is what keeps the forecast unbiased -- pinning it to the noisy last
-    observation carries that residual forward as a constant offset (the seasonal
-    forecast otherwise sits stably above / below the actual). Guarded: if the
-    quadratic would run away beyond a sane multiple of the in-sample range it
-    falls back to a fitted straight line.
+    A local straight line mis-extrapolates a curved trend badly, as on an
+    accelerating series like CO2; a quadratic LSI trend captures the
+    curvature. Anchoring at the fitted value keeps the forecast unbiased,
+    because pinning it to the noisy last observation would carry that
+    residual forward as a constant offset and leave the forecast sitting
+    stably above or below the actual. If the quadratic would run away past a
+    sane multiple of the in-sample range, a fitted straight line is used
+    instead.
     """
     steps = np.arange(1, h + 1, dtype=float)
     n = series.size
@@ -94,17 +94,21 @@ def _trend_fit_extrap(series: np.ndarray, h: int,
                 return pred
         except Exception:
             pass
-    a1l, a0l = np.polyfit(z, seg, 1)             # fitted straight-line fallback
+    a1l, a0l = np.polyfit(z, seg, 1)             # straight-line fallback
     return a0l + a1l * zf
 
 
 def _trend_anchored_extrap(tr: np.ndarray, h: int,
                            period: float | None = None) -> np.ndarray:
-    """Curvature-aware trend extrapolation anchored at the **raw last value** (the
-    increment from a recent-window quadratic LSI fit added onto ``tr[-1]``). Best
-    when the series is clean (low noise) so the last value is itself a good level
-    estimate, e.g. CO2; paired with the unbiased :func:`_trend_fit_extrap` so the
-    backtest picks per series."""
+    """Curvature-aware trend extrapolation anchored at the raw last value: the
+    increment from a recent-window quadratic LSI fit added onto ``tr[-1]``.
+
+    Anchoring this way is right when the series is clean enough that the last
+    value is itself a good level estimate, as with CO2. On a noisy series it
+    carries that value's residual forward as a constant offset;
+    :func:`_trend_fit_extrap` is the unbiased alternative, and both are
+    offered so the backtest can pick per series.
+    """
     steps = np.arange(1, h + 1, dtype=float)
     n = tr.size
     k = n if period is None else min(n, max(2 * int(period) + 2, n // 3, 60))
@@ -130,32 +134,31 @@ def _trend_anchored_extrap(tr: np.ndarray, h: int,
 
 
 def _fc_trend(tr: np.ndarray, h: int) -> np.ndarray:
-    """Linear local-slope trend (conservative: a straight line from the last
-    value). Robust for a spurious/level-shift 'trend' (e.g. the Nile) that a
-    curved fit would over-extrapolate."""
+    """Linear local-slope trend, a straight line from the last value. The
+    conservative choice: it holds up on a spurious level-shift "trend" like
+    the Nile, which a curved fit would over-extrapolate."""
     return float(tr[-1]) + _local_slope(tr) * np.arange(1, h + 1, dtype=float)
 
 
 def _make_seasonal_fc(period: float, max_harmonics: int, with_trend: bool,
                       window_periods: float | None = None):
-    """A seasonal forecaster: the fitted **trend + multi-harmonic seasonal** model
-    extrapolated forward -- NOT anchored at the raw last value.
+    """Seasonal forecaster: the fitted trend plus multi-harmonic seasonal model
+    extrapolated forward, anchored at the fitted trend rather than the raw
+    last value.
 
-    The harmonics are fit over the whole series (the amplitude shrinks toward what
-    is reliably predictable -- RMSE-optimal when the cycle's amplitude / phase
-    drift, as in the sunspot record). The series is then de-seasonalised and the
-    **trend extrapolated as a fitted curve** (:func:`_trend_fit_extrap`, recent-
-    window curvature for an accelerating trend like CO2); the forecast is
-    ``trend(t_future) + seasonal(t_future)``. Anchoring at the *fitted* trend
-    rather than the raw last sample removes the bias that otherwise leaves the
-    seasonal forecast sitting stably above / below the actual (the last
-    observation's residual was being carried forward as a constant offset, and the
-    last point often falls at a seasonal extreme). ``window_periods`` restores the
-    *visual* amplitude of the current cycles at some cost in RMSE."""
+    The harmonics are fit over the whole series, shrinking the amplitude
+    toward what is reliably predictable. That is RMSE-optimal where the
+    cycle's amplitude or phase drift, as in the sunspot record. The series is
+    then de-seasonalised and its trend extrapolated by
+    :func:`_trend_fit_extrap`, giving ``trend(t_future) + seasonal(t_future)``
+    with none of the last-value bias described there. The bias bites hardest
+    on a seasonal series, since the last point often falls at an extreme of
+    the cycle. ``window_periods`` restores the visual amplitude of the current
+    cycles at some cost in RMSE."""
     def fc(tr: np.ndarray, h: int) -> np.ndarray:
         m = tr.size
         ts = np.arange(m, dtype=float)
-        # seasonal harmonics on the (linearly de-trended) full series
+        # seasonal harmonics on the linearly de-trended full series
         if with_trend:
             a1g, a0g = np.polyfit(ts, tr, 1)
             base = a0g + a1g * ts
@@ -170,9 +173,9 @@ def _make_seasonal_fc(period: float, max_harmonics: int, with_trend: bool,
         seas_in = _seasonal_design(ts - phase0, period, k) @ coef
         tf = (m - 1) + np.arange(1, h + 1, dtype=float)
         seas_f = _seasonal_design(tf - phase0, period, k) @ coef
-        # de-seasonalise, then extrapolate the trend as a FITTED curve (no raw
-        # last-value anchor -> unbiased); a flat-trend regime just holds the
-        # recent de-seasonalised level.
+        # De-seasonalise, then extrapolate the trend as a fitted curve with no
+        # raw last-value anchor. A flat-trend regime just holds the recent
+        # de-seasonalised level.
         deseas = tr - seas_in
         if with_trend:
             trend_f = _trend_fit_extrap(deseas, h, period)
@@ -185,12 +188,15 @@ def _make_seasonal_fc(period: float, max_harmonics: int, with_trend: bool,
 
 def _make_seasonal_fc_anchored(period: float, max_harmonics: int,
                                with_trend: bool):
-    """The **anchored** seasonal forecaster -- continues the multi-harmonic
-    seasonal pattern from the raw last value plus a curvature-aware anchored trend.
-    Best for a clean trend+seasonal series (CO2) where the last sample carries no
-    noise; offered alongside the unbiased :func:`_make_seasonal_fc` so the backtest
-    keeps whichever forecasts better (the fitted one wins on a noisy series, where
-    anchoring at the last value would leave the forecast sitting above/below it)."""
+    """Seasonal forecaster anchored at the raw last value: the multi-harmonic
+    seasonal pattern continued from ``tr[-1]`` plus a curvature-aware anchored
+    trend.
+
+    Best on a clean trend+seasonal series like CO2, where the last sample
+    carries little noise. It is offered alongside :func:`_make_seasonal_fc` so
+    the backtest keeps whichever forecasts better; the fitted one wins on a
+    noisy series, where anchoring at the last value would leave the forecast
+    sitting above or below it."""
     def fc(tr: np.ndarray, h: int) -> np.ndarray:
         m = tr.size
         ts = np.arange(m, dtype=float)
@@ -218,24 +224,24 @@ def _select_forecaster(
     folds: int = 5,
     margin: float = 0.98,
 ) -> tuple[str, Callable[[np.ndarray, int], np.ndarray]]:
-    """Rolling-origin backtest each candidate; choose the best non-RW candidate if
-    its mean RMSE is within ``margin`` of the random walk's, else the random walk.
+    """Rolling-origin backtest each candidate and choose the best non-RW one if
+    its mean RMSE is within ``margin`` of the random walk's, else the random
+    walk.
 
-    ``margin < 1`` is strict / RMSE-optimal (a non-RW model must *beat* RW by the
-    margin -- used for level regimes, parsimony toward RW). ``margin > 1`` is
-    lenient (prefer to *show* a detected structure -- a seasonal cycle, a trend --
-    unless it is clearly worse than RW): a per-fold backtest under-rates a
-    phase-sensitive cyclical forecast that is actually RMSE-competitive over the
-    full record, so a detected cycle should not be flattened to a line on its
-    account.
+    ``margin < 1`` is the strict, RMSE-optimal setting: a non-RW model must
+    beat RW by the margin. Level regimes use it and tilt toward RW for
+    parsimony. ``margin > 1`` is lenient, keeping a detected structure such as
+    a seasonal cycle or a trend unless it is clearly worse than RW. A per-fold
+    backtest under-rates a phase-sensitive cyclical forecast that is in fact
+    RMSE-competitive over the full record, and a detected cycle should not be
+    flattened to a line on that account.
 
     A series too short to backtest (``n <= 50``) cannot arbitrate between
-    multiple candidates: the first candidate (the random walk in every built-in
-    set) is returned with a :class:`UserWarning` and its name suffixed with
-    ``" (short-series fallback)"``, so the fallback is visible on the fitted
-    model rather than silently posing as a backtest choice. A candidate that
-    raises during the backtest is warned about (:class:`UserWarning`) and
-    scored ``inf`` RMSE for that fold, so it loses the selection."""
+    candidates. The first one, the random walk in every built-in set, comes
+    back with a :class:`UserWarning` and its name suffixed
+    ``" (short-series fallback)"`` so the fallback stays visible on the fitted
+    model. A candidate that raises during the backtest is warned about and
+    scored ``inf`` RMSE for that fold, losing it the selection."""
     n = y.size
     if len(candidates) == 1:
         return candidates[0]
@@ -273,7 +279,7 @@ def _select_forecaster(
     return next(c for c in candidates if c[0] == best)
 
 
-# Built-in named forecasters the caller can force or compose into a candidate set.
+# Built-in names a caller can force or compose into a candidate set.
 FORECASTERS = ("random walk", "drift", "mean-reversion", "trend",
                "seasonal", "trend+seasonal")
 
@@ -296,10 +302,10 @@ def _resolve_forecaster(forecaster, auto_candidates, *, per, max_harmonics, y,
                         margin=0.98):
     """Turn the user's ``forecaster=`` argument into a chosen ``(name, fn)``.
 
-    ``"auto"`` backtest-selects over the auto candidate set (with the given
-    ``margin``); a name forces that built-in; a callable ``(train, h) -> array``
-    is used directly; a list of names / callables / ``(name, fn)`` pairs is a
-    custom candidate set that is backtest-selected.
+    ``"auto"`` backtest-selects over the auto candidate set at the given
+    ``margin``; a name forces that built-in; a callable ``(train, h) -> array``
+    is used directly; a list of names, callables or ``(name, fn)`` pairs is a
+    custom candidate set to backtest-select among.
     """
     if forecaster is None or forecaster == "auto":
         return _select_forecaster(y, auto_candidates, margin=margin)

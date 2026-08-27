@@ -1,21 +1,20 @@
-"""DSB -- Differential Spectra Balance (symbolic analytical reference).
+"""DSB: differential spectra balance, the symbolic analytical reference.
 
-DSB recovers the parameters of a model that is nonlinear in them by equating the
-model's differential spectrum to the data's differential spectrum, order by
-order. The data spectrum comes from a prior polynomial fit.
+DSB recovers the parameters of a model that is nonlinear in them by equating
+the model's differential spectrum to the data's, order by order. The data
+spectrum comes from a prior polynomial fit.
 
-Key simplification (vs. the original implementation): in the balance each
-equation sets the model discrete equal to the data discrete *at the same order*
-``k``, so the differential-transform factor ``H**k`` cancels on both sides and
-the balance reduces to matching plain Maclaurin coefficients ``f^(k)(0)/k!``
-(see :mod:`dtfit.methods._common`). For a polynomial those coefficients are just
-its ascending coefficients ``c_k``. This makes DSB work for *any* differentiable
-model expression, not only the handful (exp, sin, cos, monomials) that used to
-have hand-written discrete rules.
+Each equation in the balance sets the model discrete equal to the data
+discrete at the same order ``k``. The differential-transform factor ``H**k``
+therefore cancels on both sides and the balance reduces to matching plain
+Maclaurin coefficients ``f^(k)(0)/k!`` (see :mod:`dtfit.methods._common`).
+For a polynomial those coefficients are just its ascending coefficients
+``c_k``. Any differentiable model expression works, with no per-function
+discrete rules.
 
-The square balance is solved symbolically (``sympy.nonlinsolve``) to keep DSB's
-analytical character; an overdetermined balance (more polynomial coefficients
-than parameters) is refined with nonlinear least squares.
+The square balance is solved symbolically (``sympy.nonlinsolve``) to keep
+DSB's analytical character; an overdetermined balance, more polynomial
+coefficients than parameters, is refined with nonlinear least squares.
 """
 
 from collections.abc import Iterable, Sequence
@@ -41,7 +40,7 @@ def fit_dsb(
     """Fit ``expr`` by balancing its Maclaurin spectrum against a polynomial's.
 
     Args:
-        coeffs_poly: Polynomial coefficients in **ascending** order, i.e.
+        coeffs_poly: Polynomial coefficients in ascending order:
             ``coeffs_poly[k]`` is the coefficient of ``var**k`` and equals the
             data's order-``k`` Maclaurin coefficient.
         expr: Model expression, e.g. ``"a0 + a1*x + a2*exp(a3*x)"``.
@@ -117,12 +116,13 @@ def _solve_balance(
     n: int,
     p0: InitialGuess,
 ) -> tuple[np.ndarray, bool, str]:
-    """Solve the balance: symbolic on the square subsystem (keeping DSB's
-    analytical nature), then numeric refinement when overdetermined; fall back to
-    pure numeric least squares if the symbolic solver finds nothing.
+    """Solve the balance symbolically on the square subsystem, keeping DSB's
+    analytical nature, then refine numerically when overdetermined. Falls back
+    to pure numeric least squares if the symbolic solver finds nothing.
 
-    Returns ``(coeffs, converged, message)`` -- ``converged`` reflects the numeric
-    refinement/fallback when one runs, else the symbolic solve found a real root.
+    Returns ``(coeffs, converged, message)``. ``converged`` reflects the
+    numeric refinement or fallback when one runs, otherwise it records that
+    the symbolic solve found a real root.
     """
     square = balance[:n]
     guess = _validate_p0(p0, params)
@@ -150,10 +150,12 @@ def _solve_symbolic(
     coeffs: list[sp.Symbol],
 ) -> list[list[sp.Expr]]:
     """Solve the square symbolic balance, keeping only real, non-degenerate
-    candidates. Drops complex / incomplete roots and the degenerate **all-zero**
-    root; a root where only *some* parameters are exactly 0 is a legitimate
-    solution (e.g. an offset that truly is 0) and is kept. Raises if none
-    remain."""
+    candidates.
+
+    Drops complex and incomplete roots along with the all-zero root. A root
+    where only some parameters are exactly 0 is legitimate (an offset that is
+    truly 0, for instance) and is kept. Raises if none remain.
+    """
     raw = sp.nonlinsolve(system, coeffs)
     solutions: list[list[sp.Expr]] = []
     for sol in raw.args:
@@ -176,7 +178,7 @@ def _solve_numeric(
     coeffs: list[sp.Symbol],
     guess: np.ndarray,
 ) -> tuple[np.ndarray, bool, str]:
-    """Refine / solve the balance by nonlinear least squares from ``guess``.
+    """Refine or solve the balance by nonlinear least squares from ``guess``.
 
     Returns ``(coeffs, converged, message)`` from the least-squares solver."""
     func = sp.lambdify(coeffs, system, "scipy")

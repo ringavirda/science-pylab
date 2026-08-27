@@ -1,20 +1,20 @@
 """Unified model-input resolution for the fitting methods.
 
-The differential-transformation fitters historically accepted a model only as a
-SymPy expression *string*. :func:`resolve_model` widens that to three equivalent
-forms -- a string, a :class:`sympy.Expr`, or a plain Python callable
-``f(x, *params)`` -- behind one :class:`ModelSpec` interface, so a fitter can
+:func:`resolve_model` accepts a model in three equivalent forms, a SymPy
+expression string, a :class:`sympy.Expr`, or a plain Python callable
+``f(x, *params)``, behind one :class:`ModelSpec` interface. A fitter can then
 evaluate the model, its parameter sensitivities and a bound ``f(x)`` closure
 without caring which form the caller supplied.
 
-The canonical parameter order (:attr:`ModelSpec.names`) is THE order used for
+The canonical parameter order (:attr:`ModelSpec.names`) is the order used for
 coefficients, ``p0``, bounds, covariance and
 :class:`~dtfit.types.FittingResult` everywhere downstream:
 
-* symbolic models keep the historical layout -- parameters SORTED by name
+* symbolic models sort their parameters by name
   (:func:`dtfit.methods.model_params`);
-* callables use SIGNATURE order (the parameters after the leading ``x``), since a
-  callable is invoked positionally and the coefficients must line up with it.
+* callables use signature order, the parameters after the leading ``x``,
+  because a callable is invoked positionally and the coefficients have to line
+  up with it.
 """
 
 from __future__ import annotations
@@ -46,10 +46,10 @@ def _fill(v: Any, x: np.ndarray) -> np.ndarray:
 def _introspect_names(func: Callable[..., Any]) -> tuple[str, ...] | None:
     """Parameter names of a callable model, in signature order (skipping ``x``).
 
-    Returns the names of the positional parameters *after* the first one (the
-    ``x`` variable). ``None`` when the names cannot be determined -- a builtin
-    with no signature, or a ``*args`` model with no fixed trailing parameters --
-    signalling that the caller must supply ``param_names`` explicitly.
+    Returns the names of the positional parameters after the first one, the
+    ``x`` variable. ``None`` means the names cannot be determined, from a
+    builtin with no signature or a ``*args`` model with no fixed trailing
+    parameters, and the caller must supply ``param_names`` explicitly.
     """
     try:
         sig = inspect.signature(func)
@@ -157,9 +157,9 @@ class ModelSpec:
     def eval(self, x: np.ndarray, coeffs: Sequence[float] | np.ndarray) -> np.ndarray:
         """Model values at ``x`` for ``coeffs`` given in :attr:`names` order.
 
-        Always returns a 1-D float array broadcast to ``x``'s shape -- a constant
-        model (or a callable returning a python float / 0-d array) is filled to
-        the full length.
+        Always returns a 1-D float array broadcast to ``x``'s shape. A
+        constant model, or a callable returning a python float or 0-d array,
+        is filled to the full length.
         """
         x = np.asarray(x, dtype=float)
         c = np.asarray(coeffs, dtype=float)
@@ -220,7 +220,7 @@ def _resolve_symbolic(
         )
     t = sp.Symbol(str(var))
     f_sym = cast(sp.Expr, sp.sympify(expr_str))
-    params = model_params(f_sym, t)  # sorted by name -- the canonical order
+    params = model_params(f_sym, t)  # sorted by name: the canonical order
     names = tuple(str(p) for p in params)
     if param_names is not None:
         given = tuple(str(n) for n in param_names)
@@ -269,8 +269,8 @@ def resolve_model(
     Args:
         model: The model. A SymPy expression string (e.g. ``"a*exp(b*t)"``), a
             :class:`sympy.Expr`, or a Python callable ``f(x, *params)``.
-        var: The main variable name. Required-meaningful for a symbolic model
-            (names the free variable in the expression); for a callable it is a
+        var: The main variable name. Required for a symbolic model, where it
+            names the free variable in the expression; for a callable it is a
             label only and defaults to ``"x"``.
         param_names: Parameter names. For a callable, the names of the
             parameters after the leading ``x`` (in signature order); introspected
@@ -305,13 +305,14 @@ def result_kwargs(
 ) -> dict[str, Any]:
     """Keyword arguments for building a :class:`~dtfit.types.FittingResult`.
 
-    Bridges :func:`resolve_model` to the result type per the v0.3 contract:
+    Bridges :func:`resolve_model` to the result type:
 
-    * symbolic model -- pass ``expr`` / ``var`` / ``names`` so the existing
-      lambdify path (prediction std bands, ``to_dict``) keeps working unchanged;
-    * callable model -- there is no expression, so pass a bound ``f(x)`` closure
-      as ``model`` and the numeric params-explicit evaluator as ``param_model``,
-      which lets the result still finite-difference a prediction std band.
+    * symbolic model: pass ``expr`` / ``var`` / ``names``, which is what the
+      lambdify path behind prediction std bands and ``to_dict`` runs on;
+    * callable model: there is no expression, so pass a bound ``f(x)``
+      closure as ``model`` and the numeric params-explicit evaluator as
+      ``param_model``, letting the result still finite-difference a
+      prediction std band.
     """
     if spec.is_symbolic:
         return {"expr": spec.expr, "var": spec.var, "names": spec.names}

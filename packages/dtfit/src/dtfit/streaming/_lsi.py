@@ -1,36 +1,32 @@
-"""Recursive Legendre-spectrum filter -- the streaming counterpart of LSI.
+"""Recursive Legendre-spectrum filter, the streaming counterpart of LSI.
 
-This is the online analogue of the batch integral-least-squares method
-(:func:`dtfit.methods._lsi.fit_lsi`). It is structurally identical to
-:class:`dtfit.streaming._eac.EACFilter`: a Kalman-style recursive
-estimator whose "measurement" is an innovation between an experimental quantity
-and the model's prediction of it, with a measurement Jacobian of integrated
-parameter sensitivities. The *only* difference is the measurement itself.
+The online analogue of the batch integral-least-squares method
+(:func:`dtfit.methods._lsi.fit_lsi`), and structurally a sibling of
+:class:`dtfit.streaming._eac.EACFilter`: a Kalman-style recursive estimator
+whose "measurement" is an innovation between an experimental quantity and the
+model's prediction of it, with a measurement Jacobian of integrated parameter
+sensitivities. What changes is the measurement itself.
 
-``EACFilter`` measures **areas** -- the signal projected onto piecewise
-indicator functions (the zeroth moment over each sub-window). This filter
-instead measures the **Legendre spectrum** -- the signal projected onto the
-first ``order + 1`` orthogonal Legendre polynomials over the window. That gives
-three concrete advantages over a stack of contiguous sub-areas:
+``EACFilter`` measures areas: the signal projected onto piecewise indicator
+functions, the zeroth moment over each sub-window. This filter measures the
+Legendre spectrum instead, projecting the signal onto the first ``order + 1``
+orthogonal Legendre polynomials over the window. Three things follow from that.
+A single window yields ``order + 1`` independent equations rather than one or a
+handful of correlated sub-areas, and coupled multi-parameter and oscillatory
+models are identified faster; net signed area is a low-order moment and nearly
+blind to frequency and phase; Legendre moments resolve shape. The basis
+is orthogonal, leaving the measurement covariance diagonal with
+``R_j ∝ (2j+1)``, the LSI orthonormal weight, whereas contiguous sub-areas
+are correlated and shrink in magnitude. That diagonal ``R`` also makes a
+proper multivariate Normalized Innovation Squared (NIS) a clean chi-squared
+with ``order + 1`` degrees of freedom.
 
-* **Observability.** A single window yields ``order + 1`` independent equations
-  (not just 1, or a handful of correlated sub-areas), so coupled multi-parameter
-  and oscillatory models are identified faster. Areas see only net signed area
-  (a low-order moment) and are nearly blind to frequency/phase; Legendre moments
-  resolve shape.
-* **Conditioning / scaling.** The Legendre basis is orthogonal, so the
-  measurement covariance is naturally **diagonal** (``R_j ∝ (2j+1)``, the LSI
-  orthonormal weight). Contiguous sub-areas are correlated and shrink in
-  magnitude, which is why the area filter needs an ``adapt_r`` rescaling hack.
-* **Drift test.** The diagonal ``R`` makes a proper multivariate Normalized
-  Innovation Squared (NIS) a clean chi-squared with ``order + 1`` dof.
-
-The empirical spectrum is computed by a cached Legendre projection on a window
-normalized to ``[-1, 1]`` (an ``O(W·order)`` mat-vec, assuming roughly uniform
-streaming); the model spectrum is computed by Gauss-Legendre quadrature so the
-model is integrated exactly -- faithfully mirroring the batch LSI scheme. The
-symbolic model and its derivatives are compiled once in ``__init__``; the hot
-path contains no SymPy and is ``O(W·order·params)`` per sample.
+The empirical spectrum comes from a cached Legendre projection on a window
+normalized to ``[-1, 1]``, an ``O(W·order)`` mat-vec assuming roughly uniform
+streaming. The model spectrum comes from Gauss-Legendre quadrature, integrating
+the model exactly as the batch LSI scheme does. The symbolic model and its
+derivatives are compiled once in ``__init__``; the hot path contains no SymPy
+and is ``O(W·order·params)`` per sample.
 """
 
 from typing import Any, Callable, Sequence
@@ -46,16 +42,16 @@ from ._base import _RecursiveFilter
 
 
 class LSIFilter(_RecursiveFilter):
-    """Online integral-least-squares (LSI) parameter tracker with drift detection.
+    """Online integral-least-squares parameter tracker with drift detection.
 
     Drop-in sibling of :class:`EACFilter` with the same ``partial_fit`` /
-    ``predict`` / ``params_`` API; it swaps the area measurement for an
+    ``predict`` / ``params_`` API, swapping the area measurement for an
     orthogonal Legendre-spectrum measurement (streaming LSI).
 
-    As with :class:`EACFilter`, the constructor exposes the full knob set; most
-    callers should start from a **preset** classmethod and only pass overrides:
+    As with :class:`EACFilter`, the constructor exposes the full knob set. Most
+    callers should start from a preset classmethod and pass only overrides:
     :meth:`tracking` (responsive auto-sized window) or :meth:`robust`
-    (outlier/anomaly-resilient gains).
+    (outlier-resilient gains).
     """
 
     @classmethod
@@ -73,10 +69,10 @@ class LSIFilter(_RecursiveFilter):
     def robust(
         cls, expr: str | sp.Expr | Callable[..., Any], var: str, **overrides: Any
     ) -> "LSIFilter":
-        """Outlier-resilient preset: innovation winsorizing, data-set measurement
-        noise, gentle drift re-arm. Equivalent to ``LSIFilter(expr, var,
-        robust=True, adapt_noise=True, drift_reset="inflate", ...)``; ``overrides``
-        win.
+        """Outlier-resilient preset: innovation winsorizing, measurement noise
+        taken from the data, gentle drift re-arm. Equivalent to
+        ``LSIFilter(expr, var, robust=True, adapt_noise=True,
+        drift_reset="inflate", ...)``; ``overrides`` win.
         """
         return cls(expr, var, **{
             "robust": True, "adapt_noise": True, "drift_reset": "inflate",
@@ -110,81 +106,68 @@ class LSIFilter(_RecursiveFilter):
     ) -> None:
         """
         Args:
-            expr: Model, in any of three forms: a SymPy-expression **string**
+            expr: Model, in any of three forms: a SymPy-expression string
                 (e.g. ``"A * sin(w * t)"``), a :class:`sympy.Expr`, or a plain
-                Python **callable** ``f(t, *params)``. A string / expression may
-                also reference **external regressors** (see ``regressors``), e.g.
-                ``"c0 + c1*t + S"`` where ``S`` is a measured side-channel -- the
-                model is then ``f(t, regressors, params)``. A callable is evaluated
-                numerically -- it needs no symbolic form -- but has no closed-form
-                time derivatives, so :meth:`coast` / :meth:`coast_cov` are
-                unavailable for it and external regressors are not supported.
+                Python callable ``f(t, *params)``. A string or expression may
+                also reference external regressors (see ``regressors``), as in
+                ``"c0 + c1*t + S"`` with ``S`` a measured side-channel, making
+                the model ``f(t, regressors, params)``. A callable is evaluated
+                numerically and needs no symbolic form, but it has no
+                closed-form time derivatives; :meth:`coast` / :meth:`coast_cov`
+                are unavailable for it and external regressors are not
+                supported.
             var: Main variable name in ``expr`` (a label only for a callable).
-            regressors: Optional name(s) of external-regressor channels appearing
-                in ``expr`` (everything else free is a parameter). When given, each
+            regressors: Optional name(s) of external-regressor channels in
+                ``expr``; everything else free is a parameter. When given, each
                 ``partial_fit`` / ``predict`` call must supply the regressor
-                value(s) for that sample. The model is still scored by the *same*
-                Legendre-spectrum measurement -- only now the model can depend on
-                exogenous signals (e.g. an IMU-derived motion basis), not just on
-                ``t`` -- so a far richer physical model fuses into the integral
-                least-squares update without leaving the filter. Symbolic models
-                only.
-            param_names: For a **callable** model, the parameter names in
-                signature order (those after the leading ``t``); introspected from
-                the callable's signature when omitted. Ignored for a symbolic
+                value(s) for that sample. The same Legendre-spectrum
+                measurement still scores the model; the model may now depend on
+                exogenous signals (an IMU-derived motion basis, say) and not on
+                ``t`` alone. Symbolic models only.
+            param_names: For a callable model, the parameter names in signature
+                order (those after the leading ``t``); introspected from the
+                callable's signature when omitted. Ignored for a symbolic
                 model, whose parameters come from the expression.
             p0: Initial parameter estimate (defaults to ones). Ordered like
-                :attr:`params_` -- sorted names for a symbolic model, signature
+                :attr:`params_`: sorted names for a symbolic model, signature
                 order for a callable.
             window_size: Target (maximum) sliding-window length used for the
-                spectral projection. The window **grows** from ``min_window`` up
-                to this size as samples arrive, then slides; a larger window
+                spectral projection. The window grows from ``min_window`` up to
+                this size as samples arrive, then slides. A larger window
                 smooths more (a more rigid estimate), a smaller one is more
                 responsive.
             min_window: Smallest window at which the filter starts producing an
-                estimate -- the measurement is *accumulative*, so rather than
-                idling until ``window_size`` samples have arrived, the filter
-                projects whatever is in the (growing) window once it holds at
-                least this many points. Defaults to ``order + 2`` (the fewest
-                points that admit an order-``order`` Legendre projection), so the
-                estimate begins acquiring almost immediately, like a pointwise
-                filter, instead of after a full-window dead time. Clamped to
-                ``[order + 2, window_size]``.
-            adaptive_window: If True, size the window **automatically from the
-                data** instead of using a fixed ``window_size`` (which becomes the
-                maximum). The window is sized by two opposing signals:
-
-                * it **grows** from ``min_window`` while *more data still moves the
-                  estimate* (the EWMA of the relative update step exceeds
-                  ``window_tol``) *and* the fit stays consistent -- the reliable
-                  signal that the window is not yet wide enough to identify the
-                  (static) parameters. A global-parameter model keeps shifting as
-                  the window widens (so it grows wide); a locally-observable one
-                  stabilizes quickly (so it keeps a short window).
-                * it **shrinks** when the one-step forecast residual becomes
-                  *systematically autocorrelated* (persistent runs of the same
-                  sign) -- the fingerprint of a model that is *lagging changing
-                  dynamics* (a maneuver / time-varying parameters). A well-matched
-                  fit leaves white (sign-alternating) residuals, so this never
-                  fires on a static model; a lagging fit does, and the window
-                  shrinks to stay responsive. This tracks a time-varying signal
-                  with a short window and a static one with a wide window -- no
-                  per-regime hand-tuning either way.
-
-                On a detected drift the window also collapses back to ``min_window``
-                and re-grows, re-acquiring a new regime from the freshest samples.
-            window_tol: Relative-movement threshold for ``adaptive_window``; the
-                window stops growing once successive updates move the estimate by
-                less than this (EWMA of ``|Δp|/|p|``, default 0.1%). Smaller grows
-                a wider window.
+                estimate. The measurement is accumulative: rather than idle
+                until ``window_size`` samples have arrived, the filter projects
+                whatever the growing window holds once it reaches this many
+                points. Defaults to ``order + 2``, the fewest points that admit
+                an order-``order`` Legendre projection, putting the estimate to
+                work almost immediately, not after a full-window dead time.
+                Clamped to ``[order + 2, window_size]``.
+            adaptive_window: If True, size the window from the data instead of
+                fixing it at ``window_size`` (which becomes the maximum). It
+                grows from ``min_window`` while more data still moves the
+                estimate (the EWMA of the relative update step exceeds
+                ``window_tol``), the sign that the window is not yet wide
+                enough to identify static parameters. It shrinks when the
+                one-step forecast residual turns systematically autocorrelated,
+                in runs of the same sign, the fingerprint of a fit lagging
+                changing dynamics. A time-varying signal is therefore tracked
+                with a short window and a static one with a wide window, no
+                per-regime hand-tuning either way. A detected drift also
+                collapses the window to ``min_window`` for the new regime.
+            window_tol: Relative-movement threshold for ``adaptive_window``.
+                The window stops growing once successive updates move the
+                estimate by less than this (EWMA of ``|Δp|/|p|``, default
+                0.1%). Smaller grows a wider window.
             order: Legendre spectral order; the measurement is the first
                 ``order + 1`` Legendre coefficients of the window. More orders
-                means richer observability (and a larger measurement vector).
+                means richer observability and a larger measurement vector.
                 Clamped so ``order + 1 <= window_size``.
             q_diag: Process-noise variances (per parameter); larger values let a
                 parameter drift faster. Defaults to 0.01 each.
             r: Base measurement-noise variance. The per-coefficient variance is
-                ``R_j = r * (2j + 1)`` -- the LSI orthonormal weighting, which
+                ``R_j = r * (2j + 1)``, the LSI orthonormal weighting, which
                 down-weights the noisier high-order coefficients.
             alpha: Significance level for the multivariate NIS sudden-jump test.
             cusum_k: CUSUM slack (reference value) in innovation standard
@@ -193,39 +176,39 @@ class LSIFilter(_RecursiveFilter):
             cusum_h: CUSUM decision threshold in accumulated standard deviations.
             adapt_r: If True, adapt ``r`` online from an EWMA of the normalized
                 innovation power (Mehra-style).
-            adapt_noise: If True, set the measurement-noise covariance *entirely*
-                from the data: ``R_diag = v * diag(proj @ proj.T)`` where ``v`` is an
-                online EWMA of the residual variance. The spectral-coefficient noise
+            adapt_noise: If True, take the measurement-noise covariance wholly
+                from the data: ``R_diag = v * diag(proj @ proj.T)``, with ``v``
+                an online EWMA of the residual variance. The coefficient noise
                 is exactly the per-sample noise pushed through the Legendre
-                projection, so this is the statistically correct, self-tuning
-                measurement noise -- no hand-set ``r`` (which it overrides). It damps
-                the gain (smoother output) when the stream is noisy/anomaly-ridden
-                and frees it (responsive) when clean, automatically. Pairs naturally
-                with ``robust=True``: the winsorization shields the update direction
-                while ``v`` (estimated from the raw residual) still senses the noise.
-            robust: If True, gate each Kalman update by the normalized innovation:
-                a window whose per-dof Mahalanobis innovation exceeds ``huber_c``
-                has its (diagonal) measurement-noise inflated -- shrinking the gain
-                -- so an outlier-corrupted window cannot yank the estimate. The
-                drift detector still sees the raw spectral innovation, so a genuine
-                regime shift is detected and re-armed (the inflated covariance then
-                disables the gate during re-adaptation).
+                projection, making this self-tuning; it overrides any hand-set
+                ``r``. The gain is damped for a smoother output when the stream
+                is noisy and freed when it is clean. Pairs naturally with
+                ``robust=True``: the winsorization shields the update direction
+                while ``v``, estimated from the raw residual, still senses the
+                noise.
+            robust: If True, gate each Kalman update by the normalized
+                innovation. A window whose per-dof Mahalanobis innovation
+                exceeds ``huber_c`` has its diagonal measurement noise
+                inflated, shrinking the gain, and an outlier-corrupted window
+                cannot yank the estimate. The drift detector still sees the raw
+                spectral innovation, and a genuine regime shift is detected and
+                re-armed; the inflated covariance then disables the gate during
+                re-adaptation.
             huber_c: Robust gate threshold in innovation standard deviations
                 (per degree of freedom); ~3 keeps clean windows unweighted.
             drift_reset: On a detected drift, ``"full"`` resets the covariance to
-                its large initial value and clears the window; ``"inflate"``
+                its large initial value and clears the window. ``"inflate"``
                 instead multiplies the covariance by ``drift_inflation`` and
-                keeps the current estimate and window (gentler re-adaptation).
+                keeps the current estimate and window, a gentler re-adaptation.
                 Any other value raises ``ValueError``.
             drift_inflation: Covariance inflation factor for
                 ``drift_reset="inflate"``.
         """
         # Resolve the model (string / sympy.Expr / callable), set up regressors,
         # determine the canonical parameter order and compile the fast-path
-        # callables once off the hot path (shared with EACFilter via the base).
-        # A callable model has no closed-form time derivatives (coast() is
-        # unavailable for it) and no external regressors; the spectral hot path
-        # itself needs neither, so callables track exactly like a string model.
+        # callables once, off the hot path. A callable model has no closed-form
+        # time derivatives (coast() is unavailable for it) and no external
+        # regressors; the spectral hot path itself needs neither.
         n = self._setup_model(expr, var, regressors, param_names)
 
         self.p = np.ones(n) if p0 is None else np.asarray(p0, dtype=float)
@@ -235,40 +218,30 @@ class LSIFilter(_RecursiveFilter):
         self.R0 = float(r)
         self.W = int(window_size)
         self.order = max(1, min(int(order), self.W - 1))
-        # Accumulative warm-up: start measuring once the growing window holds at
-        # least this many points (the fewest an order-`order` projection admits),
-        # rather than idling until the window is full.
+        # Accumulative warm-up: start measuring once the growing window holds
+        # at least this many points, the fewest an order-`order` projection
+        # admits, rather than idling until the window is full.
         floor = self.order + 2
         self.min_window = (
             min(self.W, floor) if min_window is None
             else int(min(self.W, max(floor, min_window)))
         )
-        # Automatic window sizing: when enabled, ``window_size`` is the MAX window
-        # (a memory cap); the effective window grows from ``min_window`` while the
-        # parameters stay under-identified (max relative covariance > window_tol)
-        # and stops once they are pinned -- so a model whose parameters are global
-        # (a polynomial's coefficients, a saturating time constant) grows a wide
-        # window on its own, while a locally-observable one (an oscillation) keeps
-        # a short window. No per-model hand-tuning.
+        # With adaptive sizing, ``window_size`` is only the maximum (a memory
+        # cap) and the effective window is grown from ``min_window``; the two
+        # sizing signals live in partial_fit.
         self.adaptive_window = bool(adaptive_window)
         self.window_tol = float(window_tol)
         self._W_eff = self.min_window           # current effective window (adaptive)
         self._W_ref = 2 * (self.order + 1)       # comfortable measurement size
         self._move_ewma = 1.0                    # EWMA of relative estimate movement
-        # Bidirectional-sizing state: the EWMA sign-autocorrelation of the one-step
-        # forecast residual. A well-matched model leaves *white* residuals (signs
-        # alternate ~50/50 -> correlation ~0); a model that *lags* changing dynamics
-        # (a maneuver / time-varying parameters) leaves runs of *same-sign*
-        # residuals (correlation -> +1). This signal is scale-free, so it does not
-        # self-normalize away a sustained maneuver and never fires on static noise.
-        # When it stays above ``_shrink_corr`` the window shrinks; see partial_fit.
+        # EWMA sign-autocorrelation of the one-step forecast residual, the
+        # shrink signal for the adaptive window (see partial_fit).
         self._resid_sign = 0.0
         self._resid_corr = 0.0
-        # Shrink when the residual sign-autocorrelation persistently exceeds this.
-        # White residuals give an EWMA(0.1) correlation of mean 0, std ~0.23; a
-        # continuously-curving-but-static oscillation sits ~0.2 (a mild, legitimate
-        # lag). 0.35 clears both -- no spurious shrink on a static model -- yet is
-        # well below the ~+1 a genuine sustained maneuver-lag produces.
+        # Shrink threshold. White residuals give an EWMA(0.1) correlation of
+        # mean 0 and std ~0.23; a continuously curving but static oscillation
+        # sits around 0.2, a mild and legitimate lag. 0.35 clears both and
+        # still sits well below the ~+1 a sustained maneuver-lag produces.
         self._shrink_corr = 0.35
 
         # Per-coefficient measurement variance: the LSI orthonormal weight.
@@ -282,25 +255,23 @@ class LSIFilter(_RecursiveFilter):
         tau = np.linspace(-1.0, 1.0, self.W)
         vander = L.legvander(tau, self.order)          # (W, order+1)
         self._proj = np.linalg.pinv(vander)            # (order+1, W)
-        # Projections for below-cap window lengths (warm-up + every step of an
-        # adaptive window) are cached per length: the pinv is an SVD of an
-        # (order+1, k) matrix and, with adaptive_window (the tracking() preset),
-        # the below-cap branch is the *common* case, not the exception. The
-        # projection depends only on k and order (not on data), so the cache stays
-        # valid across drifts. Bounded by (W - min_window + 1) entries.
+        # Below-cap lengths are cached too: the pinv is an SVD, and under
+        # adaptive_window the below-cap branch is the common case. A projection
+        # depends only on k and order, never on the data; the cache therefore
+        # survives a drift. Bounded by (W - min_window + 1) entries.
         self._proj_cache: dict[int, np.ndarray] = {self.W: self._proj}
 
-        # Model spectrum: Gauss-Legendre quadrature on [-1, 1] (model integrated
-        # exactly, as in batch LSI).
+        # Model spectrum: Gauss-Legendre quadrature on [-1, 1], integrating the
+        # model exactly as batch LSI does.
         n_quad = max(2 * (self.order + 1), 16)
         self._nodes, self._qw = L.leggauss(n_quad)
         self._legvander_q = L.legvander(self._nodes, self.order)  # (n_quad, order+1)
 
         # Ratio threshold for the self-normalizing energy test: how many times
         # its running mean the spectral-energy innovation must reach to flag a
-        # sudden jump. Mapped from ``alpha`` via a chi-squared on the energy's
-        # effective degrees of freedom, with a safety margin for the heavier
-        # tails of an EWMA-estimated scale.
+        # jump. Mapped from ``alpha`` through a chi-squared on the energy's
+        # effective degrees of freedom, with a margin for the heavier tails an
+        # EWMA-estimated scale carries.
         dof = self.order + 1
         self._energy_ratio = 1.6 * chi2.ppf(1 - alpha, df=dof) / dof
         self.cusum_k = float(cusum_k)
@@ -315,15 +286,14 @@ class LSIFilter(_RecursiveFilter):
         self.drift_inflation = float(drift_inflation)
         self._r_scale = 1.0  # adaptive multiplier on R when adapt_r
 
-        # Drift detector state (decimated, non-overlapping windows + warmup),
-        # mirroring EACFilter so the two are directly comparable.
+        # Drift detector state (decimated, non-overlapping windows plus a
+        # warmup), mirroring EACFilter so the two are directly comparable. One
+        # EWMA scale calibrates the spectral-energy jump test and one the
+        # mean-coefficient CUSUM; a single scale per statistic, rather than one
+        # per coefficient, keeps the test from inheriting the heavy tails of a
+        # noisy variance estimate.
         self._ewma_lambda = 0.15
         self._warmup_tests = 5
-        # Robust self-calibration: one EWMA scale for the scalar spectral-energy
-        # innovation (jump test) and one for the mean coefficient (CUSUM). A
-        # single scale per statistic -- rather than six per-coefficient scales --
-        # keeps the test from inheriting the heavy tails of a noisy variance
-        # estimate, exactly as the scalar EACFilter detector does.
         self._s_scale = 0.0   # EWMA of the spectral-energy innovation S
         self._e0_scale2 = 0.0  # EWMA of the mean-coefficient innovation power
         self._n_full = 0
@@ -357,13 +327,13 @@ class LSIFilter(_RecursiveFilter):
     def _model_spectrum(self, t0, tn, t_arr=None, reg_cols=None, proj=None):
         """Model Legendre spectrum and its parameter Jacobian over the window.
 
-        Without external regressors the model is integrated *exactly* by
-        Gauss-Legendre quadrature (a closed-form ``f(t)``, as in batch LSI). With
-        regressors the model can only be evaluated at the in-window sample
-        positions (the regressors are *measured* signals, not closed-form), so the
-        model spectrum is the **discrete Legendre projection at those samples** --
-        the same operator ``proj`` used for the data, keeping data and model on one
-        footing for the innovation."""
+        Without external regressors the model is a closed-form ``f(t)`` and is
+        integrated exactly by Gauss-Legendre quadrature, as in batch LSI.
+        Regressors are measured signals with no closed form. A regressor model
+        can only be evaluated at the in-window sample positions, and its
+        spectrum is the discrete Legendre projection at those samples, through
+        the same ``proj`` operator used for the data. Data and model stay on
+        one footing for the innovation either way."""
         if self._has_reg:
             fv = self._eval(self._f, t_arr, reg_cols)
             spec = proj @ fv
@@ -389,11 +359,11 @@ class LSIFilter(_RecursiveFilter):
         ``regressors`` (required iff the model declares external regressors) is a
         ``{name: value}`` mapping or a value sequence ordered like ``regressors``.
 
-        A non-finite sample (NaN/inf in ``t``, ``y`` or a regressor value) is
-        **skipped at entry** with a ``RuntimeWarning``: it never enters the
-        window, so it cannot poison the innovations of the following
-        ``window_size`` updates, and the whole filter state (window, estimate,
-        covariance, ``last_residual_``) is left untouched.
+        A non-finite sample (NaN or inf in ``t``, ``y`` or a regressor) is
+        skipped at entry with a ``RuntimeWarning``. It never enters the window,
+        cannot poison the innovations of the following ``window_size`` updates,
+        and leaves the whole filter state (window, estimate, covariance,
+        ``last_residual_``) untouched.
         """
         self.drift_flag_ = False
         if not self._ingest(t_new, y_new, regressors):
@@ -417,12 +387,12 @@ class LSIFilter(_RecursiveFilter):
             reg_cols = [rb[:, c] for c in range(rb.shape[1])]
         t0, tn = float(t_arr[0]), float(t_arr[-1])
 
-        # Robust measurement: winsorize the model residual within the window before
-        # projecting. Each sample's residual deviation beyond huber_c robust sigmas
-        # (MAD) from the window's MEDIAN residual is clipped, so outlier spikes are
-        # de-weighted at the sample level (they can no longer dominate the high-order
-        # Legendre coefficients), while the median residual -- holding any genuine
-        # sustained shift -- passes through, so drift detection still works.
+        # Robust measurement: winsorize the model residual before projecting.
+        # Clipping each sample's deviation beyond huber_c robust sigmas (MAD)
+        # from the window's median residual de-weights outlier spikes at the
+        # sample level, where they would otherwise dominate the high-order
+        # Legendre coefficients. The median residual carries any genuine
+        # sustained shift and passes through, keeping drift detection alive.
         y_eff = y_arr
         m_win: np.ndarray | None = None
         resid: np.ndarray | None = None
@@ -438,9 +408,8 @@ class LSIFilter(_RecursiveFilter):
                 c = self._huber_c * sigma
                 y_eff = m_win + (med + np.clip(resid - med, -c, c))
 
-        # Empirical spectrum vs model spectrum (quadrature). The projection is
-        # cached only for the true maximum window; at any other length (a growing
-        # warm-up or an adaptive window below the cap) recompute it (cheap).
+        # Empirical spectrum against model spectrum (quadrature). A window
+        # length not yet in the cache gets its projection computed here, once.
         proj = self._proj_cache.get(k)
         if proj is None:
             proj = np.linalg.pinv(L.legvander(np.linspace(-1.0, 1.0, k), self.order))
@@ -449,9 +418,10 @@ class LSIFilter(_RecursiveFilter):
         beta_model, h_mat = self._model_spectrum(t0, tn, t_arr, reg_cols, proj)
         e_vec = beta_data - beta_model
 
-        # Robustness guard: reject a non-finite innovation/Jacobian (an unbounded
-        # model can overflow) so one bad sample cannot permanently poison the
-        # parameter state with NaNs. Keep the last good estimate.
+        # Robustness guard: reject a non-finite innovation or Jacobian, as an
+        # unbounded model can overflow into one. A single bad sample must not
+        # permanently poison the parameter state with NaNs. Keep the last good
+        # estimate.
         if not (np.all(np.isfinite(e_vec)) and np.all(np.isfinite(h_mat))):
             return self
 
@@ -461,31 +431,27 @@ class LSIFilter(_RecursiveFilter):
             y_arr[-1] - self._eval(self._f, t_arr[-1:], last_reg)[0]
         )
 
-        # Drift test on the decimated full-window innovation vector. Only run once
-        # the window is full -- a partial (growing) window's spectrum is not yet a
-        # calibrated baseline for the change detector.
+        # Drift test on the decimated full-window innovation vector. Only run
+        # it once the window is full; a partial, still-growing window's
+        # spectrum is not yet a calibrated baseline for the change detector.
         if full:
             self._n_full += 1
             if self._n_full % cap == 0 and self._drift_step(e_vec):
                 return self  # reset happened; skip the update
 
-        # A smaller window averages fewer samples and so is noisier: inflate the
-        # measurement noise (trust it proportionally less) so the gain ramps up
-        # smoothly and noisy early windows cannot over-kick the estimate. For a
-        # fixed window this damps the W/k growing warm-up; for an adaptive window
-        # it damps only until a comfortable measurement size W_ref is reached.
+        # A smaller window averages fewer samples and is therefore noisier, so
+        # both branches inflate R below the comfortable size to trust it
+        # proportionally less. The gain then ramps up smoothly and noisy early
+        # windows cannot over-kick the estimate.
         if self.adapt_noise:
-            # Dynamic measurement noise: the spectral-coefficient covariance IS the
-            # per-sample noise variance propagated through the projection, so
-            # ``R_diag = v * diag(proj @ proj.T)`` with ``v`` an online (EWMA)
-            # estimate of the residual variance. This self-tunes the gain to the
-            # actual noise level -- damping it (smoother) when the stream is noisy or
-            # anomaly-ridden and freeing it (responsive) when clean -- with no
-            # hand-set ``r``. The raw (un-winsorized) residual is used on purpose so
-            # the estimate also senses the energy anomalies leak past the gate; the
-            # slow EWMA keeps individual spikes from jerking it. The smaller-window
-            # warm-up needs no extra fudge: a short window's projection rows have
-            # larger norm, so ``proj_diag`` already inflates ``R`` on its own.
+            # The spectral-coefficient covariance is the per-sample noise
+            # variance propagated through the projection, giving
+            # ``R_diag = v * diag(proj @ proj.T)``. The raw un-winsorized
+            # residual feeds ``v`` on purpose: the estimate should sense the
+            # energy anomalies leak past the gate, and the slow EWMA keeps
+            # individual spikes from jerking it. This branch needs no warm-up
+            # fudge, because a short window's projection rows have larger norm
+            # and ``proj_diag`` inflates ``R`` on its own.
             assert resid is not None  # assigned above (the guard includes adapt_noise)
             v_now = float(np.mean(resid * resid))
             self._v_est = (1.0 - self._vn_lambda) * self._v_est + self._vn_lambda * v_now
@@ -507,9 +473,10 @@ class LSIFilter(_RecursiveFilter):
         step = gain @ e_vec
         p_new = self.p + step
         P_new = (np.eye(len(self.p)) - gain @ h_mat) @ self.P + self.Q
-        # Keep the covariance symmetric: ``(I - K H) P`` drifts asymmetric (hence
-        # non-PD) over a long stream, surfacing as negative ``stderr_`` /
-        # ``predict_cov``. Project onto the symmetric part each step (O(n^2)).
+        # Keep the covariance symmetric. Over a long stream ``(I - K H) P``
+        # drifts asymmetric, and therefore non-PD, surfacing as a negative
+        # ``stderr_`` or ``predict_cov``. Project onto the symmetric part each
+        # step; it is O(n^2).
         P_new = 0.5 * (P_new + P_new.T)
         if not (np.all(np.isfinite(p_new)) and np.all(np.isfinite(P_new))):
             return self  # reject an ill-conditioned (non-finite) update
@@ -520,23 +487,12 @@ class LSIFilter(_RecursiveFilter):
         if self.adapt_r and not self.adapt_noise and full:
             nis = float(e_vec @ (e_vec / r_diag)) / (self.order + 1)
             self._r_scale = 0.95 * self._r_scale + 0.05 * max(nis, 1e-3)
-        # Automatic window sizing (bidirectional). Two opposing signals decide the
-        # effective window each step:
-        #  * GROW while more data still moves the estimate AND the innovations stay
-        #    consistent with the noise -- the window is not yet wide enough to
-        #    identify the (static) parameters. A global-parameter model keeps
-        #    shifting as the window grows (so it widens); a locally-observable one
-        #    stabilizes quickly (so it stops). This is the original criterion.
-        #  * SHRINK when the one-step forecast innovation is *persistently larger*
-        #    than the measurement noise -- the window now straddles CHANGING
-        #    dynamics (a maneuver / time-varying parameters), so a wide window fits
-        #    stale data and lags; a shorter window is more responsive. A *lagging*
-        #    fit leaves a systematic (autocorrelated) forecast residual -- runs of
-        #    the same sign -- whereas a well-matched fit leaves *white* residuals
-        #    whose signs alternate. The EWMA sign-autocorrelation of the one-step
-        #    residual is therefore a scale-free mismatch signal: it does not
-        #    self-normalize away a sustained maneuver, and it stays ~0 on static
-        #    noise (so a static model still grows a wide window -- unchanged).
+        # Bidirectional window sizing, shrink taking priority over grow. The
+        # shrink signal is the EWMA sign-autocorrelation of the one-step
+        # residual: a lagging fit leaves runs of same-sign residuals, a
+        # well-matched one leaves white residuals whose signs alternate. It is
+        # scale-free, so it neither self-normalizes away a sustained maneuver
+        # nor fires on static noise.
         if self.adaptive_window and np.isfinite(self.last_residual_):
             s = 1.0 if self.last_residual_ >= 0.0 else -1.0
             if self._resid_sign != 0.0:
@@ -551,17 +507,16 @@ class LSIFilter(_RecursiveFilter):
         return self
 
     def _drift_step(self, e_vec: np.ndarray) -> bool:
-        """Multivariate NIS (sudden jump) + CUSUM on the mean coefficient
+        """Multivariate NIS (sudden jump) plus a CUSUM on the mean coefficient
         (sustained drift). Resets and returns True on detection."""
         self._n_tests += 1
 
-        # Two scalar statistics, each standardized against the baseline scale
-        # built from *previous* windows (so a fresh jump shows up large rather
-        # than inflating its own scale), then folded into that scale:
-        #   * S = R-weighted spectral energy of the innovation -- omnidirectional
-        #     jump detector across all coefficients (curvature, frequency, ...);
-        #   * e0 = mean (area-like) coefficient -- a signed, directional channel
-        #     for the CUSUM that flags sustained drift up or down.
+        # Two scalar statistics: S, the R-weighted spectral energy, an
+        # omnidirectional jump detector across all coefficients; and e0, the
+        # mean area-like coefficient, the signed CUSUM channel. Each
+        # is standardized against the scale built from previous windows before
+        # being folded into it, so a fresh jump shows up large instead of
+        # inflating its own threshold.
         r_diag = self._R_diag * self._r_scale
         s_energy = float(e_vec @ (e_vec / r_diag))
         e0 = float(e_vec[0])
@@ -592,15 +547,13 @@ class LSIFilter(_RecursiveFilter):
         else:
             self.P = self._p_init.copy()
             self._t, self._y, self._rbuf = [], [], []
-        # On a regime change the wide adaptive window now straddles the change and
-        # holds stale old-regime data, so collapse it back to min_window: the
-        # filter re-acquires the new regime from the freshest samples and re-grows
-        # the window as the new parameters become identified (the new regime
-        # re-determines the size, so there is nothing to remember from the old one).
+        # A wide adaptive window now straddles the change and holds stale
+        # old-regime data. Collapse it back to min_window and let it re-grow
+        # as the new parameters become identified. The sizing state is
+        # recalibrated too: a stale residual sign must not shrink the fresh
+        # window or block it from re-growing.
         self._W_eff = self.min_window
         self._move_ewma = 1.0
-        # Recalibrate the bidirectional-sizing state so a stale old-regime residual
-        # sign cannot spuriously shrink (or block re-growth of) the fresh window.
         self._resid_sign = 0.0
         self._resid_corr = 0.0
         self._g_hi = 0.0

@@ -1,28 +1,27 @@
-"""Parallel batch fitting -- fan many independent fits across CPU cores.
+"""Parallel batch fitting: fan many independent fits across CPU cores.
 
 The batch methods (:func:`dtfit.fit_lsi`, :func:`dtfit.fit_eac`) are pure per
-problem: fitting one signal never touches another. A real workload -- the
-channels of a multivariate series, the cells of a noise/size sweep, the chunks
-of a large stream, the axes of a trajectory -- is therefore *embarrassingly
-parallel*. :func:`fit_many` maps the chosen method over a list of independent
-problems with :mod:`joblib`, so an N-core machine fits ~N signals at once.
+problem, since fitting one signal never touches another. Real workloads
+already arrive in that shape (the channels of a multivariate series, the
+cells of a noise/size sweep, the chunks of a large stream, the axes of a
+trajectory), making them embarrassingly parallel. :func:`fit_many` maps the
+chosen method over a list of independent problems with :mod:`joblib`, so an
+N-core machine fits ~N signals at once.
 
 Two backends, both useful:
 
-* ``backend="loky"`` (default) -- separate worker **processes**, true parallelism
-  unaffected by the GIL. Problems carry the model as a SymPy **expression
-  string** (picklable); workers rebuild and lambdify it, and return a
-  :class:`dtfit.FittingResult` that drops its lambdified callable on pickling
-  (rebuilt lazily on the caller side), so nothing unpicklable crosses the
-  process boundary -- this matters on Windows, where workers are spawned, not
-  forked.
-* ``backend="threading"`` -- worker **threads** sharing memory. The compiled
-  numeric kernels (``dtfit._native``) release the GIL on their hot loops, so the
-  integral/projection work runs concurrently without process or pickling
-  overhead; best when the per-problem arrays are large.
-
-``joblib`` ships with scikit-learn (already a core dependency), so this adds no
-new requirement.
+* ``backend="loky"`` (default) gives each worker its own process and true
+  parallelism unaffected by the GIL. A problem carries its model as a
+  picklable SymPy expression string; the worker rebuilds and lambdifies it,
+  then returns a :class:`dtfit.FittingResult` that drops its lambdified
+  callable on pickling and rebuilds it lazily on the caller side. Nothing
+  unpicklable crosses the process boundary. That matters on Windows, where
+  workers are spawned rather than forked.
+* ``backend="threading"`` keeps the workers in one process sharing memory.
+  The compiled numeric kernels (``dtfit._core._native``) release the GIL on their
+  hot loops; the integral and projection work therefore runs concurrently,
+  with no process or pickling overhead. Best when the per-problem arrays are
+  large.
 """
 
 from __future__ import annotations
@@ -35,11 +34,6 @@ from joblib import Parallel, delayed
 
 from dtfit.methods import fit_lsi, fit_eac
 from dtfit.types import FittingResult
-
-# ``FittingResult`` is itself picklable (it drops its lazily-built callable on
-# pickling and rebuilds it from ``expr``/``coeffs`` on first access), so it
-# doubles as the batch result -- there is no separate lightweight type. Batch and
-# single fits return the same :class:`dtfit.FittingResult`.
 
 __all__ = ["FittingProblem", "fit_many"]
 
@@ -74,10 +68,9 @@ class FittingProblem:
 def _fit_one(problem: FittingProblem) -> FittingResult:
     """Worker entry point: fit a single problem, returning a picklable result.
 
-    Module-level so it is importable in spawned worker processes. A failed fit
-    is captured as ``error`` rather than crashing the whole batch. The returned
-    :class:`FittingResult` carries the problem ``label`` and rebuilds its model
-    lazily on the caller side (nothing unpicklable crosses the boundary).
+    Kept at module level because a spawned worker process has to import it by
+    name. A failed fit is recorded in ``error`` instead of killing the batch,
+    and the returned :class:`FittingResult` carries the problem's ``label``.
     """
     fitter = _FITTERS.get(problem.method)
     if fitter is None:
@@ -116,13 +109,15 @@ def fit_many(
         problems: Independent :class:`FittingProblem` specs.
         n_jobs: Worker count (``-1`` = all cores; ``1`` = serial, no pool).
         backend: ``"loky"`` (processes, default), ``"threading"`` (threads,
-            rides the GIL-released native kernels), or ``"multiprocessing"``.
-        verbose: Forwarded to :class:`joblib.Parallel` (progress chatter).
+            riding the GIL-released native kernels), or
+            ``"multiprocessing"``.
+        verbose: Forwarded to :class:`joblib.Parallel` for progress
+            reporting.
 
     Returns:
-        A :class:`dtfit.FittingResult` per problem, in input order, each tagged
-        with the problem's ``label``. A problem that failed has ``error`` set and
-        an empty ``coeffs`` rather than aborting the batch.
+        One :class:`dtfit.FittingResult` per problem, in input order, each
+        tagged with the problem's ``label``. A problem that failed has
+        ``error`` set and empty ``coeffs``; the batch itself never aborts.
     """
     problems = list(problems)
     if not problems:

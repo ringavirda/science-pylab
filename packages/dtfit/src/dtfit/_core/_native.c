@@ -1,21 +1,22 @@
-/* dtfit._native -- compiled numeric kernels for the hot paths of the
+/* dtfit._core._native: compiled numeric kernels for the hot paths of the
  * differential-transformation fitting methods.
  *
- * The model expressions are arbitrary (SymPy-lambdified at the Python level),
- * so model *evaluation* stays in NumPy. What lives here are the pure-numeric
- * inner loops that the methods repeat thousands of times and that carry heavy
- * per-call Python / scipy overhead:
+ * Model expressions are arbitrary, SymPy-lambdified at the Python level, so
+ * model evaluation stays in NumPy. What lives here are the pure-numeric inner
+ * loops the methods repeat thousands of times and that carry heavy per-call
+ * Python / scipy overhead:
  *
  *   simpson_windows(y, x, starts, stops)        -> areas               (EAC, EAF)
  *   simpson_windows_rows(Y, x, starts, stops)   -> areas per row       (Jacobians)
  *   legendre_project(fv, qw, legvander, norm)   -> spectral coeffs     (LSI)
  *
- * The Simpson kernel reproduces scipy.integrate.simpson exactly (composite
+ * The Simpson kernel reproduces scipy.integrate.simpson exactly: composite
  * Simpson on non-uniform samples, with the Cartwright last-interval correction
- * for an even number of points), so swapping it in does not change results.
+ * for an even number of points. Swapping it in does not change results.
  *
  * Build with build_native.py (clang). Pure-Python fallbacks live in
- * dtfit/_kernels.py, so the package works whether or not this is compiled.
+ * dtfit/_core/_kernels.py, so the package works whether or not this is
+ * compiled.
  */
 
 #define PY_SSIZE_T_CLEAN
@@ -24,15 +25,14 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 
-/* ----------------------------------------------------------------------- *
- * Composite Simpson on a single 1-D slice y[0..n), sampled at x[0..n).
+/* Composite Simpson on a single 1-D slice y[0..n), sampled at x[0..n).
  * Mirrors scipy.integrate.simpson (1-D, x given):
  *   - n <= 1            -> 0
  *   - n == 2            -> trapezoid of the single interval
  *   - n odd  (even #intervals) -> plain composite Simpson over all pairs
  *   - n even (odd  #intervals) -> composite Simpson over the first n-1 points
  *                                 plus the Cartwright correction for the last.
- * ----------------------------------------------------------------------- */
+ */
 
 /* Sum of non-uniform Simpson pairs for i = start, start+2, ... while i < stop,
  * each pair spanning indices (i, i+1, i+2). Matches scipy._basic_simpson with
@@ -86,10 +86,6 @@ static double simpson_1d(const double *y, const double *x, npy_intp n)
     return result;
 }
 
-/* ----------------------------------------------------------------------- *
- * Argument helpers
- * ----------------------------------------------------------------------- */
-
 /* Borrow a contiguous C-double view of obj; sets a Python error and returns
  * NULL on failure. The returned array must be Py_DECREF'd by the caller. */
 static PyArrayObject *as_f64(PyObject *obj, int ndim)
@@ -105,12 +101,11 @@ static PyArrayObject *as_intp(PyObject *obj)
         obj, NPY_INTP, 1, 1, NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED);
 }
 
-/* ----------------------------------------------------------------------- *
- * simpson_windows(y, x, starts, stops) -> areas[m]
+/* simpson_windows(y, x, starts, stops) -> areas[m]
  *
  * Integrates y over m windows, window k covering the half-open index span
  * [starts[k], stops[k]) of the shared (x, y) samples.
- * ----------------------------------------------------------------------- */
+ */
 static PyObject *py_simpson_windows(PyObject *self, PyObject *args)
 {
     PyObject *yo, *xo, *so, *eo;
@@ -163,8 +158,8 @@ static PyObject *py_simpson_windows(PyObject *self, PyObject *args)
         }
     }
     /* The integral loop is pure C over borrowed buffers and touches no Python
-     * object, so the GIL can be dropped -- this lets a thread pool run many
-     * such kernels concurrently (see dtfit.parallel). */
+     * object, so the GIL can be dropped. A thread pool can then run many such
+     * kernels concurrently (see dtfit.scale._parallel). */
     Py_BEGIN_ALLOW_THREADS
     for (npy_intp k = 0; k < m; ++k) {
         ap[k] = simpson_1d(yp + sp[k], xp + sp[k], ep[k] - sp[k]);
@@ -180,13 +175,12 @@ done:
     return out;
 }
 
-/* ----------------------------------------------------------------------- *
- * simpson_windows_rows(Y, x, starts, stops) -> areas[nrows, m]
+/* simpson_windows_rows(Y, x, starts, stops) -> areas[nrows, m]
  *
  * Like simpson_windows but Y is 2-D (nrows, nx): each row is integrated over
  * the same m windows. Used to integrate a stack of parameter sensitivities
  * (Jacobian rows) in one call.
- * ----------------------------------------------------------------------- */
+ */
 static PyObject *py_simpson_windows_rows(PyObject *self, PyObject *args)
 {
     PyObject *Yo, *xo, *so, *eo;
@@ -239,7 +233,7 @@ static PyObject *py_simpson_windows_rows(PyObject *self, PyObject *args)
             goto done;
         }
     }
-    /* Pure-C nested integral loop -- drop the GIL (see py_simpson_windows). */
+    /* Pure-C nested integral loop; drop the GIL (see py_simpson_windows). */
     Py_BEGIN_ALLOW_THREADS
     for (npy_intp r = 0; r < nrows; ++r) {
         const double *row = Yp + r * nx;
@@ -260,14 +254,13 @@ done:
     return out;
 }
 
-/* ----------------------------------------------------------------------- *
- * legendre_project(fv, qw, legvander, norm) -> coeffs[k]
+/* legendre_project(fv, qw, legvander, norm) -> coeffs[k]
  *
  * One fused Gauss-Legendre spectral projection:
  *     coeffs[j] = norm[j] * sum_i  qw[i] * fv[i] * legvander[i, j]
- * i.e. norm * ((qw * fv) @ legvander), in a single pass without temporaries.
- * legvander is (nq, k); fv, qw are (nq,); norm is (k,).
- * ----------------------------------------------------------------------- */
+ * that is, norm * ((qw * fv) @ legvander) in a single pass without
+ * temporaries. legvander is (nq, k); fv, qw are (nq,); norm is (k,).
+ */
 static PyObject *py_legendre_project(PyObject *self, PyObject *args)
 {
     PyObject *fo, *wo, *vo, *no;
@@ -309,7 +302,7 @@ static PyObject *py_legendre_project(PyObject *self, PyObject *args)
     const double *np_ = (const double *)PyArray_DATA(norm);
     double *cp = (double *)PyArray_DATA(coeffs);
 
-    /* Pure-C projection over borrowed buffers -- drop the GIL so a thread pool
+    /* Pure-C projection over borrowed buffers; drop the GIL so a thread pool
      * can run concurrent projections (see py_simpson_windows). */
     Py_BEGIN_ALLOW_THREADS
     for (npy_intp j = 0; j < k; ++j) {
@@ -337,9 +330,6 @@ done:
     return out;
 }
 
-/* ----------------------------------------------------------------------- *
- * Module definition
- * ----------------------------------------------------------------------- */
 static PyMethodDef methods[] = {
     {"simpson_windows", py_simpson_windows, METH_VARARGS,
      "simpson_windows(y, x, starts, stops) -> areas[m]\n"

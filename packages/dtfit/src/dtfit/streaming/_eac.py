@@ -1,30 +1,30 @@
-"""Recursive equal-areas filter -- the streaming counterpart of EAC.
+"""Recursive equal-areas filter, the streaming counterpart of EAC.
 
-A Kalman-style recursive estimator whose "measurement" is the area innovation
-(experimental minus model area over a sliding window) and whose measurement
-Jacobian is the vector of integrated parameter sensitivities. The window may be
-split into ``n_sub`` sub-areas to form a *vector* measurement (more independent
-equations per step, improving observability of coupled multi-parameter models);
-``n_sub=1`` recovers the original single-area update. The measurement-noise
-variance ``R`` can be adapted online (``adapt_r``), which also keeps the vector
-measurement well-scaled as the sub-area magnitudes shrink.
+A Kalman-style recursive estimator whose "measurement" is the area innovation,
+experimental minus model area over a sliding window, and whose measurement
+Jacobian is the vector of integrated parameter sensitivities. Splitting the
+window into ``n_sub`` sub-areas turns that into a vector measurement, giving
+more independent equations per step and better observability of coupled
+multi-parameter models; ``n_sub=1`` is a single full-window area. The
+measurement-noise variance ``R`` can be adapted online (``adapt_r``), which
+also keeps the vector measurement well-scaled as the sub-areas shrink.
 
-Concept drift is detected by two complementary tests on the **vector** sub-area
-innovation, both of which reset the covariance so the filter re-adapts quickly:
+Concept drift is caught by two complementary tests on the vector sub-area
+innovation. Either one resets the covariance and the filter re-adapts quickly.
 
-* a Normalized Innovation Squared (NIS) test on the sub-area energy
-  ``e @ e`` -- a chi^2(n_sub) statistic that catches a single, large, sudden
-  shift across the sub-areas. Splitting the window into more sub-areas gives the
-  detector several independent channels rather than one scalar area, so a jump a
-  single area would average over still lights up the energy (the multi-channel
-  measurement advantage, recovered for the area form);
-* a two-sided CUSUM on the signed total area ``e.sum()`` -- accumulates evidence
-  for a *sustained* drift and flags it in **either** direction (upward via the
-  high arm, downward via the low arm), which the instantaneous NIS test misses.
+* A Normalized Innovation Squared (NIS) test on the sub-area energy ``e @ e``,
+  a chi^2(n_sub) statistic that catches a single large sudden shift across the
+  sub-areas. More sub-areas give the detector several independent channels
+  instead of one scalar area, and a jump that a single area would average over
+  still lights up the energy.
+* A two-sided CUSUM on the signed total area ``e.sum()``. It accumulates
+  evidence for a sustained drift and flags it in either direction (upward via
+  the high arm, downward via the low arm), which the instantaneous NIS test
+  misses.
 
-The symbolic model and its derivatives are compiled once in ``__init__``; every
-``partial_fit`` call is O(window x params) and contains no SymPy -- so the hot
-path is real-time safe.
+The symbolic model and its derivatives are compiled once in ``__init__``. Every
+``partial_fit`` call is then O(window x params) and contains no SymPy, keeping
+the hot path real-time safe.
 """
 
 from typing import Any, Callable, Sequence
@@ -41,13 +41,13 @@ from ._base import _RecursiveFilter
 class EACFilter(_RecursiveFilter):
     """Online equal-areas parameter tracker with drift detection.
 
-    The constructor exposes the full Kalman / window / drift / robustness knob
-    set for tuning; most callers should reach for a **preset** classmethod
-    instead and only pass overrides:
+    The constructor exposes the full Kalman, window, drift and robustness knob
+    set. Most callers should start from a preset classmethod and pass only
+    overrides:
 
-    * :meth:`tracking` -- responsive auto-sized window for time-varying
+    * :meth:`tracking`, a responsive auto-sized window for time-varying
       parameters (the usual default);
-    * :meth:`robust` -- outlier/anomaly-resilient gains for noisy streams.
+    * :meth:`robust`, outlier-resilient gains for noisy streams.
     """
 
     @classmethod
@@ -65,8 +65,8 @@ class EACFilter(_RecursiveFilter):
     def robust(
         cls, expr: str | sp.Expr | Callable[..., Any], var: str, **overrides: Any
     ) -> "EACFilter":
-        """Outlier-resilient preset: innovation-gated, self-adapting noise, gentle
-        drift re-arm. Equivalent to ``EACFilter(expr, var, robust=True,
+        """Outlier-resilient preset: innovation-gated, self-adapting noise,
+        gentle drift re-arm. Equivalent to ``EACFilter(expr, var, robust=True,
         adapt_r=True, drift_reset="inflate", ...)``; ``overrides`` win.
         """
         return cls(expr, var, **{
@@ -100,57 +100,56 @@ class EACFilter(_RecursiveFilter):
     ) -> None:
         """
         Args:
-            expr: Model, in any of three forms: a SymPy-expression **string**
+            expr: Model, in any of three forms: a SymPy-expression string
                 (e.g. ``"A * sin(w * t)"``), a :class:`sympy.Expr`, or a plain
-                Python **callable** ``f(t, *params)``. A string / expression may
-                also reference **external regressors** (see ``regressors``) so the
-                model is ``f(t, regressors, params)``. A callable is evaluated
-                numerically -- it needs no symbolic form -- but has no closed-form
-                time derivatives, so :meth:`coast` / :meth:`coast_cov` are
-                unavailable for it and external regressors are not supported.
+                Python callable ``f(t, *params)``. A string or expression may
+                also reference external regressors (see ``regressors``), making
+                the model ``f(t, regressors, params)``. A callable is evaluated
+                numerically and needs no symbolic form, but it has no
+                closed-form time derivatives; :meth:`coast` / :meth:`coast_cov`
+                are unavailable for it and external regressors are not
+                supported.
             var: Main variable name in ``expr`` (a label only for a callable).
-            regressors: Optional name(s) of external-regressor channels appearing
-                in ``expr``; everything else free is a parameter. When given, each
-                ``partial_fit`` / ``predict`` call supplies the regressor value(s)
-                for that sample, and the model -- now able to depend on exogenous
-                signals, not just ``t`` -- is still scored by the same integrated
-                **area** measurement. Symbolic models only.
-            param_names: For a **callable** model, the parameter names in
-                signature order (those after the leading ``t``); introspected from
-                the callable's signature when omitted. Ignored for a symbolic
+            regressors: Optional name(s) of external-regressor channels in
+                ``expr``; everything else free is a parameter. When given, each
+                ``partial_fit`` / ``predict`` call supplies the regressor
+                value(s) for that sample. The model may then depend on
+                exogenous signals and not on ``t`` alone, while still being
+                scored by the same integrated area measurement. Symbolic models
+                only.
+            param_names: For a callable model, the parameter names in signature
+                order (those after the leading ``t``); introspected from the
+                callable's signature when omitted. Ignored for a symbolic
                 model, whose parameters come from the expression.
             p0: Initial parameter estimate (defaults to ones). Ordered like
-                :attr:`params_` -- sorted names for a symbolic model, signature
+                :attr:`params_`: sorted names for a symbolic model, signature
                 order for a callable.
             window_size: Target (maximum) sliding-window length used for area
-                integration. The window **grows** from ``min_window`` up to this
-                size as samples arrive, then slides; a larger window smooths more
-                (a more rigid estimate), a smaller one is more responsive.
+                integration. The window grows from ``min_window`` up to this
+                size as samples arrive, then slides. A larger window smooths
+                more (a more rigid estimate), a smaller one is more responsive.
             min_window: Smallest window at which the filter starts producing an
-                estimate -- the area measurement is *accumulative*, so rather than
-                idling until ``window_size`` samples have arrived, the filter
-                integrates whatever is in the (growing) window once it holds at
-                least this many points. Defaults to half ``window_size``: a scalar
-                area over only a few noisy points is unreliable, so the area filter
-                waits for more support than the spectral one (which defaults to
-                ``order + 2``). Either way the estimate begins well before the
-                window is full, with no hard dead time. Clamped to
-                ``[2*n_sub, window_size]``. With ``adaptive_window`` the default is
-                a small floor instead, so the window can collapse here on a drift.
-            adaptive_window: If True, size the window **automatically from the
-                data** instead of using a fixed ``window_size`` (which becomes the
-                maximum). The window grows from ``min_window`` while the state
-                covariance is still shrinking (``_adaptive_grow``), settling a
-                finite window on oscillatory/monotone shapes, and collapses back to
-                ``min_window`` on a detected drift to re-acquire a new regime.
-                **Note:** the area filter's auto-sizing is best-effort -- it is
-                stable but cannot size a *global*-parameter model (e.g. a
-                polynomial's intercept) well; for robust auto-sizing use the
-                adaptive spectrum filter :class:`LSIFilter`, for which a wide window
-                is always safe.
-            window_tol: Covariance-reduction threshold for ``adaptive_window`` (the
-                window stops growing once successive updates shrink ``trace(P)`` by
-                less than this fraction; default 2%).
+                estimate. The area measurement is accumulative, so instead of
+                idling until ``window_size`` samples have arrived the filter
+                integrates whatever the growing window holds once it reaches
+                this many points. Defaults to half ``window_size``, a scalar
+                area over a few noisy points being unreliable. Clamped to
+                ``[2*n_sub, window_size]``. Under ``adaptive_window`` the
+                default is a small floor instead, letting the window collapse
+                to it on a drift.
+            adaptive_window: If True, size the window from the data instead of
+                fixing it at ``window_size`` (which becomes the maximum). The
+                window grows from ``min_window`` while the state covariance is
+                still shrinking (``_adaptive_grow``), settling at a finite
+                width on oscillatory and monotone shapes, and collapses back to
+                ``min_window`` on a drift to re-acquire the new regime.
+                Auto-sizing here is best-effort: stable, but it cannot size a
+                global-parameter model (a polynomial's intercept, say) well.
+                For that use :class:`LSIFilter`, for which a wide window is
+                always safe.
+            window_tol: Covariance-reduction threshold for ``adaptive_window``.
+                The window stops growing once successive updates shrink
+                ``trace(P)`` by less than this fraction (default 2%).
             q_diag: Process-noise variances (per parameter); larger values let
                 a parameter drift faster. Defaults to 0.01 each.
             r: Measurement-noise variance of the area innovation.
@@ -162,36 +161,35 @@ class EACFilter(_RecursiveFilter):
                 deviations; larger means fewer false alarms but slower
                 detection.
             n_sub: Number of sub-window area measurements per step. ``1`` (the
-                default) is the original single full-window area. Values ``>1``
-                split the window into that many sub-areas, giving a *vector*
-                measurement -- more independent equations per sample, hence
-                better observability and faster convergence (especially for
-                multi-parameter models).
+                default) is a single full-window area. Values above 1 split the
+                window into that many sub-areas for a vector measurement,
+                giving more independent equations per sample and better
+                observability of multi-parameter models.
             adapt_r: If True, adapt the measurement-noise variance ``R`` online
-                from an EWMA of the squared innovation (Mehra-style), instead of
-                trusting the fixed ``r``.
-            robust: If True, gate each Kalman update by the normalized innovation:
-                a window whose per-dof Mahalanobis innovation exceeds ``huber_c``
-                has its measurement-noise inflated (gain shrunk) by a Huber weight,
-                so an outlier-corrupted window cannot yank the estimate. The drift
-                detector still sees the *raw* innovation, so a genuine regime shift
-                is detected and re-armed (the inflated covariance then disables the
-                gate during re-adaptation) -- transients are rejected, sustained
-                changes are not.
+                from an EWMA of the squared innovation (Mehra-style) rather
+                than trusting the fixed ``r``.
+            robust: If True, gate each Kalman update by the normalized
+                innovation. A window whose per-dof Mahalanobis innovation
+                exceeds ``huber_c`` has its measurement noise inflated by a
+                Huber weight, shrinking the gain, and an outlier-corrupted
+                window cannot yank the estimate. The drift detector still sees
+                the raw innovation, so a genuine regime shift is detected and
+                re-armed; the inflated covariance then disables the gate during
+                re-adaptation.
             huber_c: Robust gate threshold in innovation standard deviations
                 (per degree of freedom); ~3 keeps clean windows unweighted.
             drift_reset: On a detected drift, ``"full"`` resets the covariance to
-                its large initial value and clears the window (original
-                behaviour); ``"inflate"`` instead multiplies the covariance by
-                ``drift_inflation`` and keeps the current estimate and window, a
-                gentler re-adaptation that does not discard hard-won parameter
-                information. Any other value raises ``ValueError``.
+                its large initial value and clears the window. ``"inflate"``
+                instead multiplies the covariance by ``drift_inflation`` and
+                keeps the current estimate and window, a gentler re-adaptation
+                that does not discard hard-won parameter information. Any other
+                value raises ``ValueError``.
             drift_inflation: Covariance inflation factor for
                 ``drift_reset="inflate"``.
         """
         # Resolve the model (string / sympy.Expr / callable), set up regressors,
         # determine the canonical parameter order and compile the fast-path
-        # callables once off the hot path (shared with LSIFilter via the base).
+        # callables once, off the hot path.
         n = self._setup_model(expr, var, regressors, param_names)
 
         self.p = np.ones(n) if p0 is None else np.asarray(p0, dtype=float)
@@ -208,13 +206,10 @@ class EACFilter(_RecursiveFilter):
         self.adaptive_window = bool(adaptive_window)
         self.window_tol = float(window_tol)
         # Accumulative warm-up: start measuring once the growing window holds at
-        # least this many points. The hard floor is 2*n_sub (the fewest that admit
-        # n_sub sub-area integrals). For a FIXED window the default is half the
-        # window -- a scalar area over a handful of noisy points is unreliable, so
-        # the area filter waits for more support than the spectral one. For an
-        # ADAPTIVE window the floor is small (so it can collapse here on a regime
-        # change and re-grow), with the noisier early areas down-weighted by the
-        # measurement-noise inflation below.
+        # least this many points. The hard floor is 2*n_sub, the fewest that
+        # admit n_sub sub-area integrals. An adaptive window takes that small
+        # floor so it can collapse here on a regime change and re-grow; the
+        # measurement-noise inflation below down-weights its early areas.
         floor = max(2 * self.n_sub, 3)
         if min_window is not None:
             self.min_window = int(min(self.W, max(floor, min_window)))
@@ -233,24 +228,20 @@ class EACFilter(_RecursiveFilter):
         self._r_ewma = float(r)  # adaptive measurement-noise estimate
 
         # Drift test: the Kalman update runs every sample, but the drift
-        # statistic is evaluated only on *non-overlapping* windows (stride W),
+        # statistic is evaluated only on non-overlapping windows (stride W),
         # because consecutive sliding-window area innovations are heavily
-        # autocorrelated and would make a CUSUM false-alarm. Each tested
-        # statistic is standardized by its own running scale (EWMA) rather than
-        # the theoretical s_cov, which is hard to calibrate for an area
-        # measurement -- so the test fires regardless of the innovation's
-        # absolute magnitude. The first few tested windows are a warmup that
-        # lets the filter converge before the detector is armed.
+        # autocorrelated and would make a CUSUM false-alarm. The theoretical
+        # s_cov is hard to calibrate for an area measurement, so each statistic
+        # is standardized by its own running EWMA scale and fires regardless of
+        # the innovation's absolute magnitude. The first few tested windows
+        # are a warmup that lets the filter converge before arming.
         self._ewma_lambda = 0.25
         self._warmup_tests = 4
-        # Two complementary baselines, both built from previous windows:
-        #   * _e_scale2 -- EWMA of the *energy* (sum of squared sub-area
-        #     innovations); the omnidirectional NIS spike detector. With n_sub
-        #     sub-areas the energy is a chi^2(n_sub) statistic, so more sub-areas
-        #     sharpen the jump signal (the multi-coefficient richness that makes
-        #     the spectral filter's detector strong, recovered for the area form).
-        #   * _sum_scale2 -- EWMA of the *signed total area*; the directional
-        #     channel the two-sided CUSUM accumulates for a sustained shift.
+        # Two baselines, both built from previous windows. _e_scale2 tracks the
+        # energy (sum of squared sub-area innovations) for the omnidirectional
+        # NIS spike detector; over n_sub sub-areas that energy is a
+        # chi^2(n_sub) statistic. _sum_scale2 tracks the signed total area, the
+        # directional channel the two-sided CUSUM accumulates.
         self._energy_ratio = 1.6 * chi2.ppf(1 - alpha, df=self.n_sub) / self.n_sub
         self._e_scale2 = 0.0
         self._sum_scale2 = 0.0
@@ -265,12 +256,12 @@ class EACFilter(_RecursiveFilter):
         self.drift_flag_ = False
         self.last_drift_direction_ = 0  # +1 = up, -1 = down, 0 = none yet
 
-        # Most recent one-step forecast residual y_new - f(t_new; p) using the
-        # pre-update parameters -- the filter's *innovation*. Exposed so a
-        # coordinating layer (e.g. a FilterBank fusing several axes) can build a
-        # multi-stream maneuver detector from the per-stream innovations, which
-        # carry a sharper transient than the integrated area statistic. NaN until
-        # the window first fills.
+        # Most recent one-step forecast residual y_new - f(t_new; p) from the
+        # pre-update parameters, i.e. the filter's innovation. It is public
+        # because a coordinating layer (a FilterBank fusing several axes) can
+        # pool the per-stream innovations into a maneuver detector; they carry
+        # a sharper transient than the integrated area statistic. NaN until the
+        # window first fills.
         self.last_residual_ = float("nan")
 
         self._t: list[float] = []
@@ -292,11 +283,11 @@ class EACFilter(_RecursiveFilter):
         ``regressors`` (required iff the model declares external regressors) is a
         ``{name: value}`` mapping or a value sequence ordered like ``regressors``.
 
-        A non-finite sample (NaN/inf in ``t``, ``y`` or a regressor value) is
-        **skipped at entry** with a ``RuntimeWarning``: it never enters the
-        window, so it cannot poison the innovations of the following
-        ``window_size`` updates, and the whole filter state (window, estimate,
-        covariance, ``last_residual_``) is left untouched.
+        A non-finite sample (NaN or inf in ``t``, ``y`` or a regressor) is
+        skipped at entry with a ``RuntimeWarning``. It never enters the window,
+        cannot poison the innovations of the following ``window_size`` updates,
+        and leaves the whole filter state (window, estimate, covariance,
+        ``last_residual_``) untouched.
         """
         self.drift_flag_ = False  # true only on the exact step a drift fires
         if not self._ingest(t_new, y_new, regressors):
@@ -319,11 +310,11 @@ class EACFilter(_RecursiveFilter):
             rb = np.ascontiguousarray(self._rbuf, dtype=float)
             reg_cols = [np.ascontiguousarray(rb[:, c]) for c in range(rb.shape[1])]
 
-        # Vector measurement: split the window into n_sub sub-areas. For each
+        # Vector measurement: split the window into n_sub sub-areas. For each,
         # the innovation is (data area - model area) and the measurement
         # Jacobian row is the vector of integrated parameter sensitivities. The
         # model and its sensitivities are evaluated once over the window and
-        # integrated per sub-area by the (compiled) Simpson kernel.
+        # integrated per sub-area by the compiled Simpson kernel.
         np_params = len(self.p)
         m_func = self._f(t_arr, *self.p) if reg_cols is None else \
             self._f(t_arr, *reg_cols, *self.p)
@@ -334,12 +325,12 @@ class EACFilter(_RecursiveFilter):
         starts = np.array([a for a, _ in sub], dtype=np.intp)
         stops = np.array([b for _, b in sub], dtype=np.intp)
 
-        # Robust measurement: winsorize the model residual within the window before
-        # integrating. Each sample's residual deviation beyond huber_c robust sigmas
-        # (MAD) from the window's MEDIAN residual is clipped, so outlier spikes are
-        # de-weighted at the sample level (the integral can no longer carry them),
-        # while the median residual -- which holds any genuine sustained shift --
-        # passes through untouched, so drift detection still works.
+        # Robust measurement: winsorize the model residual before integrating.
+        # Clipping each sample's deviation beyond huber_c robust sigmas (MAD)
+        # from the window's median residual de-weights outlier spikes at the
+        # sample level, and the integral can no longer carry them. The median
+        # residual carries any genuine sustained shift and passes through
+        # untouched, keeping drift detection alive.
         y_eff = y_arr
         if self._robust:
             resid = y_arr - m_func
@@ -357,33 +348,30 @@ class EACFilter(_RecursiveFilter):
         )
         h_mat = simpson_windows_rows(jac_rows, t_arr, starts, stops).T
 
-        # Robustness guard: an unbounded nonlinear model (e.g. a decaying
-        # exponential whose time-constant wanders toward its singular value) can
-        # overflow, making the innovation/Jacobian non-finite. Committing that
-        # would poison the parameter state permanently -- every later predict()
-        # would return NaN. Reject the sample instead and keep the last good
-        # estimate; the next clean sample re-adapts.
+        # Robustness guard: an unbounded nonlinear model (a decaying
+        # exponential whose time constant wanders toward its singular value)
+        # can overflow and leave the innovation or Jacobian non-finite.
+        # Committing that would poison the parameter state permanently and
+        # every later predict() would return NaN. Reject the sample and keep
+        # the last good estimate; the next clean sample re-adapts.
         if not (np.all(np.isfinite(e_vec)) and np.all(np.isfinite(h_mat))):
             return self
 
         # One-step forecast residual at the newest sample (pre-update params).
         self.last_residual_ = float(y_arr[-1] - m_func[-1])
 
-        # The drift detector runs on the *vector* sub-area innovation: an
-        # omnidirectional energy NIS (sharp on sudden jumps across the sub-areas)
-        # plus a signed total-area CUSUM (sustained directional drift). Only run it
-        # once the window is full -- a partial (growing) window's area is not yet a
-        # calibrated baseline for the change detector.
+        # Only run the drift detector once the window is full; a partial,
+        # still-growing window's area is not yet a calibrated baseline for it.
         if full:
             self._n_full += 1
             if self._n_full % cap == 0 and self._drift_step(e_vec):
                 return self  # reset happened; skip the update
 
-        # A smaller window averages fewer samples and so is noisier: inflate the
-        # measurement noise (trust it proportionally less) so the gain ramps up
-        # smoothly and the noisy first windows cannot over-kick the estimate. For a
-        # fixed window this damps the W/k growing warm-up; for an adaptive window it
-        # damps only until a comfortable measurement size W_ref is reached.
+        # A smaller window averages fewer samples and is therefore noisier.
+        # Inflating the measurement noise trusts it proportionally less, so the
+        # gain ramps up smoothly and noisy first windows cannot over-kick the
+        # estimate. A fixed window damps the W/k growing warm-up; an adaptive
+        # one damps only until the measurement size W_ref is reached.
         r_eff = self._r_ewma if self.adapt_r else self.R
         if self.adaptive_window:
             if k < self._W_ref:
@@ -400,11 +388,11 @@ class EACFilter(_RecursiveFilter):
         p_new = self.p + step
         P_new = (np.eye(np_params) - gain @ h_mat) @ self.P + self.Q
         # Keep the covariance symmetric. ``(I - K H) P`` is the algebraically
-        # minimal but numerically least stable update: rounding makes ``P`` drift
-        # asymmetric and can push an eigenvalue negative over a long (effectively
-        # infinite-horizon) stream, which then surfaces as negative ``stderr_`` /
-        # ``predict_cov``. Projecting onto the symmetric part each step is O(n^2)
-        # and prevents that accumulation.
+        # minimal but numerically least stable update: over a long,
+        # effectively infinite-horizon stream, rounding makes ``P`` drift
+        # asymmetric and can push an eigenvalue negative, surfacing as a
+        # negative ``stderr_`` or ``predict_cov``. Projecting onto the
+        # symmetric part each step is O(n^2) and prevents that accumulation.
         P_new = 0.5 * (P_new + P_new.T)
         if not (np.all(np.isfinite(p_new)) and np.all(np.isfinite(P_new))):
             return self  # reject an ill-conditioned (non-finite) update
@@ -417,15 +405,13 @@ class EACFilter(_RecursiveFilter):
             self._r_ewma = 0.95 * self._r_ewma + 0.05 * float(
                 (e_vec @ e_vec) / len(sub)
             )
-            # Floor the adaptive noise so a very clean stream cannot drive R -> 0.
-            # A vanishing R saturates the gain (S ~= H P H^T), so the next outlier
-            # gets full authority over the estimate. LSI floors its analogous
-            # scale (max(_v_est, 1e-9)); keep EAC consistent.
+            # Floor the adaptive noise so a very clean stream cannot drive
+            # R -> 0. A vanishing R saturates the gain (S ~= H P H^T), handing
+            # the next outlier full authority over the estimate.
             self._r_ewma = max(self._r_ewma, 1e-6 * self.R)
-        # Automatic window sizing: keep widening while more data still moves the
-        # estimate, capped at the maximum; once the estimate stabilizes the window
-        # stops growing and slides. A global-parameter model widens on its own; a
-        # local one stops. (Factored out so the criterion can be overridden.)
+        # Widen while more data still moves the estimate, capped at the
+        # maximum. A global-parameter model widens on its own; a local one
+        # stops and the window slides.
         if self.adaptive_window and self._W_eff < self.W:
             self._adaptive_grow(step, e_vec)
         return self
@@ -433,17 +419,17 @@ class EACFilter(_RecursiveFilter):
     def _adaptive_grow(self, step: np.ndarray, e_vec: np.ndarray) -> None:
         """Decide whether to widen the adaptive window by one sample.
 
-        The area filter uses a **covariance-reduction** criterion (grow while the
-        state covariance is still shrinking meaningfully), not the spectrum
-        filter's estimate-movement test: the scalar area estimate jitters and, on a
-        decaying signal, is non-stationary even with static parameters, so the
-        movement signal would grow the window without bound and the area then fails
-        on the over-wide window. Covariance reduction is stable -- it settles a
-        finite window on oscillatory/monotone shapes and never diverges. It cannot,
-        however, size a *global*-parameter model (a polynomial's intercept) well,
-        because the area covariance under-estimates that extrapolation bias; for
-        robust auto-sizing of such models use the adaptive spectrum filter
-        (:class:`LSIFilter`). Override this method to plug a different criterion.
+        The criterion is covariance reduction: grow while the state covariance
+        is still shrinking meaningfully. :class:`LSIFilter`'s estimate-movement
+        test does not transfer here, since the scalar area estimate jitters
+        and, on a decaying signal, is non-stationary even with static
+        parameters. A movement signal would widen the window without bound and
+        the area measurement then fails on it. Covariance reduction settles at
+        a finite width on oscillatory and monotone shapes and never diverges.
+        It cannot size a global-parameter model (a polynomial's intercept)
+        well, because the area covariance under-estimates that extrapolation
+        bias; :class:`LSIFilter` is the better choice for those. Override this
+        method to plug in a different criterion.
         """
         tr = float(np.trace(self.P))
         rel = (self._cov_prev - tr) / (self._cov_prev + 1e-12) \
@@ -462,19 +448,19 @@ class EACFilter(_RecursiveFilter):
         return [(int(edges[k]), int(edges[k + 1])) for k in range(n)]
 
     def _drift_step(self, e_vec: np.ndarray) -> bool:
-        """Vector NIS (sudden jump) + two-sided CUSUM (sustained drift) on one
-        decimated sub-area innovation. Resets and returns True on detection.
+        """Vector NIS (sudden jump) plus two-sided CUSUM (sustained drift) on
+        one decimated sub-area innovation. Resets and returns True on a
+        detection.
 
-        Two scalar statistics, each standardized against the baseline scale built
-        from *previous* windows (so a fresh jump shows up large rather than
-        inflating its own scale), then folded into that scale:
+        Two scalar statistics, each standardized against the scale built from
+        previous windows before being folded into it, so a fresh jump shows up
+        large instead of inflating its own threshold.
 
-        * ``energy = e_vec @ e_vec`` -- the omnidirectional, chi^2(n_sub) spike
-          detector. Splitting the area into ``n_sub`` sub-areas gives the change
-          test several independent channels instead of one, so a regime shift that
-          a single scalar area averages over still lights up the energy; more
-          sub-areas raise the degrees of freedom and sharpen the jump signal.
-        * ``e_sum = e_vec.sum()`` -- the signed total area; a directional channel
+        * ``energy = e_vec @ e_vec``, the omnidirectional chi^2(n_sub) spike
+          detector. More sub-areas raise the degrees of freedom and sharpen the
+          signal, and a regime shift that a single scalar area would average
+          over still lights up the energy.
+        * ``e_sum = e_vec.sum()``, the signed total area: a directional channel
           the two-sided CUSUM accumulates to flag a sustained shift up or down.
         """
         self._n_tests += 1
@@ -505,19 +491,20 @@ class EACFilter(_RecursiveFilter):
     def _on_drift(self, *, up: bool) -> None:
         """Re-arm the filter after a detected drift so it re-adapts quickly.
 
-        ``"full"`` discards the covariance and window (fast but throws away the
-        parameter estimate's history); ``"inflate"`` keeps the current estimate
-        and window but blows up the covariance by ``drift_inflation`` so new data
-        dominates -- a gentler re-adaptation.
+        ``"full"`` discards the covariance and window. That is fast, but it
+        throws away the parameter estimate's history. ``"inflate"`` keeps the
+        current estimate and window and blows up the covariance by
+        ``drift_inflation`` instead, letting new data dominate: the gentler
+        re-adaptation.
         """
         if self.drift_reset == "inflate":
             self.P = self.P * self.drift_inflation
         else:
             self.P = self._p_init.copy()
             self._t, self._y, self._rbuf = [], [], []
-        # Collapse the adaptive window back to min_window: the wide window now
-        # straddles the change and holds stale old-regime data, so re-acquire the
-        # new regime from the freshest samples and re-grow as it becomes identified.
+        # Collapse the adaptive window back to min_window. A wide window now
+        # straddles the change and holds stale old-regime data; re-acquire the
+        # new regime from the freshest samples and re-grow as it is identified.
         self._W_eff = self.min_window
         self._cov_prev = None
         self._g_hi = 0.0

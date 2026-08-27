@@ -1,30 +1,31 @@
 """Stochastic-series characterization, forecasting, generation and tracking.
 
-dtfit fits a deterministic ``y = f(t; theta)``; a genuinely random series has no
-such ``f``. The way to *use* dtfit on it is to fit the **deterministic
-functionals** of the process -- its autocovariance, spectrum, aggregated variance
-and trend/cycle -- whose forms (damped exponentials/cosines, power laws) are
-exactly the shapes dtfit excels at, and read the process's parameters out of them.
+dtfit fits a deterministic ``y = f(t; theta)``, and a genuinely random series
+has no such ``f``. What it does have is deterministic functionals: the
+autocovariance, the spectrum, the aggregated variance, the trend and cycle.
+Their forms are damped exponentials, damped cosines and power laws, exactly
+the shapes the batch fitters take. Fit the functional, read the process
+parameters out of it.
 
 Layered API:
 
-* **estimators** -- :func:`hurst_aggvar` / :func:`hurst_spectral` (long memory),
-  :func:`ar1_reversion` (mean reversion), :func:`garch_persistence` (volatility),
-  :func:`cycle_period` (stochastic cycle), :func:`decompose_trend_cycle`; each
-  recovers a stochastic-model parameter by feeding a functional to
-  ``fit_lsi`` / ``fit_eac``;
-* **batch** -- :func:`fit_stochastic` composes the routes behind significance
-  gates into a single :class:`StochasticModel` that detects the regime, forecasts
-  by backtest model selection, and *generates* fresh realizations
-  (:meth:`StochasticModel.simulate`);
-* **streaming** -- :class:`StochasticFilter`, the per-input online twin of the
-  second-order stage (EWMA autocovariances read by the EAC equal-areas criterion),
-  with a fused change-point detector.
+* estimators: :func:`hurst_aggvar` / :func:`hurst_spectral` (long memory),
+  :func:`ar1_reversion` (mean reversion), :func:`garch_persistence`
+  (volatility), :func:`cycle_period` (stochastic cycle),
+  :func:`decompose_trend_cycle`. Each recovers one stochastic-model parameter
+  by feeding a functional to ``fit_lsi`` / ``fit_eac``.
+* batch: :func:`fit_stochastic` composes the routes behind significance gates
+  into one :class:`StochasticModel` that labels the regime, forecasts by
+  backtest model selection and generates fresh realizations
+  (:meth:`StochasticModel.simulate`).
+* streaming: :class:`StochasticFilter`, the per-input counterpart of the
+  second-order stage (EWMA autocovariances read by the EAC equal-areas
+  criterion) with a fused change-point detector.
 
-The model-framework wrapper :class:`dtfit.Stochastic` exposes the batch solution
-through the ``.fit(x, y)`` convention of :class:`dtfit.Model`; the fitted
-:class:`StochasticModel` then ``.forecast()`` / ``.simulate()`` / ``.summary()``
-(there is no ``.predict`` -- a stochastic process is forecast, not point-evaluated).
+:class:`dtfit.Stochastic` wraps the batch entry point in the ``.fit(x, y)``
+convention of :class:`dtfit.Model`; the fitted :class:`StochasticModel` then
+offers ``.forecast()``, ``.simulate()`` and ``.summary()``. There is no
+``.predict``: a stochastic process is forecast, not point-evaluated.
 """
 
 from dtfit.stochastic._estimators import (

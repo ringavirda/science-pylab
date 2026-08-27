@@ -1,8 +1,8 @@
-"""Stochastic-series estimators -- recover a parameter of a stochastic model by
-feeding a deterministic functional of the data (its ACF, spectrum, aggregated
-variance, or trend+cycle) to dtfit's integral fitters. The theory is in
-:mod:`dtfit.stochastic`; :func:`dtfit.stochastic.fit_stochastic` composes these
-behind significance gates."""
+"""Stochastic-series estimators. Each recovers one parameter of a stochastic
+model by feeding a deterministic functional of the data (its ACF, spectrum,
+aggregated variance, or trend+cycle) to dtfit's integral fitters. The theory is
+in :mod:`dtfit.stochastic`; :func:`dtfit.stochastic.fit_stochastic` composes
+these behind significance gates."""
 
 from __future__ import annotations
 
@@ -17,17 +17,15 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# shared: sample autocorrelation (the deterministic functional most of these
-# estimators feed to dtfit).
-# --------------------------------------------------------------------------- #
+# The sample autocorrelation is the deterministic functional most of these
+# estimators feed to dtfit.
 def sample_acf(x: np.ndarray, nlags: int) -> np.ndarray:
     """Biased sample autocorrelation ``rho[0..nlags]`` (``rho[0] == 1``).
 
-    The biased (divide-by-``n``) estimator is used deliberately: it is the
-    positive-definite, lower-variance choice that the moment estimators below
-    want, and it tapers the noisy long-lag tail toward zero rather than letting
-    it explode.
+    Dividing by ``n`` rather than ``n - k`` keeps the sequence positive
+    definite and lowers its variance; both matter to the moment estimators
+    below. It also tapers the noisy long-lag tail toward zero instead of
+    letting it blow up.
     """
     x = np.asarray(x, dtype=float)
     x = x - x.mean()
@@ -37,8 +35,9 @@ def sample_acf(x: np.ndarray, nlags: int) -> np.ndarray:
         out = np.zeros(nlags + 1)
         out[0] = 1.0
         return out
-    # FFT autocovariance (Wiener-Khinchin): O(n log n) vs the O(nlags*n) loop,
-    # numerically identical to the biased estimator (the 1/n cancels in the ratio).
+    # Wiener-Khinchin autocovariance: O(n log n) against the O(nlags*n) direct
+    # loop, and numerically identical to it here because the 1/n cancels in
+    # the ratio.
     m = 1 << int(2 * n - 1).bit_length()
     f = np.fft.rfft(x, m)
     acov = np.fft.irfft(f * np.conj(f), m)[: nlags + 1]
@@ -59,10 +58,8 @@ def _loglog_slope(lx: np.ndarray, ly: np.ndarray, *, method: str) -> float:
     return float(r.coeffs[1])
 
 
-# --------------------------------------------------------------------------- #
-# long memory / self-similarity: Hurst exponent H (fractional-integration
-# order d = H - 1/2).
-# --------------------------------------------------------------------------- #
+# Long memory / self-similarity: the Hurst exponent H, equivalently the
+# fractional-integration order d = H - 1/2.
 def hurst_aggvar(
     x: np.ndarray,
     *,
@@ -70,13 +67,13 @@ def hurst_aggvar(
     min_block: int = 2,
     method: str = "lsi",
 ) -> dict[str, float]:
-    """Hurst exponent via the **aggregated-variance** power law.
+    """Hurst exponent via the aggregated-variance power law.
 
     Block-average the series at geometrically spaced scales ``m``; for a
     self-similar process the block-mean variance scales as
-    ``Var(m) ~ c * m^(2H - 2)``. The exponent is read from a power-law fit of
-    ``Var`` against ``m`` -- ``method="lsi"`` / ``"ols"`` fit it in log-log
-    space (slope ``= 2H - 2``); ``method="eac"`` fits the power law
+    ``Var(m) ~ c * m^(2H - 2)``. The exponent comes from a power-law fit of
+    ``Var`` against ``m``. ``method="lsi"`` and ``method="ols"`` fit that in
+    log-log space, where the slope is ``2H - 2``; ``method="eac"`` fits
     ``c*m**b`` directly in linear space with the equal-areas criterion.
 
     Returns ``{"H", "slope", "d"}`` (``d = H - 1/2``).
@@ -95,8 +92,9 @@ def hurst_aggvar(
         if nb < 8:  # need enough blocks for a stable per-scale variance
             continue
         bmean = x[: nb * m].reshape(nb, m).mean(axis=1)
-        v = float(bmean.var(ddof=1))  # unbiased: block counts vary across scales,
-        #                               and ddof=0 tilts the log-log slope
+        # ddof=1: block counts vary across scales, and ddof=0 would tilt the
+        # log-log slope.
+        v = float(bmean.var(ddof=1))
         if v > 0:
             ms.append(float(m))
             vs.append(v)
@@ -106,18 +104,16 @@ def hurst_aggvar(
         raise RuntimeError("too few usable scales for aggregated-variance Hurst")
 
     if method == "eac":
-        # nonlinear power law c*m**b in linear space (no log transform).
-        # model_params sorts names -> [b, c], and fit_eac maps p0/bounds
-        # positionally onto that sorted order, so both must be given as [b, c]
-        # (the exponent first). The old [c, b] ordering forced the negative
-        # slope b into c's positive bracket and pinned H at 1.0.
-        # slope b lies in [-2, 0] (<=> H in [0, 1]); clip the log-log seed into
-        # the open bracket so it never starts on/outside the bound.
+        # Nonlinear power law c*m**b in linear space, no log transform.
+        # model_params sorts the names to [b, c] and fit_eac maps p0 and
+        # bounds positionally onto that order, so both are given exponent
+        # first. b lies in [-2, 0], equivalently H in [0, 1]; the log-log seed
+        # is clipped into the open bracket to keep it off the bounds.
         b0 = float(np.clip(np.polyfit(np.log(ms_a), np.log(vs_a), 1)[0], -1.999, -1e-9))
         r = fit_eac(ms_a, vs_a, "c*m**b", "m",
                     p0=[b0, float(vs_a[0])],
                     bounds=([-2.0, 1e-12], [0.0, 1e6]))
-        slope = float(r.coeffs[0])  # sorted names [b, c] -> b (the exponent) first
+        slope = float(r.coeffs[0])  # sorted [b, c]: the exponent is first
     else:
         slope = _loglog_slope(np.log(ms_a), np.log(vs_a), method=method)
 
@@ -132,14 +128,14 @@ def hurst_spectral(
     n_freq: int | None = None,
     method: str = "lsi",
 ) -> dict[str, float]:
-    """Hurst / fractional-integration order via the **low-frequency spectrum**.
+    """Hurst / fractional-integration order via the low-frequency spectrum.
 
     The log-periodogram of a long-memory process is ``log S(f) = const - 2d
-    log f + noise`` for small ``f`` (the GPH regression). The slope of the
-    low-frequency log-log periodogram gives ``d = H - 1/2``. dtfit's role
-    (``method="lsi"``) is the orthogonal-basis line fit, with its Savitzky-Golay
-    pre-filter taming the periodogram's chi-squared scatter; ``method="ols"`` is
-    the plain GPH baseline.
+    log f + noise`` for small ``f``, the GPH regression, so the slope of the
+    low-frequency log-log periodogram gives ``d = H - 1/2``. Under
+    ``method="lsi"`` dtfit supplies the orthogonal-basis line fit, its
+    Savitzky-Golay pre-filter taming the periodogram's chi-squared scatter;
+    ``method="ols"`` is the plain GPH baseline.
 
     Returns ``{"H", "d", "slope"}`` (``slope = -2d``).
     """
@@ -158,15 +154,16 @@ def hurst_spectral(
     if f.size < 3:
         raise RuntimeError("too few usable frequencies for spectral Hurst")
 
-    # Exact GPH design variable: log|2 sin(lambda/2)| with the *angular*
-    # frequency lambda = 2*pi*f, not log(f). The two agree only as f -> 0 (there
-    # 2 sin(pi f) ~ 2 pi f, a constant offset absorbed by the intercept); over a
-    # non-tiny bandwidth (~n^0.6 bins) the sin curvature biases a log(f) slope.
+    # The exact GPH design variable is log|2 sin(lambda/2)| at the angular
+    # frequency lambda = 2*pi*f, not log(f). The two agree only as f -> 0,
+    # where 2 sin(pi f) ~ 2 pi f and the constant offset is absorbed by the
+    # intercept. Across a bandwidth of ~n^0.6 bins the sine curvature biases
+    # a log(f) slope.
     lf, lp = np.log(2.0 * np.sin(np.pi * f)), np.log(p)
     if method == "ols":
         slope = float(np.polyfit(lf, lp, 1)[0])
     else:
-        # smoothing on: denoise the log-periodogram before the slope read-out
+        # denoise the log-periodogram before reading the slope
         r = fit_lsi(lf, lp, "a + b*m", "m", k_star=1, filter_data=True)
         slope = float(r.coeffs[1])
     d = -slope / 2.0
@@ -174,22 +171,22 @@ def hurst_spectral(
     return {"H": float(H), "d": float(d), "slope": float(slope)}
 
 
-# --------------------------------------------------------------------------- #
-# mean reversion: OU / AR(1) -- ACF is a single exponential exp(-k/tau).
-# --------------------------------------------------------------------------- #
+# Mean reversion: an OU / AR(1) process has a single-exponential ACF,
+# exp(-k/tau).
 def ar1_reversion(
     x: np.ndarray,
     *,
     nlags: int | None = None,
     method: str = "lsi",
 ) -> dict[str, float]:
-    """Mean-reversion speed from an **exponential fit to the ACF**.
+    """Mean-reversion speed from an exponential fit to the ACF.
 
     An OU / AR(1) process has ``rho(k) = phi^k = exp(-k/tau)``. Fitting a
-    decaying exponential to the sample ACF (``method="lsi"`` / ``"eac"``) reads
-    off the AR(1) coefficient ``phi`` and the reversion time ``tau`` using many
-    lags at once (the integral fitters average the per-lag ACF noise), where the
-    plain ``method="acf1"`` baseline just takes the lag-1 autocorrelation.
+    decaying exponential to the sample ACF (``method="lsi"`` or ``"eac"``)
+    reads off the AR(1) coefficient ``phi`` and the reversion time ``tau``
+    from many lags at once, the integral fitters averaging the per-lag ACF
+    noise. The ``method="acf1"`` baseline just takes the lag-1
+    autocorrelation.
 
     Returns ``{"phi", "tau", "halflife"}``.
     """
@@ -209,19 +206,18 @@ def ar1_reversion(
 
 
 def _phi_from_acf(acf: np.ndarray, n: int, *, method: str = "lsi") -> float:
-    """AR(1) ``phi`` from a **decaying-exponential dtfit fit to the ACF**.
+    """AR(1) ``phi`` from a decaying-exponential dtfit fit to the ACF.
 
-    The core of the batch :func:`ar1_reversion` (reads persistence off a full
-    ``fit_lsi`` / ``fit_eac`` exponential fit of the ACF, not a single-lag
-    shortcut). The streaming :class:`~dtfit.stochastic.StochasticFilter` applies
-    the *same principle* to its EWMA ACF but is a separate re-derivation and does
-    not call this function.
+    The core of the batch :func:`ar1_reversion`.
+    :class:`~dtfit.stochastic.StochasticFilter` re-derives this for its EWMA
+    ACF and does not call it.
 
-    Restrict the fit to lags where the ACF is still above the white-noise band
-    (~``2/sqrt(n)``); beyond it the ACF is pure sampling noise and only drags the
-    decay rate. The amplitude is anchored (``exp(-g*k)``, no free ``A``): an AR(1)
-    ACF is exactly ``phi^k`` and passes through 1 at lag 0, so freeing ``A`` lets
-    it absorb the lag-1 noise and badly biases the fast-decay case.
+    The fit is restricted to lags where the ACF is still above the
+    white-noise band (~``2/sqrt(n)``); past that the ACF is sampling noise
+    and only drags the decay rate. The amplitude is anchored (``exp(-g*k)``,
+    no free ``A``) because an AR(1) ACF is exactly ``phi^k`` and passes
+    through 1 at lag 0. A free ``A`` would absorb the lag-1 noise and badly
+    bias the fast-decay case.
     """
     nlags = acf.size - 1
     band = max(0.05, 2.0 / np.sqrt(max(n, 1)))
@@ -235,22 +231,19 @@ def _phi_from_acf(acf: np.ndarray, n: int, *, method: str = "lsi") -> float:
     return float(np.exp(-abs(float(r.coeffs[0]))))
 
 
-# --------------------------------------------------------------------------- #
-# higher-order autoregression: AR(p) order selection + Yule-Walker fit.
-#
-# The AR(1) route above whitens with a single lag; a genuine AR(2)/AR(3) then
-# leaves structure in the residual that can be mistaken for long memory. These
-# estimate the *order* (so the caller can tell a low-order AR apart from true
-# long memory) and the AR coefficients directly, from the sample ACF.
-# --------------------------------------------------------------------------- #
+# Higher-order autoregression: AR(p) order selection and a Yule-Walker fit.
+# The AR(1) route above whitens with a single lag, and a genuine AR(2)/AR(3)
+# then leaves residual structure that can be mistaken for long memory. These
+# two read the order and the AR coefficients off the sample ACF. That is what
+# tells a low-order AR apart from true long memory.
 def ar_order(x: np.ndarray, *, max_order: int = 8, ic: str = "aic") -> int:
     """Select an AR(p) order for ``x`` by an information criterion.
 
     Fits Yule-Walker AR(k) for ``k = 0..max_order`` and returns the ``k``
-    minimizing AIC (``ic="aic"``) or BIC (``ic="bic"``) -- the standard order
-    gate. A value ``>1`` means a single-lag AR(1) whitening would leave residual
-    structure, so the series is a higher-order autoregression, **not** long
-    memory. Returns ``0`` for (near-)white input.
+    minimizing AIC (``ic="aic"``) or BIC (``ic="bic"``). A value above 1 means
+    single-lag AR(1) whitening would leave residual structure: the series is a
+    higher-order autoregression, not long memory. Near-white input returns
+    ``0``.
     """
     from scipy.linalg import toeplitz
 
@@ -287,10 +280,10 @@ def fit_ar(
 ) -> dict[str, object]:
     """Fit an AR(p) model ``x_t = sum_j phi_j x_{t-j} + eps`` by Yule-Walker.
 
-    When ``order`` is ``None`` it is chosen by :func:`ar_order` (AIC/BIC). Returns
-    ``{"order", "phi", "sigma"}`` with the AR coefficients (lag 1..p) and the
-    innovation standard deviation. Complements :func:`ar1_reversion` (the AR(1)
-    reversion read-out) with the general order.
+    An ``order`` of ``None`` is chosen by :func:`ar_order` (AIC/BIC). Returns
+    ``{"order", "phi", "sigma"}`` with the AR coefficients at lags ``1..p`` and
+    the innovation standard deviation. :func:`ar1_reversion` covers the AR(1)
+    case alone; this is its general-order companion.
     """
     from scipy.linalg import toeplitz
 
@@ -313,15 +306,16 @@ def fit_ar(
 def fractional_difference(
     x: np.ndarray, d: float, *, ntrunc: int | None = None
 ) -> np.ndarray:
-    """Apply the **fractional-difference** filter ``(1 - B)^d`` to ``x``.
+    """Apply the fractional-difference filter ``(1 - B)^d`` to ``x``.
 
-    The ARFIMA differencing operator: differencing a long-memory series by its
-    fractional order ``d`` (from the Hurst read-out, ``d = H - 1/2``; see
-    :func:`hurst_spectral`) whitens it, so the residual can be checked or modeled
-    with a short-memory model. Uses the truncated binomial expansion
-    ``w_0 = 1``, ``w_k = w_{k-1} (k - 1 - d) / k``, applied causally. Returns a
-    same-length array. ``d = 1`` recovers the ordinary first difference (prepended
-    with the first value), ``d = 0`` is the identity.
+    This is the ARFIMA differencing operator. Differencing a long-memory
+    series by its own fractional order ``d`` (from the Hurst read-out,
+    ``d = H - 1/2``; see :func:`hurst_spectral`) whitens it, leaving a
+    residual that can be checked or modelled as short-memory. The weights come
+    from the truncated binomial expansion ``w_0 = 1``,
+    ``w_k = w_{k-1} (k - 1 - d) / k``, applied causally, and the result has
+    the same length as ``x``. ``d = 1`` recovers the ordinary first difference
+    prepended with the first value; ``d = 0`` is the identity.
     """
     x = np.asarray(x, dtype=float)
     n = x.size
@@ -335,10 +329,8 @@ def fractional_difference(
     return np.asarray(np.convolve(x, w)[:n], dtype=float)
 
 
-# --------------------------------------------------------------------------- #
-# volatility clustering: GARCH(1,1) persistence alpha+beta -- ACF of squared
-# returns decays geometrically (alpha+beta)^k.
-# --------------------------------------------------------------------------- #
+# Volatility clustering: the GARCH(1,1) persistence alpha+beta, read off an
+# ACF of squared returns that decays geometrically as (alpha+beta)^k.
 def garch_persistence(
     returns: np.ndarray,
     *,
@@ -346,13 +338,13 @@ def garch_persistence(
     method: str = "lsi",
     use: str = "square",
 ) -> dict[str, float]:
-    """Volatility persistence from the **ACF of squared (or |.|) returns**.
+    """Volatility persistence from the ACF of squared or absolute returns.
 
     For a GARCH(1,1) the autocorrelation of the squared returns decays
-    geometrically with ratio ``alpha + beta`` (the persistence). Fitting a
+    geometrically with ratio ``alpha + beta``, the persistence. Fitting a
     decaying exponential to that ACF with dtfit recovers it without running a
-    full GARCH likelihood. ``use="abs"`` fits the ACF of absolute returns (often
-    cleaner empirically).
+    full GARCH likelihood. ``use="abs"`` fits the ACF of absolute returns,
+    empirically often the cleaner one.
 
     Returns ``{"persistence", "tau"}``.
     """
@@ -371,18 +363,20 @@ def garch_persistence(
 def _persistence_from_acf(
     acf: np.ndarray, *, method: str = "lsi", n: int | None = None
 ) -> float:
-    """Volatility persistence from a **decaying-exponential dtfit fit to the ACF
-    of |returns| / squared returns**. The core of the batch
-    :func:`garch_persistence`; the streaming ``StochasticFilter`` uses the same
-    principle on its EWMA ACF but is a separate re-derivation (it does not call
-    this function).
+    """Volatility persistence from a decaying-exponential dtfit fit to the ACF
+    of absolute or squared returns.
 
-    The amplitude ``A`` is kept free (unlike the AR(1) fit): the squared-return
-    ACF of a GARCH process does *not* pass through 1 at lag 1 -- it has a level
-    offset -- so the geometric decay must be read as ``A*exp(-g*k)``; only the
-    *ratio* ``exp(-g)`` is the persistence. When ``n`` is known, restrict the fit
-    to lags above the white-noise band (~``2/sqrt(n)``), as :func:`_phi_from_acf`
-    does: beyond it the ACF is sampling noise that only drags the decay rate.
+    The core of the batch :func:`garch_persistence`.
+    :class:`~dtfit.stochastic.StochasticFilter` re-derives this for its EWMA
+    ACF and does not call it.
+
+    Unlike the AR(1) fit, the amplitude ``A`` is left free. The squared-return
+    ACF of a GARCH process carries a level offset and does not pass through 1
+    at lag 1, so the geometric decay has to be read as ``A*exp(-g*k)`` with
+    only the ratio ``exp(-g)`` being the persistence. Where ``n`` is known the
+    fit is restricted to lags above the white-noise band (~``2/sqrt(n)``), as
+    in :func:`_phi_from_acf`; past that the ACF is sampling noise and only
+    drags the decay rate.
     """
     nlags = acf.size - 1
     keff = nlags
@@ -399,21 +393,19 @@ def _persistence_from_acf(
     return float(np.clip(np.exp(-abs(g)), 0.0, 0.9999))
 
 
-# --------------------------------------------------------------------------- #
-# pseudo-cycle: AR(2) with complex roots -- ACF is a damped cosine.
-# --------------------------------------------------------------------------- #
+# Pseudo-cycle: an AR(2) with complex roots has a damped-cosine ACF.
 def cycle_period(
     x: np.ndarray,
     *,
     nlags: int | None = None,
 ) -> dict[str, float]:
-    """Dominant cycle period from a **damped-cosine fit to the ACF**.
+    """Dominant cycle period from a damped-cosine fit to the ACF.
 
-    An AR(2) with complex roots (a stochastic pseudo-cycle, e.g. a business
-    cycle) has ``rho(k) = r^k cos(w k + phi)``. dtfit's oscillatory recipe
-    (FFT-seeded angular frequency, no smoothing, raised spectral order) fits that
-    damped cosine to the sample ACF and returns the cycle period ``2*pi/w`` and
-    the damping ``r``.
+    An AR(2) with complex roots, a stochastic pseudo-cycle such as a business
+    cycle, has ``rho(k) = r^k cos(w k + phi)``. dtfit's oscillatory recipe
+    (FFT-seeded angular frequency, no smoothing, raised spectral order) fits
+    that damped cosine to the sample ACF and returns the cycle period
+    ``2*pi/w`` alongside the damping ``r``.
 
     Returns ``{"period", "w", "damping"}``.
     """
@@ -426,32 +418,31 @@ def cycle_period(
 
 
 def _cycle_from_acf(acf: np.ndarray) -> dict[str, float]:
-    """Dominant cycle from a **damped-cosine dtfit fit to the ACF**.
+    """Dominant cycle from a damped-cosine dtfit fit to the ACF.
 
-    Used by the batch :func:`cycle_period`. The angular frequency ``w`` is
-    FFT-seeded internally by :func:`dtfit.fit_lsi`'s oscillatory recipe
-    (``freq_param="w"`` reads the ACF's own spectral peak), so only the damping
-    and frequency are read back. (The streaming ``StochasticFilter`` is a
-    *separate* re-derivation of the same AR(2) principle and does not call this.)
+    The core of the batch :func:`cycle_period`.
+    :class:`~dtfit.stochastic.StochasticFilter` re-derives the same AR(2)
+    principle for its EWMA ACF and does not call it.
+
+    :func:`dtfit.fit_lsi`'s oscillatory recipe seeds the angular frequency
+    ``w`` itself from the ACF's spectral peak (``freq_param="w"``), so only
+    the damping and the frequency are read back.
     """
     nlags = acf.size - 1
     k = np.arange(nlags + 1, dtype=float)
-    # sorted param order is [A, g, p, w]; fit_lsi(freq_param="w") supplies the
-    # frequency seed from the ACF's spectral peak, so p0's w entry is nominal
-    # (the earlier code misplaced the FFT seed into the phase slot).
+    # Sorted param order is [A, g, p, w]. fit_lsi(freq_param="w") supplies the
+    # frequency seed from the ACF's spectral peak, so p0's w entry is nominal.
     r = fit_lsi(k, acf, "A*exp(-g*k)*cos(w*k + p)", "k",
                 freq_param="w", p0=[1.0, 0.05, 0.0, np.pi / 2.0])
     g, w = float(r.coeffs[1]), abs(float(r.coeffs[3]))
-    # A near-zero recovered frequency means "no cycle found" -- report it as such
+    # A near-zero recovered frequency means no cycle was found; report that
     # rather than an enormous spurious period.
     period = 2.0 * np.pi / w if w > (2.0 * np.pi / (2.0 * nlags)) else float("inf")
     return {"period": float(period), "w": float(w),
             "damping": float(np.exp(-abs(g)))}
 
 
-# --------------------------------------------------------------------------- #
-# structural decomposition: trend + cycle + stochastic residual.
-# --------------------------------------------------------------------------- #
+# Structural decomposition: trend + cycle + stochastic residual.
 def decompose_trend_cycle(
     t: np.ndarray,
     y: np.ndarray,
@@ -459,17 +450,15 @@ def decompose_trend_cycle(
     trend_deg: int = 1,
     with_cycle: bool = True,
 ) -> dict[str, object]:
-    """Split ``y`` into a deterministic **trend + cycle** (fit by dtfit) and a
-    **stochastic residual** (left for a noise model).
+    """Split ``y`` into a deterministic trend plus cycle, both fit by dtfit,
+    and a stochastic residual left for a noise model.
 
-    The trend is a low-order LSI polynomial; the cycle is the LSI oscillatory
-    recipe fit to the de-trended residual. This is the honest way dtfit handles
-    economic data: it claims only the structured part and hands the rest to
-    persistence / a stochastic model.
+    The trend is a low-order LSI polynomial and the cycle is the LSI
+    oscillatory recipe fit to the de-trended residual.
 
     Returns a dict with the fitted ``trend``/``cycle``/``residual`` arrays, the
-    recovered ``slope`` and ``period``/``amp``, and a ``forecast(h, dt)`` closure
-    that extrapolates trend + cycle ``h`` steps ahead.
+    recovered ``slope`` and ``period``/``amp``, and a ``forecast(h, dt)``
+    closure that extrapolates trend + cycle ``h`` steps ahead.
     """
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -478,7 +467,7 @@ def decompose_trend_cycle(
     trend = np.asarray(rt.model(t), dtype=float)
     if np.ndim(trend) == 0:
         trend = np.full_like(t, float(trend))
-    # ascending coeff order a0,a1,... after sympy name sort (a0 < a1 < ...)
+    # sympy's name sort puts the coefficients in ascending order a0, a1, ...
     tcoeffs = [float(c) for c in rt.coeffs]
     slope = tcoeffs[1] if trend_deg >= 1 else 0.0
 

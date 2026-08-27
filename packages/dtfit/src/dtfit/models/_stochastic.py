@@ -1,9 +1,9 @@
 """The stochastic-series model in the dtfit ``Model`` convention.
 
-The deterministic catalog families fit a ``y = f(x)`` curve; :class:`Stochastic`
-instead characterizes a random *series* across the stochastic routes (trend /
-cycle / long memory / mean reversion / volatility) behind significance gates --
-but it is driven the same way, through ``.fit()``::
+The deterministic catalog families fit a ``y = f(x)`` curve.
+:class:`Stochastic` instead characterizes a random series across the
+stochastic routes (trend, cycle, long memory, mean reversion, volatility)
+behind significance gates, and is driven the same way, through ``.fit()``::
 
     from dtfit.models import Stochastic
     m = Stochastic().fit(series)          # -> a fitted StochasticModel
@@ -11,8 +11,8 @@ but it is driven the same way, through ``.fit()``::
     m.forecast(12)                        # backtest-selected forecast
     m.simulate(200)                       # a fresh realization
 
-It is a thin, parameterised wrapper over :func:`dtfit.stochastic.fit_stochastic`;
-its companion is the streaming :class:`dtfit.stochastic.StochasticFilter`.
+A thin parameterised wrapper over :func:`dtfit.stochastic.fit_stochastic`. Its
+companion is the streaming :class:`dtfit.stochastic.StochasticFilter`.
 """
 
 from __future__ import annotations
@@ -28,11 +28,11 @@ class Stochastic:
     """Stochastic-series model with the catalog ``.fit()`` ergonomics.
 
     Args:
-        period: A seasonal period to use (else detected from the spectrum).
+        period: A seasonal period to use; detected from the spectrum if None.
         max_harmonics: Cap on the Fourier harmonics of the seasonal component.
-        forecaster: Forecast control -- ``"auto"`` backtest-selects; a name from
-            :data:`dtfit.stochastic.FORECASTERS`, a callable ``(train, h) -> arr``,
-            or a list of candidates is also accepted.
+        forecaster: Forecast control. ``"auto"`` backtest-selects; a name from
+            :data:`dtfit.stochastic.FORECASTERS`, a callable
+            ``(train, h) -> arr``, or a list of candidates also works.
         **gates: Detection-gate overrides forwarded to
             :func:`~dtfit.stochastic.fit_stochastic` (``trend_t``,
             ``cycle_strength``, ``min_cycles``, ``lm_hurst``, ``mr_phi``,
@@ -57,13 +57,13 @@ class Stochastic:
     def fit(self, x: np.ndarray, y: np.ndarray | None = None) -> StochasticModel:
         """Fit to a series and return the fitted :class:`StochasticModel`.
 
-        Call as ``fit(series)`` (uniform unit time) or ``fit(t, series)`` (an
-        explicit time index ``t`` plus the ``series``) -- mirroring the catalog's
-        ``fit(x, y)``. The result is also stored on :attr:`model_`.
+        Call as ``fit(series)`` for uniform unit time, or ``fit(t, series)``
+        with an explicit time index, mirroring the catalog's ``fit(x, y)``.
+        The result is also stored on :attr:`model_`.
         """
-        # Pass inputs through unchanged so ``fit_stochastic`` can capture a
-        # pandas index (a Series/DataFrame in -> an indexed forecast out); it
-        # coerces to float arrays internally.
+        # Pass the inputs through unchanged: ``fit_stochastic`` needs to see a
+        # pandas index to give back an indexed forecast, and coerces to float
+        # arrays itself.
         if y is None:
             series, t = x, None
         else:

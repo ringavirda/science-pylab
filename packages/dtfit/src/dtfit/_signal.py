@@ -1,8 +1,7 @@
-"""Small signal-shape analysis helpers shared across the high-level layer.
+"""FFT-based shape detection.
 
-These are leaf utilities (FFT-based shape detection) used by both the shape
-router (:mod:`dtfit.auto`) and the model recommender (:mod:`dtfit.models`), kept
-here so neither has to import the other's private internals.
+Used by the shape router (:mod:`dtfit.auto`) and the model recommender
+(:mod:`dtfit.models`); it lives here so neither has to import the other.
 """
 
 from __future__ import annotations
@@ -11,9 +10,11 @@ import numpy as np
 
 
 def dominant_period(y: np.ndarray, *, min_period: int = 4) -> tuple[float, float]:
-    """``(period_samples, strength)`` of the strongest spectral peak of a
-    linearly-detrended series; ``strength`` is the peak's share of detrended
-    power in ``[0, 1]`` (small => no real cycle)."""
+    """Period (in samples) and strength of the strongest spectral peak.
+
+    The series is linearly detrended first. ``strength`` is the peak's share
+    of the detrended power, in ``[0, 1]``; small means no real cycle.
+    """
     y = np.asarray(y, dtype=float)
     n = y.size
     if n < 2 * min_period:

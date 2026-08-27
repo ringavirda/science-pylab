@@ -1,24 +1,23 @@
 """Shared spectral-match machinery for the LSI adaptations.
 
 The LSI method (:func:`dtfit.fit_lsi`) fits a parameter-nonlinear model by
-matching the model's spectrum to the data's spectrum on an **orthogonal basis**,
-where the integral criterion ``∫(data-model)^2`` collapses to a diagonal sum of
-squared coefficient residuals. ``fit_lsi`` hard-codes the Legendre basis; this
-shared machinery (used by the promoted ``PartitionedLSI`` and by the
-``dtfit_experimental`` LSI adaptations) generalizes it with:
+matching the model's spectrum to the data's on an orthogonal basis, where the
+integral criterion ``∫(data-model)^2`` collapses to a diagonal sum of squared
+coefficient residuals. ``fit_lsi`` hard-codes the Legendre basis; this module
+generalizes it along two axes for ``PartitionedLSI`` and the
+``dtfit_experimental`` adaptations:
 
-* a **pluggable basis** (Legendre / Chebyshev / Fourier / Laguerre) -- different
-  bases suit different signals (Fourier for periodic, Laguerre for decay);
-* an **additive empirical spectrum** -- because the data coefficients are
-  integrals ``∫ y·φ_j``, they sum across a partition of the domain, which is
+* a pluggable basis: Legendre, Chebyshev, Fourier for periodic signals,
+  Laguerre for decay;
+* an additive empirical spectrum. The data coefficients are the integrals
+  ``∫ y·φ_j``, which sum across a partition of the domain; that additivity is
   what makes the map-reduce / streaming estimator exact.
 
-A :class:`Basis` exposes everything the solver needs: where to sample the model
-(``nodes``), how to turn those samples into model coefficients
-(``model_spectrum``), how to get the data coefficients (``empirical`` via
-least squares, or ``project`` of arbitrary samples for the additive path), and
-the diagonal criterion weights (``sqrt_w``). :func:`solve_spectral` then runs the
-weighted nonlinear least squares shared by every LSI variant.
+A :class:`Basis` exposes what the solver needs: where to sample the model
+(``nodes``), how those samples become model coefficients (``model_spectrum``),
+the data coefficients (``empirical`` by least squares, or ``project`` of
+arbitrary samples for the additive path), and the diagonal criterion weights
+(``sqrt_w``). :func:`solve_spectral` runs the weighted NLLS on top.
 """
 
 from __future__ import annotations
@@ -41,11 +40,11 @@ from dtfit._core._backend import Backend
 
 
 def _trapz_weights(x: np.ndarray) -> np.ndarray:
-    """Per-sample trapezoid quadrature weights ``w`` with ``∫y dx ≈ Σ w_i y_i``.
+    """Per-sample trapezoid weights ``w`` with ``∫y dx ≈ Σ w_i y_i``.
 
-    Folding the trapezoid rule into a weight vector turns every projection into a
-    single matrix product ``Dᵀ·(w⊙y)`` -- the form that runs as a BLAS/cuBLAS
-    GEMM and batches over channels. Numerically identical to ``np.trapezoid``.
+    Folding the rule into a weight vector turns every projection into one
+    matrix product ``Dᵀ·(w⊙y)``, which runs as a BLAS/cuBLAS GEMM and batches
+    over channels. Numerically identical to ``np.trapezoid``.
     """
     n = x.size
     w = np.zeros(n)
@@ -68,9 +67,8 @@ class Basis:
 
     name = "base"
 
-    # Quadrature attributes set by the polynomial subclasses (Legendre /
-    # Chebyshev / Laguerre) and read by :meth:`_project_spectrum`; declared here
-    # for the type checker.
+    # Set by the quadrature subclasses (Legendre / Chebyshev / Laguerre) and
+    # read by _project_spectrum; declared here for the type checker.
     _w: np.ndarray
     _V: np.ndarray
     _norm: np.ndarray
@@ -81,19 +79,20 @@ class Basis:
         self.h = self.xn - self.x0
         self.n_coef = self.order + 1
 
-    # samples of x where the model is evaluated for projection
+    # the x samples at which the model is evaluated for projection
     def nodes(self) -> np.ndarray:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    # node samples -> spectral coefficients (the model spectrum)
+    # node samples -> spectral coefficients
     def model_spectrum(self, fv: np.ndarray) -> np.ndarray:  # pragma: no cover
         raise NotImplementedError
 
     def _project_spectrum(self, fv: np.ndarray) -> np.ndarray:
-        """``norm ⊙ ((w ⊙ fv) @ V)`` via the GIL-free native kernel (with an exact
-        NumPy fallback). The single projection shared by every quadrature basis
-        that carries ``(_w, _V, _norm)`` (Legendre / Chebyshev / Laguerre); the
-        kernel is basis-agnostic despite its ``legendre_project`` name."""
+        """``norm ⊙ ((w ⊙ fv) @ V)`` through the native kernel, or NumPy.
+
+        Shared by every basis that carries ``(_w, _V, _norm)``. The kernel is
+        basis-agnostic despite the ``legendre_project`` name.
+        """
         from dtfit._core._kernels import legendre_project
 
         return legendre_project(
@@ -107,42 +106,40 @@ class Basis:
     def empirical(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:  # pragma: no cover
         raise NotImplementedError
 
-    # (design matrix D, quadrature weights w) with ∫ y·φ_j dx ≈ (Dᵀ (w⊙y))_j.
-    # This is the single factoring behind both the scalar and the batched path.
+    # (design matrix D, quadrature weights w) with ∫ y·φ_j dx ≈ (Dᵀ (w⊙y))_j
     def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover
         raise NotImplementedError
 
-    # additive empirical spectrum: ∫ y·φ_j over the *given* samples only, so a
-    # partition's partial spectra sum to the whole-domain spectrum.
+    # ∫ y·φ_j over the given samples only; a partition's partial spectra
+    # sum to the whole-domain spectrum.
     def project_integral(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
         x = np.asarray(x, float)
         y = np.asarray(y, float)
         D, w = self._gemm_factors(x)
-        return D.T @ (w * y)  # GEMV; no (n, k) temporary materialized
+        return D.T @ (w * y)  # GEMV; no (n, k) temporary
 
     def project_integral_batched(
         self, x: np.ndarray, Y: np.ndarray, backend: Backend
     ) -> np.ndarray:
-        """Raw additive integrals ``s_j = ∫ y·φ_j`` for many channels in one GEMM.
+        """Additive integrals ``s_j = ∫ y·φ_j`` for many channels, one GEMM.
 
-        ``Y`` is ``(n, B)`` (one column per channel); returns ``(B, n_coef)`` of
-        **un-normalized integrals** over the *given* samples only. Unlike
-        :meth:`empirical_batched` it does **not** apply the per-coefficient norm,
-        so a partition's partial sums are additive and can be accumulated chunk by
-        chunk (the fused map-reduce + GEMM path). The projection ``S = Dᵀ·(w⊙Y)``
-        is a single matrix product, so a GPU backend runs it on cuBLAS and the
-        cost amortizes over all ``B`` channels.
+        ``Y`` is ``(n, B)``, one column per channel; returns ``(B, n_coef)`` of
+        un-normalized integrals over the given samples. Unlike
+        :meth:`empirical_batched` this skips the per-coefficient norm, which
+        keeps a partition's partial sums additive so they can be accumulated
+        chunk by chunk. ``S = Dᵀ·(w⊙Y)`` is one matrix product: a GPU backend
+        runs it on cuBLAS, and the cost amortizes over all ``B`` channels.
         """
         x = np.asarray(x, float)
-        Y = np.asarray(Y)  # preserve dtype; the backend controls compute precision
+        Y = np.asarray(Y)  # keep dtype; the backend picks compute precision
         if Y.dtype.kind != "f":
             Y = Y.astype(float)
         if Y.ndim == 1:
             Y = Y[:, None]
         D, w = self._gemm_factors(x)
-        # Fold the quadrature weights into the *small* (n, k) design rather than
-        # the *large* (n, B) data: β = (w⊙D)ᵀ·Y avoids an (n, B) temporary, so
-        # the only big array touched is Y itself (read once into the GEMM).
+        # Fold the weights into the small (n, k) design, not the large (n, B)
+        # data. (w⊙D)ᵀ·Y avoids an (n, B) temporary: Y is the only big array
+        # touched, and the GEMM reads it exactly once.
         Dd = backend.asarray(w[:, None] * D)  # (n, k) on device
         Yd = backend.asarray(Y)               # (n, B) on device
         S = Dd.T @ Yd                         # (k, B) GEMM
@@ -151,22 +148,22 @@ class Basis:
     def empirical_batched(
         self, x: np.ndarray, Y: np.ndarray, backend: Backend
     ) -> np.ndarray:
-        """Empirical spectra of many channels sharing grid ``x`` in **one GEMM**.
+        """Empirical spectra of many channels sharing grid ``x``, in one GEMM.
 
-        ``Y`` is ``(n, B)`` (one column per channel); returns ``(B, n_coef)``.
+        ``Y`` is ``(n, B)``, one column per channel; returns ``(B, n_coef)``.
         """
         s = self.project_integral_batched(x, Y, backend)
-        return self.integral_to_spectrum(s)   # (B, k); per-coef norm broadcasts
+        return self.integral_to_spectrum(s)   # (B, k); the norm broadcasts
 
     def integral_to_spectrum(self, s: np.ndarray) -> np.ndarray:
-        """Convert accumulated integrals ``s_j = ∫ y·φ_j`` into coefficients."""
-        return s  # default: identity (overridden where a norm applies)
+        """Turn accumulated integrals ``s_j = ∫ y·φ_j`` into coefficients."""
+        return s  # identity; overridden where a norm applies
 
     def sqrt_w(self) -> np.ndarray:  # diagonal criterion weights
         raise NotImplementedError
 
 
-# Legendre -- the reference basis (mirrors fit_lsi)
+# The reference basis; mirrors what fit_lsi does directly.
 class LegendreBasis(Basis):
     name = "legendre"
 
@@ -187,12 +184,12 @@ class LegendreBasis(Basis):
         return L.Legendre.fit(x, y, self.order, domain=[self.x0, self.xn]).coef
 
     def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        # s_j = ∫ y(x) P_j(u(x)) dx over these samples (trapezoid; additive).
+        # s_j = ∫ y(x) P_j(u(x)) dx over these samples; trapezoid, additive.
         u = 2.0 * (x - self.x0) / self.h - 1.0
         return np.polynomial.legendre.legvander(u, self.order), _trapz_weights(x)
 
     def integral_to_spectrum(self, s: np.ndarray) -> np.ndarray:
-        # β_j = (2j+1)/h * ∫ y P_j dx  (continuous Legendre coefficient).
+        # β_j = (2j+1)/h * ∫ y P_j dx, the continuous Legendre coefficient.
         return (2.0 * np.arange(self.n_coef) + 1.0) / self.h * s
 
     def sqrt_w(self) -> np.ndarray:
@@ -200,7 +197,6 @@ class LegendreBasis(Basis):
         return np.sqrt(self.h / (2.0 * j + 1.0))
 
 
-# Chebyshev
 class ChebyshevBasis(Basis):
     name = "chebyshev"
 
@@ -209,7 +205,7 @@ class ChebyshevBasis(Basis):
         n_quad = max(2 * (order + 1), 16)
         self._u, self._w = C.chebgauss(n_quad)
         self._V = np.polynomial.chebyshev.chebvander(self._u, order)
-        # T_j orthogonality weight on [-1,1] with w(x)=1/sqrt(1-x^2):
+        # T_j orthogonality on [-1,1] under w(x)=1/sqrt(1-x^2):
         # ∫ T_i T_j w = pi (i=j=0), pi/2 (i=j>0).
         self._norm = np.full(order + 1, 2.0 / np.pi)
         self._norm[0] = 1.0 / np.pi
@@ -234,13 +230,13 @@ class ChebyshevBasis(Basis):
         return np.ones(self.n_coef)
 
 
-# Fourier -- the key adaptation for periodic / seasonal signals
 class FourierBasis(Basis):
     """Real Fourier basis ``{1, cos(2πk t/P), sin(2πk t/P)}`` over the domain.
 
-    ``order`` is the number of harmonics K; the spectrum has ``2K+1``
-    coefficients ``[a0, a1..aK, b1..bK]``. The default period is the domain
-    length ``P=h`` (one fundamental cycle across the window).
+    For periodic or seasonal signals. ``order`` is the number of harmonics K,
+    so the spectrum has ``2K+1`` coefficients ``[a0, a1..aK, b1..bK]``. The
+    period defaults to the domain length ``P=h``, one fundamental cycle across
+    the window.
     """
 
     name = "fourier"
@@ -254,9 +250,9 @@ class FourierBasis(Basis):
         self.n_coef = 2 * self.K + 1
         self._nq = max(8 * (self.K + 1), 64)
         self._tg = np.linspace(self.x0, self.xn, self._nq)  # dense model grid
-        # The model-grid design matrix is constant (it does not depend on the
-        # coefficients), so factor it once: model_spectrum is then a single GEMV
-        # instead of an lstsq (SVD) on every optimizer residual evaluation.
+        # The model-grid design does not depend on the coefficients. Factor it
+        # once and model_spectrum becomes a GEMV rather than an lstsq (SVD)
+        # per residual evaluation.
         self._model_pinv = np.linalg.pinv(self._design(self._tg))  # (n_coef, nq)
 
     def _design(self, x: np.ndarray) -> np.ndarray:
@@ -270,8 +266,7 @@ class FourierBasis(Basis):
         return self._tg
 
     def model_spectrum(self, fv: np.ndarray) -> np.ndarray:
-        # least-squares coefficients of the model sampled on the dense grid, via
-        # the precomputed pseudo-inverse of the (constant) design matrix.
+        # least-squares coefficients of the model on the dense grid
         return self._model_pinv @ np.asarray(fv, dtype=float)
 
     def empirical(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -281,7 +276,7 @@ class FourierBasis(Basis):
         return self._design(x), _trapz_weights(x)
 
     def integral_to_spectrum(self, s: np.ndarray) -> np.ndarray:
-        # orthogonality of the trig system over a full period: ⟨1,1⟩=P,
+        # trig orthogonality over a full period: ⟨1,1⟩=P,
         # ⟨cos_k,cos_k⟩=⟨sin_k,sin_k⟩=P/2.
         norm = np.full(self.n_coef, 2.0 / self.P)
         norm[0] = 1.0 / self.P
@@ -291,7 +286,7 @@ class FourierBasis(Basis):
         return np.ones(self.n_coef)
 
 
-# Laguerre -- for decay / transient signals on [0, ∞) (scaled into the domain)
+# For decay / transient signals on [0, ∞), rescaled onto the domain.
 class LaguerreBasis(Basis):
     name = "laguerre"
 
@@ -315,7 +310,7 @@ class LaguerreBasis(Basis):
         return Lag.Laguerre.fit(self._to_u(x), y, self.order).coef
 
     def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        # integrate over u with the Laguerre weight e^-u folded into the design.
+        # integrate over u, with the Laguerre weight e^-u folded into D
         u = self._to_u(x)
         D = np.polynomial.laguerre.lagvander(u, self.order) * np.exp(-u)[:, None]
         return D, _trapz_weights(u)
@@ -338,7 +333,7 @@ _BASES: dict[str, type[Basis]] = {
 def make_basis(
     name: str, order: int, domain: tuple[float, float], **kwargs: Any
 ) -> Basis:
-    """Construct a basis by name (``legendre``/``chebyshev``/``fourier``/``laguerre``)."""
+    """Construct a basis by name: legendre, chebyshev, fourier or laguerre."""
     try:
         cls = _BASES[name]
     except KeyError:
@@ -359,13 +354,11 @@ def solve_spectral(
 ) -> FittingResult:
     """Match a model's spectrum to ``beta_data`` on ``basis`` (weighted NLLS).
 
-    Shared by every LSI variant: builds the model spectrum by evaluating the
-    lambdified model at the basis nodes and projecting, then minimizes the
-    diagonal-weighted coefficient residual. When ``bounds`` are given (and all
-    finite) a global search (differential evolution) precedes the local
-    refine, which makes the multimodal cases (e.g. free-frequency Fourier
-    fits) robust to ``p0``; infinite / mixed bounds skip the global stage but
-    still constrain the local solve (see :func:`solve_weighted_nlls`).
+    Evaluates the lambdified model at the basis nodes, projects it, then
+    minimizes the diagonal-weighted coefficient residual. Fully finite
+    ``bounds`` put a differential-evolution search ahead of the local refine,
+    which is what makes a multimodal fit such as a free-frequency Fourier one
+    insensitive to ``p0``. See :func:`solve_weighted_nlls`.
     """
     t = sp.Symbol(var)
     f_sym = cast(sp.Expr, sp.sympify(expr))
@@ -394,11 +387,9 @@ def solve_spectral(
         residual, sqrt_w, beta_data, guess, p0=p0, bounds=bounds
     )
     cov = _covariance(jac, residual(coeffs), len(params))
-    # FittingResult lambdifies the fitted model lazily from expr+coeffs.
-    # Thread the optimizer status and the fitted domain through so the promoted
-    # scale fitters (PartitionedLSI / PartitionedBatchLSI / fit_lsi_batched) get
-    # the same `converged` signal and `predict(warn_extrapolation)` guard that
-    # fit_lsi/fit_eac already provide.
+    # No model= here: FittingResult lambdifies it lazily from expr and coeffs.
+    # The optimizer status and the fitted domain go through so callers get a
+    # `converged` signal and the predict(warn_extrapolation) guard.
     return FittingResult(coeffs=coeffs, cov=cov,
                          expr=expr, var=var, names=tuple(str(p) for p in params),
                          converged=converged, message=message, nfev=nfev,
@@ -416,31 +407,28 @@ def solve_weighted_nlls(
     seed: int | None = 0,
     solver_options: dict[str, Any] | None = None,
 ):
-    """The shared bounded/unbounded weighted-NLLS driver for the LSI spectral
-    match, used by both :func:`solve_spectral` and :func:`dtfit.fit_lsi`.
+    """Bounded / unbounded weighted-NLLS driver for the LSI spectral match.
 
-    Without bounds it is a weighted Levenberg-Marquardt from ``guess``. With
-    bounds it tries a fast bounded local (trf) solve from a supplied seed first
-    -- accepting it only if it converged and explains the spectrum (relative
-    residual < 0.5) -- and otherwise falls back to a global differential-evolution
-    search refined by L-BFGS-B (the multimodal-safe path for e.g. a free
-    frequency). ``seed`` seeds the DE search for reproducibility.
+    Without bounds this is a weighted Levenberg-Marquardt from ``guess``. With
+    bounds it first tries a bounded local (trf) solve from the supplied seed,
+    accepting it only if the solver converged and the relative residual came
+    in under 0.5; otherwise it falls back to a differential-evolution search
+    refined by L-BFGS-B, the multimodal-safe path for something like a free
+    frequency. ``seed`` seeds that search for reproducibility.
 
-    Infinite / mixed bounds are tolerated: the global (differential-evolution)
-    stage needs a finite box and only runs when **every** bound is finite, but
-    the bounds are always passed to the local trf solve (scipy handles
-    ``+/-inf`` there), so a partially-bounded problem stays constrained
-    instead of being solved unbounded.
+    The global stage needs a finite box and runs only when every bound is
+    finite. Bounds reach the local trf solve either way (scipy handles
+    ``+/-inf`` there); a partially bounded problem stays constrained.
 
-    ``solver_options`` is an optional dict of solver tolerances forwarded to the
-    underlying optimizers where applicable: ``xtol`` / ``ftol`` / ``gtol`` /
-    ``max_nfev`` go to :func:`scipy.optimize.least_squares`; ``ftol`` / ``gtol``
-    and ``max_nfev`` (as ``maxfun``) map onto the L-BFGS-B refine. Unknown keys
-    are ignored.
+    ``solver_options`` forwards solver tolerances where they apply: ``xtol`` /
+    ``ftol`` / ``gtol`` / ``max_nfev`` to
+    :func:`scipy.optimize.least_squares`, and ``ftol`` / ``gtol`` /
+    ``max_nfev`` (as ``maxfun``) to the L-BFGS-B refine. Unknown keys are
+    ignored.
 
-    Returns ``(coeffs, jac, converged, message, nfev)`` where ``nfev`` is the
-    number of residual / cost evaluations the solver reported (summed across the
-    global + local stages on the differential-evolution path).
+    Returns ``(coeffs, jac, converged, message, nfev)``, where ``nfev`` counts
+    the residual / cost evaluations the solver reported, summed across both
+    stages on the differential-evolution path.
     """
     opts = solver_options or {}
     ls_opts = {k: opts[k] for k in ("xtol", "ftol", "gtol", "max_nfev") if k in opts}
@@ -465,8 +453,8 @@ def solve_weighted_nlls(
             denom = float(np.linalg.norm(sqrt_w * beta_data)) + 1e-30
             good = loc.success and float(np.linalg.norm(loc.fun)) / denom < 0.5
             if good or not all_finite:
-                # With any infinite bound the global stage cannot run, so the
-                # bounded local solve is the answer either way (honest status).
+                # With any infinite bound the global stage cannot run. This
+                # local solve is the answer whether or not it looked good.
                 return (np.asarray(loc.x, dtype=np.float64), loc.jac,
                         bool(loc.success), str(loc.message), int(loc.nfev))
 
@@ -474,8 +462,8 @@ def solve_weighted_nlls(
             r = residual(c)
             return float(r @ r)
 
-        # cast: ``seed`` is the portable arg across scipy versions (newer stubs
-        # only expose its ``rng`` successor).
+        # cast: `seed` is the portable argument across scipy versions; newer
+        # stubs only expose its `rng` successor.
         res_g = cast(Any, differential_evolution)(
             cost, bounds, strategy="best1bin", popsize=15, seed=seed
         )
@@ -484,7 +472,6 @@ def solve_weighted_nlls(
             options=min_opts or None,
         )
         coeffs = np.asarray(res.x, dtype=np.float64)
-        # nfev over both stages: the global DE search plus the local refine.
         nfev = int(getattr(res_g, "nfev", 0)) + int(getattr(res, "nfev", 0))
         return (coeffs, _numeric_jac(residual, coeffs),
                 bool(res.success), str(res.message), nfev)

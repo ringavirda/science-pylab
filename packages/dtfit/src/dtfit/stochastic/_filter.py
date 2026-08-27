@@ -1,48 +1,30 @@
-"""Streaming stochastic characterizer -- the **online twin** of
-:func:`fit_stochastic`'s second-order stage, built the way dtfit's own streaming
-filters are: **per-input incremental estimation, no batch re-fits.**
+"""Streaming counterpart of :func:`fit_stochastic`'s second-order stage.
 
-Where :func:`~dtfit.stochastic.fit_stochastic` characterizes a whole
-record in one batch pass (calling ``dtfit.fit_lsi`` on the deterministic
-functionals), many stochastic series arrive as a *stream* and the question is:
-*track the second-order structure online, and flag the moment it shifts.* That is
-the role dtfit's streaming filters (``EACFilter`` / ``LSIFilter`` +
-``FusedChiSquareDetector``) play for deterministic models -- and, crucially, they
-do it **incrementally per input**, never by re-running a batch fit each sample.
-:class:`StochasticFilter` follows the same design:
+:func:`~dtfit.stochastic.fit_stochastic` characterizes a whole record in one
+batch pass. A series arriving as a stream instead needs its second-order
+structure tracked as it goes, and the moment that structure shifts flagged.
+:class:`StochasticFilter` keeps exponentially-weighted autocovariances of the
+level and of the absolute deviations, updated in O(K) per input, and reads the
+parameters off them in closed form:
 
-* it maintains **exponentially-weighted autocovariances** of the level and of the
-  absolute deviations -- updated in O(K) **per input**, the running version of the
-  ACF (the deterministic functional ``fit_stochastic`` fits in batch);
-* every sample it reads the parameters from those autocovariances in **closed
-  form**, using **dtfit's own fitting principles** in their streaming (per-input)
-  form rather than a batch ``fit_lsi`` / ``fit_eac`` call:
+* persistence (AR(1) ``phi``) and volatility persistence by the equal-areas
+  criterion. Over two consecutive equal-width windows an exponentially
+  decaying ACF has area ratio ``a2/a1 = exp(-g*h)``. That pins the decay rate
+  ``g`` independently of the amplitude. It is the per-input form of
+  ``fit_eac("exp(-g*k)")`` and tracks the batch fit to about 1e-2.
+* the cycle from the AR(2) characteristic roots of the running
+  autocovariances, i.e. the lag-1 and lag-2 quantities.
 
-  - **persistence** (AR(1) ``phi``) and **volatility persistence** by dtfit's
-    **equal-areas criterion** (the EAC method): an exp-decaying ACF has, over two
-    consecutive equal-width windows, an area ratio ``a2/a1 = exp(-g*h)`` that pins
-    the decay rate ``g`` independent of amplitude -- the per-input, closed-form
-    form of ``fit_eac("exp(-g*k)")`` (it tracks the batch EAC fit to ~1e-2);
-  - the **cycle** from the AR(2) characteristic roots of the running
-    autocovariances (the lag-1/lag-2 transform quantities).
+Nothing here optimizes per sample or re-runs a batch fit; time (~3 us/sample)
+and memory both stay flat. A two-timescale fused statistic, the streaming
+analogue of the fused chi-square detector, flags a structural break such as a
+persistence jump or a volatility regime switch, once per change.
 
-  So there is no per-sample optimization, no ``fit_lsi`` call, and no batch-fit
-  spike (~3 us/sample, flat memory; matching dtfit's own ``LSIFilter``).
-
-The batch estimators this mirrors call ``dtfit.fit_lsi`` / ``fit_eac`` directly
-(the ``_*_from_acf`` cores in :mod:`~dtfit.stochastic`); the filter
-is their *streaming* counterpart -- the EAC area criterion evaluated incrementally
--- exactly as ``LSIFilter`` is the per-input counterpart of batch ``fit_lsi``.
-
-A two-timescale fused statistic -- the streaming analogue of the fused chi-square
-detector -- flags when the structure breaks (a persistence jump, a volatility
-regime switch), once per change, with a low false-alarm rate.
-
-**Honest scope.** This is the online twin of the *second-order* stage only.
-Long-memory (the spectral Hurst) and the unit-root gate are inherently *batch*
-(a periodogram / a regression over the whole record), so they are NOT tracked
-here; the filter covers persistence, cycle and volatility -- the structure that
-*can* be maintained in O(1).
+Scope is the second-order stage alone. Long memory (the spectral Hurst) and
+the unit-root gate need a periodogram or a regression over the whole record,
+so they are batch quantities and are not tracked here. The filter covers
+persistence, cycle and volatility, the structure that can be maintained in
+O(1).
 """
 
 from __future__ import annotations
@@ -55,23 +37,24 @@ __all__ = ["StochasticFilter"]
 
 
 class StochasticFilter:
-    """Online second-order characterizer + regime-change detector for a stream.
+    """Online second-order characterizer and regime-change detector.
 
-    Feed samples one at a time with :meth:`update`; read the running
-    characterization (AR(1) phi, cycle, volatility persistence -- each a closed-
-    form per-input estimate from the running autocovariances) from
-    :attr:`params_` / :meth:`snapshot`, a short forecast from :meth:`predict`, and
-    the count / times of detected structural breaks from :attr:`n_flags_` /
-    :attr:`flag_times_` / :attr:`last_flag_`.
+    Feed samples one at a time with :meth:`update`. The running
+    characterization (AR(1) phi, cycle, volatility persistence, each a
+    closed-form estimate from the running autocovariances) is on
+    :attr:`params_` and :meth:`snapshot`; a short forecast comes from
+    :meth:`predict`; detected structural breaks are counted and timed on
+    :attr:`n_flags_`, :attr:`flag_times_` and :attr:`last_flag_`.
 
     Args:
-        nlags: Number of autocovariance lags maintained (the memory footprint).
-        halflife: EWMA half-life (samples) of the autocovariance tracker -- how
-            fast the characterization adapts.
+        nlags: Autocovariance lags maintained; sets the memory footprint.
+        halflife: EWMA half-life in samples of the autocovariance tracker,
+            i.e. how fast the characterization adapts.
         warmup: Samples to accumulate before the detector is active.
         settle: Samples after ``warmup`` spent calibrating the detector's
-            in-control baseline before it may flag (lets the slow EWMA settle).
-        z_thresh: Fused-statistic threshold (in standard deviations) for a flag.
+            in-control baseline before it may flag, letting the slow EWMA
+            settle.
+        z_thresh: Fused-statistic threshold in standard deviations for a flag.
     """
 
     def __init__(self, nlags: int = 24, halflife: float = 150.0,
@@ -87,9 +70,10 @@ class StochasticFilter:
         self._acov = np.zeros(self.nlags + 1)
         self._vacov = np.zeros(self.nlags + 1)
         self._n = 0
-        # change detection: fast / slow EWMA of the characterizing stats and a
-        # frozen-when-out-of-control variance of their gap (in-control-baseline
-        # control chart -- so a sustained break cannot inflate its own normalizer).
+        # Change detection: fast and slow EWMAs of the characterizing stats,
+        # plus a variance of their gap that freezes while out of control. That
+        # is the in-control-baseline control chart; a sustained break cannot
+        # inflate its own normalizer.
         self._fast = np.zeros(2)
         self._slow = np.zeros(2)
         self._gvar = np.full(2, 1e-4)
@@ -99,16 +83,14 @@ class StochasticFilter:
         self._agvar = 1.0 - 0.5 ** (1.0 / 200.0)
         self._alarmed = False
         self.n_flags_ = 0
-        # bounded ring of recent change-point times (FLAT memory -- the count
-        # n_flags_ is unbounded but is a single int; the times ring is capped).
+        # Capped ring of recent change-point times, so memory stays flat;
+        # n_flags_ counts every flag but is a single int.
         self.flag_times_: deque[int] = deque(maxlen=512)
         self.last_flag_: int | None = None
 
-    # -- streaming update (per input, O(K), no batch fit) ------------------- #
     def update(self, x: float) -> "StochasticFilter":
-        """Ingest one sample; update the running autocovariances and the detector.
-        Everything is incremental -- there is no per-sample optimization or
-        batch re-fit (the parameters are read in closed form on demand)."""
+        """Ingest one sample, updating the running autocovariances and the
+        change detector."""
         x = float(x)
         a = self.alpha
         mean = x if self._mean is None else self._mean + a * (x - self._mean)
@@ -117,8 +99,8 @@ class StochasticFilter:
         ad = abs(d)
         self._acov[0] += a * (d * d - self._acov[0])
         self._vacov[0] += a * (ad * ad - self._vacov[0])
-        # vectorized EWMA autocovariance update over the lag buffer (O(K), no
-        # Python-level loop -- the per-sample hot path stays flat and fast)
+        # EWMA autocovariance update across the whole lag buffer at once,
+        # keeping the per-sample hot path free of a Python-level loop.
         m = len(self._buf)
         if m:
             buf = np.fromiter(self._buf, dtype=float, count=m)   # most-recent-first
@@ -136,23 +118,26 @@ class StochasticFilter:
             self.update(x)
         return self
 
-    # -- per-input closed-form estimators from the running autocov ---------- #
+    # Closed-form estimators read per input off the running autocovariances.
     def _eac_decay(self, acov: np.ndarray) -> float:
-        """Decay persistence by dtfit's **equal-areas criterion (EAC)**, evaluated
-        per-input on the running ACF: for an exp-decaying ACF the ratio of two
-        consecutive equal-width area windows is ``exp(-g*h)``, so the decay rate
-        ``g`` (hence persistence ``exp(-g)``) is read off the areas in closed form
-        -- the streaming form of ``fit_eac("exp(-g*k)")``, amplitude-free and
-        robust to per-lag noise (it integrates rather than reading one lag).
+        """Decay persistence by the equal-areas criterion, read per input off
+        the running ACF.
 
-        Only lags clearly above the **white-noise band** (``~2/sqrt(n_eff)``) count
-        as signal: a fast-decay (low-persistence) ACF has a noisy tail hovering
-        near zero, and a fixed tiny threshold lets that noise spuriously trigger
-        the area integration -- the dominant cause of a jittery estimate early in a
-        weakly-persistent stream. The integration is used only when there are
-        enough signal lags (slow decay); for a fast / moderate decay the lag-1
-        autocorrelation is the *exact* AR(1) persistence and less noisy than
-        integrating a couple of near-noise lags."""
+        For an exponentially decaying ACF the areas of two consecutive
+        equal-width windows stand in the ratio ``exp(-g*h)``. That pins the
+        decay rate ``g``, and with it the persistence ``exp(-g)``, without
+        reference to the amplitude: the streaming form of
+        ``fit_eac("exp(-g*k)")``, integrating the ACF rather than reading a
+        single lag of it.
+
+        Only lags clearly above the white-noise band (``~2/sqrt(n_eff)``)
+        count as signal. A weakly-persistent stream has a fast-decaying ACF
+        whose tail hovers near zero, and a fixed tiny threshold would admit
+        that noise into the area integration and leave the estimate jittering.
+        Integration is therefore reserved for a slow decay with enough signal
+        lags; below that, the lag-1 autocorrelation is the exact AR(1)
+        persistence and is quieter than integrating a couple of near-noise
+        lags."""
         c0 = acov[0]
         if c0 <= 1e-12:
             return float("nan")
@@ -176,9 +161,10 @@ class StochasticFilter:
         return float(np.clip(np.exp(-abs(g)), 0.0, 0.999))
 
     def _ar2_yule_walker(self) -> tuple[float, float]:
-        """AR(2) coefficients ``(phi1, phi2)`` from the lag-1/lag-2 autocorrelations
-        (Yule-Walker). Complex (oscillatory) roots iff ``phi2 < 0`` and the
-        discriminant is negative -- that is the streaming cycle test."""
+        """AR(2) coefficients ``(phi1, phi2)`` from the lag-1 and lag-2
+        autocorrelations by Yule-Walker. The roots are complex, hence
+        oscillatory, exactly when ``phi2 < 0`` and the discriminant is
+        negative; that is the streaming cycle test."""
         c0 = self._acov[0]
         if c0 <= 1e-12:
             return 0.0, 0.0
@@ -199,13 +185,12 @@ class StochasticFilter:
         if abs(c) >= 1.0:
             return float("nan")
         per = float(2.0 * np.pi / np.arccos(c))
-        # Same resolvable-cycle window as snapshot()'s "cyclical" label: at least
-        # ~4 samples per period, and at least one full period inside the lag
-        # window. Outside it the period is unresolved -> NaN (so params_ and the
-        # regime label never disagree).
+        # The resolvable-cycle window, shared with snapshot()'s "cyclical"
+        # label: at least ~4 samples per period and at least one full period
+        # inside the lag window. Outside it the period is unresolved and comes
+        # back NaN, keeping params_ and the regime label in agreement.
         return per if 4.0 <= per <= self.nlags else float("nan")
 
-    # -- detector ----------------------------------------------------------- #
     def _rho1(self) -> float:
         c0 = self._acov[0]
         return self._acov[1] / c0 if c0 > 1e-12 else 0.0
@@ -213,8 +198,8 @@ class StochasticFilter:
     def _detect(self) -> None:
         if self._n < self.warmup:
             return
-        # characterizing statistic: lag-1 autocorrelation (persistence) and the
-        # log volatility level -- a fused (persistence, volatility) descriptor.
+        # Characterizing statistic: the lag-1 autocorrelation for persistence
+        # and the log volatility level, fused into one descriptor.
         stat = np.array([self._rho1(), 0.5 * np.log(self._acov[0] + 1e-12)])
         if not self._det_init:
             self._fast[:] = stat
@@ -233,20 +218,19 @@ class StochasticFilter:
             self._alarmed = False               # re-arm once back in-control
         if calibrating:
             return
-        # rising-edge latch -> one flag per change, not one per out-of-control sample
+        # Rising-edge latch: one flag per change, not one per out-of-control
+        # sample.
         if z2 > self.z_thresh ** 2 and not self._alarmed:
             self.n_flags_ += 1
             self.flag_times_.append(self._n)
             self.last_flag_ = self._n
             self._alarmed = True
 
-    # -- readout (closed form from the current autocov) --------------------- #
     @property
     def params_(self) -> dict[str, float]:
-        """Current second-order characterization -- each a per-input closed-form
-        estimate from the running autocovariances (no fit, no cache): persistence
-        and volatility by the EAC equal-areas criterion, the cycle by the AR(2)
-        roots."""
+        """Current second-order characterization, computed on access from the
+        running autocovariances: persistence and volatility by the EAC
+        equal-areas criterion, the cycle by the AR(2) roots."""
         return {
             "n": float(self._n),
             "level": float(self._mean) if self._mean is not None else float("nan"),

@@ -1,27 +1,22 @@
-"""High-level "just fit it" entry points distilled from the domain merged pipelines.
+"""High-level "just fit it" entry points.
 
-The per-domain validation suite showed that the single biggest lever is **picking
-the structurally-correct model / estimator variant**, not the solver. Those
-studies wrapped that routing in two "merged" pipelines -- a parameter-estimation
-*selector* and an auto-composed *forecaster* -- that compose only the validated,
-stable levers behind one call. This module promotes that composition into the
-stable API:
+The structure of the model and the choice of estimator variant decide the
+answer here, not the solver. Both functions route on the signal's shape:
 
-* :func:`auto_estimate` -- recover physical parameters, routing by signal *shape*
-  to the estimator variant that fits it (oscillatory -> the LSI oscillatory
-  recipe; transient / peak -> curvature-window EAC; outliers -> robust-loss EAC;
-  else the better of LSI / EAC by in-sample fit).
-* :func:`auto_forecast` -- a structured fit-then-extrapolate forecaster that
-  routes the model class (saturating growth -> logistic; a detected cycle -> a
-  joint linear+seasonal fit; otherwise a quadratic level), with a **no-structure
-  guard** (persist when the fit cannot beat a random walk on a held-out training
-  tail) and a **divergence guard** (drop a runaway quadratic to linear).
+* :func:`auto_estimate` recovers physical parameters. Oscillatory goes to the
+  LSI oscillatory recipe, transient or peaked to curvature-window EAC,
+  outlier-heavy to robust-loss EAC, anything else to whichever of LSI and EAC
+  fits better in sample.
+* :func:`auto_forecast` fits and extrapolates. Saturating growth goes to a
+  logistic, a detected cycle to a joint linear+seasonal fit, anything else to
+  a quadratic level, behind two guards: persist when the fit cannot beat a
+  random walk on a held-out training tail, and drop a runaway quadratic to
+  linear.
 
-Both compose only stable pieces (:func:`dtfit.fit_lsi`, :func:`dtfit.fit_eac`
-with curvature-adaptive windows and the robust loss, :func:`dtfit.fft_frequency_seed`);
-they are the conservative merges the studies validated, and they keep the honest
-ceilings: near-random-walk series fall back to persistence, and ``auto_estimate``
-matches but does not beat a well-initialised NLLS on clean bulk shapes.
+Both build on :func:`dtfit.fit_lsi`, :func:`dtfit.fit_eac` and
+:func:`dtfit.fft_frequency_seed`. A near-random-walk series falls back to
+persistence, and ``auto_estimate`` matches rather than beats a
+well-initialised NLLS on clean bulk shapes.
 """
 
 from __future__ import annotations
@@ -48,12 +43,10 @@ from dtfit.methods import (
 )
 
 
-# shared helpers
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
-# auto_estimate -- the parameter-estimation merged selector
 def auto_estimate(
     x: np.ndarray,
     y: np.ndarray,
@@ -71,41 +64,37 @@ def auto_estimate(
     ) = None,
     param_names: tuple[str, ...] | None = None,
 ) -> FittingResult:
-    """Recover the parameters of ``expr`` by routing to the estimator that fits
-    the signal's *shape* (the parameter-estimation domain study's merged selector).
+    """Recover the parameters of ``expr``, routing on the signal's shape.
 
     Args:
         x, y: Observed samples.
-        expr, var: Model expression and main variable.
-        shape: One of ``"auto"`` (detect oscillation, else bulk), ``"oscillatory"``,
+        expr, var: Model expression and main variable. ``expr`` is either a
+            SymPy-expression string or a callable ``f(x, *params)`` (see
+            :func:`dtfit.methods.resolve_model`); either form is forwarded as
+            given to whichever base fitter the shape routes to.
+        shape: ``"auto"`` (detect oscillation, else bulk), ``"oscillatory"``,
             ``"transient"`` / ``"peak"`` (curvature-window EAC), ``"robust"``
-            (outlier-robust EAC via ``loss="soft_l1"``), or ``"bulk"`` (the better
-            of LSI / EAC by in-sample fit). The variant-follows-shape mapping the
-            study validated.
-        freq_param: Name of the angular-frequency parameter, forwarded to the LSI
-            oscillatory recipe (:func:`fit_lsi`); implies an oscillatory shape.
-        p0: Optional initial guess, forwarded verbatim to the base fitters: a
-            sequence in sorted-name order or a full ``{name: value}`` dict
-            (see :func:`dtfit.methods.normalize_p0`).
-        bounds: Optional parameter bounds, forwarded verbatim to the base
-            fitters: a per-parameter ``(min, max)`` pair list in sorted-name
-            order, a partial ``{name: (min, max)}`` dict (unnamed parameters
-            stay unbounded), or a scipy-style ``(lo, hi)`` 2-tuple (see
+            (outlier-robust EAC via ``loss="soft_l1"``), or ``"bulk"``
+            (whichever of LSI and EAC fits better in sample).
+        freq_param: Name of the angular-frequency parameter, forwarded to the
+            LSI oscillatory recipe (:func:`fit_lsi`). Implies an oscillatory
+            shape.
+        p0: Initial guess, forwarded verbatim to the base fitters: a sequence
+            in sorted-name order, or a full ``{name: value}`` dict (see
+            :func:`dtfit.methods.normalize_p0`).
+        bounds: Parameter bounds, forwarded verbatim: a per-parameter
+            ``(min, max)`` list in sorted-name order, a partial
+            ``{name: (min, max)}`` dict leaving the rest unbounded, or a
+            scipy-style ``(lo, hi)`` 2-tuple (see
             :func:`dtfit.methods.normalize_bounds`).
         param_names: Parameter names for a callable ``expr`` whose signature
-            cannot be introspected; forwarded to the base fitters. Ignored (but
-            validated) for a symbolic ``expr``.
-
-    ``expr`` may be a SymPy-expression string or a Python callable ``f(x, *params)``
-    (see :func:`dtfit.methods.resolve_model`); the callable is forwarded to
-    whichever base fitter the shape routes to.
+            cannot be introspected. Validated but ignored for a symbolic one.
 
     Returns:
         FittingResult from the selected estimator.
 
-    Accepts pandas ``Series`` / single-column ``DataFrame`` inputs for ``x`` /
-    ``y`` (coerced to 1-D float arrays); an ``ndarray`` / list input is unchanged
-    and bit-identical.
+    ``x`` and ``y`` accept pandas ``Series`` and single-column ``DataFrame``
+    inputs; an ndarray or list input stays bit-identical.
     """
     x = to_1d_array(x, "x")
     y = to_1d_array(y, "y")
@@ -121,15 +110,12 @@ def auto_estimate(
         return fit_lsi(x, y, expr, var, p0=p0, bounds=bounds, oscillatory=True,
                        freq_param=freq_param, param_names=param_names)
     if shape in ("transient", "peak"):
-        # Forward the (self-seeded) bounds: the curvature path honours them, and
-        # peak/saturating families rely on them for their positivity / width
-        # guards (e.g. a Gaussian's sigma > 0), so dropping them here would let
-        # those families land on a degenerate negative-width fit.
+        # Peak and saturating families need their bounds for the positivity
+        # and width guards, a Gaussian's sigma > 0 being the obvious one.
         return fit_eac(x, y, expr, var, window_mode="curvature", p0=p0,
                        bounds=bounds, param_names=param_names)
     if shape == "robust":
-        # active_ratio=0.8 is the study-tuned uniform-window recipe this
-        # pipeline was validated with (fit_eac itself defaults to 1.0).
+        # active_ratio=0.8 is this pipeline's recipe; fit_eac defaults to 1.0.
         return fit_eac(x, y, expr, var, p0=p0, bounds=bounds, loss="soft_l1",
                        active_ratio=0.8, param_names=param_names)
     if shape != "bulk":
@@ -145,7 +131,7 @@ def auto_estimate(
     for name, fitter in (
         ("fit_lsi", lambda: fit_lsi(x, y, expr, var, p0=p0, bounds=bounds,
                                     param_names=param_names)),
-        # active_ratio=0.8: the study-tuned uniform-window recipe (see above).
+        # active_ratio=0.8 as above.
         ("fit_eac", lambda: fit_eac(x, y, expr, var, p0=p0, bounds=bounds,
                                     active_ratio=0.8, param_names=param_names)),
     ):
@@ -174,7 +160,6 @@ def auto_estimate(
     return best
 
 
-# auto_forecast -- the forecasting merged pipeline
 def _looks_like_growth(y: np.ndarray) -> bool:
     if np.any(y <= 0):
         return False
@@ -186,9 +171,12 @@ def _looks_like_growth(y: np.ndarray) -> bool:
 
 
 def _auto_model(y: np.ndarray, seasonal: bool, season_strength: float) -> str:
-    """Route the model class with no per-series tuning (the merged forecaster's
-    router): saturating growth -> logistic; a detected cycle -> linear+seasonal;
-    otherwise a quadratic level (caught by the divergence guard if it runs away)."""
+    """Pick a model class, with no per-series tuning.
+
+    Saturating growth goes to logistic, a detected cycle to linear+seasonal,
+    anything else to a quadratic level that the divergence guard catches if it
+    runs away.
+    """
     if _looks_like_growth(y):  # already guarantees strictly positive y
         return "logistic"
     _, strength = dominant_period(y)
@@ -204,18 +192,17 @@ def _fit_model(model: str, t: np.ndarray, y: np.ndarray, t_all: np.ndarray,
                period: float | None) -> tuple[np.ndarray, FittingResult]:
     """Fit one model class and evaluate it over ``t_all`` (train + future x).
 
-    Returns the model values over ``t_all`` **and** the underlying
-    :class:`FittingResult`, so :func:`auto_forecast` can attach the fit (and a
-    prediction band) as forecast provenance without re-fitting.
+    Returns the values over ``t_all`` and the :class:`FittingResult` behind
+    them, so :func:`auto_forecast` can attach the fit and a prediction band as
+    provenance without re-fitting.
     """
     xspan = float(t[-1] - t[0]) or 1.0
     if model == "logistic":
         ylast = float(y[-1])
-        # Growth rate scales with the time span; bracket the seed rather than
-        # using fixed (0.1, 60) bounds. The old fixed bounds excluded gentle
-        # slopes (seed 6/xspan can fall below 0.1) and let the global search
-        # latch onto a near-vertical step -- a degenerate fit that matches
-        # in-sample but extrapolates to garbage / overflow (NaN forecasts).
+        # The growth rate scales with the time span. Bracket the seed instead
+        # of using a fixed box. A fixed box excludes gentle slopes and
+        # lets the global search latch onto a near-vertical step: a degenerate
+        # fit that matches in sample and then extrapolates to overflow.
         k_seed = 6.0 / xspan
         r = fit_lsi(
             t, y, "L/(1 + exp(-k*(x - x0)))", "x",
@@ -258,8 +245,8 @@ def _diverges(pred: np.ndarray, y: np.ndarray, k: float = 5.0) -> bool:
 
 def _no_structure(model: str, t: np.ndarray, y: np.ndarray,
                   period: float | None, factor: float = 8.0) -> bool:
-    """True when the structured model cannot get near naive persistence on a
-    held-out tail of the *training* data -- the near-random-walk signature."""
+    """True when the model cannot get near naive persistence on a held-out
+    tail of the training data, which is the near-random-walk signature."""
     n = y.size
     if n < 24:
         return False
@@ -274,33 +261,31 @@ def _no_structure(model: str, t: np.ndarray, y: np.ndarray,
 
 
 class ForecastResult(np.ndarray):
-    """The forecast values plus their provenance -- a :class:`numpy.ndarray`.
+    """The forecast values, plus where they came from.
 
-    Subclasses ``np.ndarray`` so it *is* the length-``horizon`` forecast: every
-    existing caller keeps working unchanged (indexing, ``.shape``, ``len``,
-    arithmetic, ``np.allclose``, ``np.isfinite``). It additionally carries where
-    the numbers came from, so a caller can inspect the fit and an uncertainty
-    band without a second call.
+    It subclasses :class:`numpy.ndarray`, which makes it the length-``horizon``
+    forecast itself: indexing, ``.shape``, ``len``, arithmetic and the usual
+    NumPy functions all work on it directly. It also carries the fit behind
+    the numbers; inspecting that costs no second call.
 
     Attributes:
-        model_name: The model that actually produced the forecast, *including the
-            fallback provenance* -- e.g. ``"logistic"`` for a clean fit,
+        model_name: The model that produced the forecast, carrying any
+            fallback provenance with it. ``"logistic"`` for a clean fit,
             ``"linear (poly diverged)"`` when the divergence guard dropped a
             runaway quadratic, ``"linear (logistic failed)"`` when the primary
-            fit raised, ``"random_walk"`` / ``"persistence (...)"`` on the
+            fit raised, or ``"random_walk"`` / ``"persistence (...)"`` on the
             persistence paths.
-        result: The underlying :class:`FittingResult` when the forecast came from
-            a real fit; ``None`` on the persistence / random-walk paths.
-        std_band: A length-``horizon`` 1-sigma prediction band (delta method) when
-            the fit exposed a covariance and the propagation succeeded; ``None``
-            otherwise. Named ``std_band`` (not ``std``) so it does not shadow
-            ``numpy.ndarray.std`` -- ``fc.std()`` and ``np.std(fc)`` keep working.
-        index: The length-``horizon`` FUTURE pandas index continuing the ``x``
-            passed to :func:`auto_forecast` (from ``extend_index(capture_index(x),
-            horizon)``); ``None`` when ``x`` was not a pandas ``Series`` /
-            ``DataFrame`` with an inferable step, or when pandas is absent. Purely
-            additive -- the forecast values are unaffected. Use :meth:`to_series`
-            for the pandas "in -> out" view.
+        result: The :class:`FittingResult` behind the forecast; ``None`` on
+            the persistence and random-walk paths.
+        std_band: A length-``horizon`` 1-sigma prediction band (delta method)
+            when the fit exposed a covariance and the propagation succeeded,
+            ``None`` otherwise. Named ``std_band`` rather than ``std`` so it
+            does not shadow ``numpy.ndarray.std``.
+        index: The length-``horizon`` future pandas index continuing the ``x``
+            passed to :func:`auto_forecast`; ``None`` when ``x`` was not a
+            pandas object with an inferable step, or when pandas is absent.
+            The forecast values themselves do not depend on it. See
+            :meth:`to_series`.
     """
 
     model_name: str
@@ -325,14 +310,11 @@ class ForecastResult(np.ndarray):
         return obj
 
     def __array_finalize__(self, obj: np.ndarray | None) -> None:
-        # Called on every construction path (view/slice/ufunc). Scalar
-        # provenance (model_name/result) carries forward unconditionally, but
-        # the per-step ``index`` and ``std_band`` are length-``horizon`` and
-        # only valid while the array keeps that length. On a slice / reduction /
-        # broadcast the derived array no longer aligns with them, so drop them
-        # rather than carry a misaligned band or a wrong-length index (which
-        # would make ``fc[:3].std_band`` silently wrong and ``fc[:3].to_series()``
-        # raise a length error).
+        # Runs on every construction path: view, slice, ufunc. The scalar
+        # provenance carries forward unconditionally, but std_band and index
+        # are length-horizon and only align while the array keeps that length,
+        # so a slice or a reduction drops them instead of carrying a
+        # misaligned band and a wrong-length index.
         if obj is None:
             return
         self.model_name = getattr(obj, "model_name", "")
@@ -348,19 +330,19 @@ class ForecastResult(np.ndarray):
         )
 
     def to_series(self) -> Any:
-        """Return the forecast values as a pandas ``Series`` indexed by :attr:`index`.
+        """The forecast values as a pandas ``Series`` on :attr:`index`.
 
-        This is the opt-in "pandas in -> pandas out" view: :func:`auto_forecast`
-        always returns an ``ndarray`` subclass for back-compat, and this method
-        wraps those same values in a ``Series`` carrying the future index.
+        :func:`auto_forecast` always returns the ndarray subclass; this is the
+        opt-in pandas view of the same values.
 
         Returns:
-            A pandas ``Series`` of the forecast values with index :attr:`index`.
+            A pandas ``Series`` of the forecast values, indexed by
+            :attr:`index`.
 
         Raises:
-            ValueError: when :attr:`index` is ``None`` (``x`` was not a pandas
-                object with an extendable index, or pandas is not installed), so
-                there is no future index to align to.
+            ValueError: When :attr:`index` is ``None`` and there is no future
+                index to align to. That happens when ``x`` was not a pandas
+                object with an extendable index, or pandas is not installed.
         """
         if not HAS_PANDAS:
             raise ValueError(
@@ -388,19 +370,18 @@ def _persist(
 def _forecast_std(
     result: FittingResult | None, future: np.ndarray
 ) -> np.ndarray | None:
-    """Best-effort 1-sigma band at the future grid from the fit's covariance.
+    """Best-effort 1-sigma band at the future grid, from the fit covariance.
 
-    Returns ``None`` (never raises) when the fit has no covariance, when the
-    delta-method propagation fails, or when it yields a non-finite / wrong-length
-    band -- an uncertainty band is a bonus, not a contract of the forecast.
+    Returns ``None`` rather than raising when there is no covariance, when the
+    delta-method propagation fails, or when the band comes back non-finite or
+    the wrong length.
     """
     if result is None or result.cov is None:
         return None
     try:
         _, std = result.predict(future, return_std=True)
     except Exception:
-        # Any numeric/model failure in the band is non-fatal: the forecast values
-        # are still valid, we simply report no uncertainty for them.
+        # The forecast values are still valid; we just report no uncertainty.
         return None
     std = np.asarray(std, dtype=float)
     if std.shape != future.shape or not np.all(np.isfinite(std)):
@@ -418,35 +399,30 @@ def auto_forecast(
     seasonal: bool = True,
     season_strength: float = 0.05,
 ) -> ForecastResult:
-    """Structured fit-then-extrapolate forecast (the forecasting merged pipeline).
+    """Structured fit-then-extrapolate forecast.
 
-    Routes the model class, applies a no-structure guard (persist on a
-    near-random-walk series) and a divergence guard (drop a runaway quadratic to
-    linear), then extrapolates ``horizon`` steps past ``x`` on its uniform grid.
+    Routes the model class, applies the no-structure and divergence guards,
+    then extrapolates ``horizon`` steps past ``x`` on its uniform grid.
 
     Args:
-        x, y: The observed series (``x`` (near-)uniformly sampled).
+        x, y: The observed series; ``x`` near-uniformly sampled.
         horizon: Number of future steps to forecast.
-        model: ``"auto"`` (route by structure) or one of ``"logistic"``,
+        model: ``"auto"`` to route by structure, or one of ``"logistic"``,
             ``"linear"``, ``"poly"``, ``"linear_seasonal"``, ``"random_walk"``.
-        period: Optional known seasonal period (in samples) for the seasonal fit.
+        period: Known seasonal period, in samples, for the seasonal fit.
         seasonal: Whether to consider a seasonal model under ``"auto"``.
-        season_strength: Minimum detected cycle strength to pick a seasonal model.
-
-    ``x`` / ``y`` may be pandas ``Series`` / single-column ``DataFrame`` inputs
-    (coerced to 1-D float arrays); an ``ndarray`` / list input is unchanged and
-    the forecast is bit-identical. When ``x`` is a pandas object whose index is
-    extendable (a ``DatetimeIndex`` with an inferable frequency, or an
-    integer-stepped index), the result carries a length-``horizon`` FUTURE
-    ``.index`` and :meth:`ForecastResult.to_series` returns the pandas view.
+        season_strength: Minimum cycle strength to pick a seasonal model.
 
     Returns:
-        A :class:`ForecastResult` -- an ``np.ndarray`` of the length-``horizon``
-        forecast (the values at the extrapolated x grid) that also carries
-        ``.model_name`` (the model that produced it, with fallback provenance),
-        ``.result`` (the underlying :class:`FittingResult`, or ``None`` on the
-        persistence paths), ``.std_band`` (a 1-sigma band when available) and
-        ``.index`` (the future pandas index, or ``None`` for a non-pandas ``x``).
+        A :class:`ForecastResult`: the length-``horizon`` forecast as an
+        ndarray, carrying ``.model_name``, ``.result``, ``.std_band`` and
+        ``.index``.
+
+    ``x`` and ``y`` accept pandas ``Series`` and single-column ``DataFrame``
+    inputs; an ndarray or list input gives a bit-identical forecast. When
+    ``x``'s index is extendable, a ``DatetimeIndex`` with an inferable
+    frequency or an integer-stepped index, the result carries a future
+    ``.index`` and :meth:`ForecastResult.to_series` gives the pandas view.
     """
     allowed = {"auto", "logistic", "linear", "poly", "linear_seasonal", "random_walk"}
     if model not in allowed:
@@ -467,9 +443,8 @@ def auto_forecast(
     chosen = _auto_model(y, seasonal, season_strength) if model == "auto" else model
 
     # Persistence paths: an explicit random walk, or a structured model that
-    # cannot beat naive persistence on a held-out training tail. (The `or`
-    # short-circuits exactly as before -- an explicit random walk never runs the
-    # no-structure probe.)
+    # cannot beat naive persistence on a held-out training tail. An explicit
+    # random walk never runs the no-structure probe.
     if chosen == "random_walk":
         return _persist(y, horizon, "random_walk", index=fut_index)
     if _no_structure(chosen, x, y, period):

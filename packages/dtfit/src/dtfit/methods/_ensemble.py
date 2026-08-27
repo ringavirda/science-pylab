@@ -1,21 +1,19 @@
-"""Overlapping-window ensemble -- robust aggregation for outlier-prone data.
+"""Overlapping-window ensemble: robust aggregation for outlier-prone data.
 
-Promoted from the experimental adaptations (#3). Fitting one model to the whole
-record gives a single estimate with full exposure to outliers. ``ensemble_fit``
-instead fits the model on many **overlapping subwindows** and aggregates the
-per-window coefficients robustly: the **median** of the estimates rejects windows
-corrupted by outliers, and the inter-window spread is a cheap empirical
-uncertainty band. This is bagging over the time axis, applicable to both EAC and
-LSI.
+Fitting one model to the whole record gives a single estimate with full
+exposure to outliers. ``ensemble_fit`` instead fits the model on many
+overlapping subwindows and aggregates the per-window coefficients robustly.
+The median of the estimates rejects windows corrupted by outliers, and the
+inter-window spread is a cheap empirical uncertainty band. This is bagging
+over the time axis and applies to both EAC and LSI.
 
-When to use it: **densely outlier-contaminated** data. The median-of-windows
-aggregation rejects whole corrupted windows without the per-problem ``f_scale``
-tuning that ``fit_eac(loss="soft_l1", ...)`` needs -- and stays stable where that
-robust loss can diverge. For lighter contamination the robust loss on a single
-``fit_eac`` is the cheaper path (see :func:`dtfit.fit_eac`); the ensemble is the
-heavier-duty complement. On clean (Gaussian-noise) data prefer a single
-whole-record fit: the ensemble trades a little accuracy there for the outlier
-robustness, so it is a specialised tool rather than the default path.
+Reach for it when contamination is dense. Median-of-windows rejects whole
+corrupted windows without the per-problem ``f_scale`` tuning that
+``fit_eac(loss="soft_l1", ...)`` needs, and stays stable where that robust
+loss can diverge. For lighter contamination the robust loss on a single
+``fit_eac`` is cheaper (see :func:`dtfit.fit_eac`). On clean Gaussian-noise
+data prefer a single whole-record fit; the ensemble trades a little accuracy
+there for the outlier robustness.
 """
 
 from __future__ import annotations
@@ -36,9 +34,9 @@ class EnsembleResult(FittingResult):
     """A :class:`FittingResult` aggregated from an overlapping-window ensemble.
 
     Behaves like any fitted result (named ``params``, ``model``, ``predict``,
-    ``to_dict``) and additionally exposes the raw per-window fits
-    (:attr:`members`) and their inter-window standard deviation (:attr:`spread`).
-    The spread also fills a diagonal empirical covariance, so ``stderr()`` and
+    ``to_dict``) and adds the raw per-window fits (:attr:`members`) and their
+    inter-window standard deviation (:attr:`spread`). The spread also fills a
+    diagonal empirical covariance, so ``stderr()`` and
     ``predict(return_std=True)`` report the ensemble's uncertainty.
 
     Attributes:
@@ -98,9 +96,9 @@ def ensemble_fit(
             ``bounds``).
 
     Returns:
-        :class:`EnsembleResult` -- a :class:`FittingResult` carrying the
+        An :class:`EnsembleResult`: a :class:`FittingResult` carrying the
         aggregated coefficients plus the per-window ``members`` and their
-        ``spread`` (which also populates the covariance).
+        ``spread``, which also populates the covariance.
     """
     fitter = _FITTERS.get(method)
     if fitter is None:
@@ -157,11 +155,11 @@ def ensemble_fit(
     M = np.vstack(members)
     coeffs = np.median(M, axis=0) if aggregate == "median" else np.mean(M, axis=0)
     if M.shape[0] < 2:
-        # A single surviving window gives no inter-window spread -- np.std would
-        # be exactly 0, which masquerades as *zero* uncertainty (a dangerously
-        # overconfident stderr / predict(return_std=True) precisely when the
-        # ensemble has degraded to one fit). Fall back to that fit's own analytic
-        # covariance; if even that is unavailable, report NaN rather than lie.
+        # One surviving window gives no inter-window spread: np.std would
+        # return exactly 0, and stderr and predict(return_std=True) would then
+        # report zero uncertainty precisely when the ensemble has degraded to
+        # a single fit. Fall back to that fit's own analytic covariance, or to
+        # NaN when even that is unavailable.
         cov = last_res.cov if last_res is not None else None
         if cov is not None:
             spread = np.sqrt(np.clip(np.diag(cov), 0.0, None))

@@ -1,18 +1,16 @@
-"""FilterBank -- a parallel array of independent streaming filters.
+"""FilterBank: a parallel array of independent streaming filters.
 
-Many real-time problems are not a single stream but a *bank* of them: the
+Many real-time problems are not a single stream but a bank of them: the
 pseudorange from each GPS satellite, the outputs of a MIMO plant, the channels
 of a sensor array, the axes of a trajectory. Each is tracked by its own
-:class:`~dtfit.streaming.EACFilter` /
-:class:`~dtfit.streaming.LSIFilter`, and -- because the streams are
-independent -- the whole bank fans across CPU cores.
+:class:`~dtfit.streaming.EACFilter` or :class:`~dtfit.streaming.LSIFilter`, and
+because the streams are independent the whole bank fans across CPU cores.
 
-The composition is deliberately thin: a :class:`FilterBank` *holds* K filters
-and routes samples to them. The parallel speed-up comes from the compiled
-kernels (``dtfit._native``) releasing the GIL on their hot loops, so worker
-**threads** updating different filters run their integral work concurrently
-without pickling (filters carry compiled SymPy callables and are not sent to
-processes). This is the streaming counterpart of :func:`dtfit.fit_many`.
+The composition is thin: a :class:`FilterBank` holds K filters and routes
+samples to them. The thread speed-up comes from the compiled kernels
+(``dtfit._core._native``) releasing the GIL on their hot loops, so workers updating
+different filters overlap their integral work without any pickling. This is the
+streaming counterpart of :func:`dtfit.fit_many`.
 """
 
 from __future__ import annotations
@@ -34,15 +32,14 @@ def _drive_streams(
     y_cols: list[np.ndarray],
     track: bool,
 ) -> tuple[list[np.ndarray], list[int], list[list[float]]]:
-    """Process-pool worker: rebuild a filter per assigned stream from the picklable
-    ``recipe`` (the compiled SymPy callables are *not* pickled -- they are
-    recompiled in the worker), drive it over its column, and return final params,
-    drift counts and optional per-step tracks. Module-level so it is picklable.
+    """Process-pool worker: rebuild a filter per assigned stream from the
+    picklable ``recipe``, drive it over its column, and return final params,
+    drift counts and optional per-step tracks. The compiled SymPy callables are
+    never pickled; the worker recompiles them. Module-level to stay picklable.
 
-    This is what lets the bank parallelize across **processes**: each worker holds
-    the GIL of its own interpreter, so the Python-level per-sample work (model
-    evaluation, Kalman update) of different streams runs genuinely concurrently --
-    unlike the thread backend, where one GIL serializes that work.
+    Each worker holds the GIL of its own interpreter, so the Python-level
+    per-sample work (model evaluation, Kalman update) of different streams
+    runs genuinely concurrently; the thread backend shares one GIL.
     """
     filter_cls, expr, var, kwargs = recipe
     params: list[np.ndarray] = []
@@ -56,8 +53,8 @@ def _drive_streams(
             flt.partial_fit(float(t_seq[s]), float(col[s]))
             if getattr(flt, "drift_flag_", False):
                 nd += 1
-            if track:  # full-length column (NaN where no prediction), so the
-                # parent can assign it by position without index drift
+            if track:  # full-length column, NaN where there is no prediction,
+                # letting the parent assign it by position without index drift
                 if len(getattr(flt, "_t", [1])) > 0:
                     th.append(float(flt.predict(np.array([t_seq[s]]))[0]))
                 else:
@@ -81,9 +78,10 @@ class FilterBank:
         self.filters: list[Any] = list(filters)
         if not self.filters:
             raise ValueError("FilterBank needs at least one filter.")
-        # Construction recipe for the process backend; set by ``from_model`` (only
-        # there are all streams identically configured and picklable). ``None`` for
-        # banks built from explicit, possibly heterogeneous filter objects.
+        # Construction recipe for the process backend, set by ``from_model``;
+        # only there are all streams identically configured and picklable. It
+        # stays ``None`` for a bank built from explicit, possibly heterogeneous
+        # filter objects.
         self._recipe: tuple[Any, str, str, dict[str, Any]] | None = None
 
     @classmethod
@@ -115,7 +113,6 @@ class FilterBank:
     def __getitem__(self, i: int) -> Any:
         return self.filters[i]
 
-    # per-step ingestion (one sample per stream)
     def partial_fit(
         self,
         t: float | np.ndarray,
@@ -128,9 +125,9 @@ class FilterBank:
         Args:
             t: Shared scalar time, or a per-stream array of length K.
             y: Per-stream observations, length K.
-            n_jobs: Threads to fan the K updates across (``1`` = serial). Uses a
-                thread pool so the GIL-released kernels overlap; for cheap
-                per-step work serial is usually fastest -- threading wins when K
+            n_jobs: Threads to fan the K updates across (``1`` = serial). A
+                thread pool lets the GIL-released kernels overlap. For cheap
+                per-step work serial is usually fastest; threading wins when K
                 and the window are large (see :meth:`run`).
         """
         y = np.asarray(y, dtype=float)
@@ -146,7 +143,6 @@ class FilterBank:
             ))
         return self
 
-    # whole-stream driver (parallel across streams, no per-step barrier)
     def run(
         self,
         t_seq: np.ndarray,
@@ -158,26 +154,26 @@ class FilterBank:
     ) -> dict[str, Any]:
         """Drive every stream over a whole block of samples.
 
-        Streams are independent, so each worker takes a disjoint subset of streams
-        and runs it to completion -- no per-step synchronization, which is what
+        Streams are independent, so each worker takes a disjoint subset of
+        them and runs it to completion. No per-step synchronization is what
         makes the bank scale.
 
         Args:
             t_seq: Time stamps, shape ``(n_steps,)`` (shared by all streams).
-            Y: Observations, shape ``(n_steps, K)`` -- column k feeds filter k.
+            Y: Observations, shape ``(n_steps, K)``; column k feeds filter k.
             n_jobs: Worker count (``1`` = serial).
             track: If True, also return the per-stream, per-step prediction of
                 the current sample (``(n_steps, K)``); costs O(n_steps*K) memory.
             backend: ``"thread"`` (default) fans the K streams across worker
-                threads; this only speeds up the GIL-released native kernel work,
-                so for the (Python-level) recursive filter loop it is usually no
-                faster than serial. ``"process"`` instead runs disjoint stream
-                subsets in separate interpreters -- each holding its own GIL -- so
-                the per-sample Python work runs genuinely concurrently; it wins for
-                large workloads (many streams x long records) where the per-process
-                compute dwarfs the spawn/pickling overhead. Requires a bank built
-                via :meth:`from_model` (so the filters are reconstructable in the
-                workers); falls back to threads otherwise.
+                threads. That speeds up only the GIL-released native kernel
+                work, leaving the Python-level filter loop usually no faster
+                than serial. ``"process"`` runs disjoint stream subsets in
+                separate interpreters, each with its own GIL, so the per-sample
+                Python work runs genuinely concurrently. It wins on many
+                streams by long records, where per-process compute dwarfs the
+                spawn and pickling overhead. It needs a bank built via
+                :meth:`from_model` for the workers to reconstruct the filters,
+                and falls back to threads otherwise.
 
         Returns:
             ``params``: ``(K, n_params)`` final estimates; ``n_drifts``:
@@ -224,8 +220,9 @@ class FilterBank:
         self, t_seq: np.ndarray, Y: np.ndarray, *, n_jobs: int, track: bool
     ) -> dict[str, Any]:
         """Process-pool backend for :meth:`run` (see its ``backend`` docs)."""
-        # Only reached from ``run`` when a recipe is set (it is what the workers
-        # rebuild the filters from); bind it locally so it is non-Optional.
+        # Only reached from ``run`` when a recipe is set, that being what the
+        # workers rebuild the filters from. Bind it locally to make it
+        # non-Optional.
         recipe = self._recipe
         assert recipe is not None
         n_steps, K = Y.shape
@@ -253,7 +250,6 @@ class FilterBank:
             out["track"] = track_hist
         return out
 
-    # readout
     def params_array(self) -> np.ndarray:
         """Current estimates as ``(K, n_params)``."""
         return np.array([flt.p for flt in self.filters], dtype=float)
@@ -285,17 +281,15 @@ class FilterBank:
 class FusedChiSquareDetector:
     """Pool a :class:`FilterBank`'s one-step innovations into a fused fault test.
 
-    A fault that moves **every** stream (a structural change shared across axes:
-    a damping fault on all axes of an oscillator, a regime shift in a sensor
-    array) leaves only a weak signature in any single stream's innovation but a
-    strong one in the *sum* across streams. This detector normalises each
-    filter's one-step residual (``last_residual_``) by an online EWMA estimate of
-    its variance and sums the squares into a ``chi2(K)`` statistic; when it
-    exceeds the ``alpha``-level threshold it flags a fault and (optionally)
-    re-arms each filter via :meth:`~dtfit.EACFilter.inflate` so the bank
-    re-adapts quickly. Validated in the embedded-control domain study (a 3-axis
-    damping fault flagged within a window at zero false alarms, where the pooled
-    chi2(3) has far higher SNR than any single axis).
+    A fault that moves every stream (a damping fault on all axes of an
+    oscillator, a regime shift in a sensor array) leaves only a weak signature
+    in any single stream's innovation but a strong one in the sum across
+    streams. This detector normalises each filter's one-step residual
+    (``last_residual_``) by an online EWMA estimate of its variance and sums
+    the squares into a ``chi2(K)`` statistic. Passing the ``alpha``-level
+    threshold flags a fault and optionally re-arms each filter via
+    :meth:`~dtfit.EACFilter.inflate`. In the embedded-control domain study a
+    3-axis damping fault was flagged within one window at zero false alarms.
 
     Usage::
 
@@ -307,18 +301,17 @@ class FusedChiSquareDetector:
                 handle_fault(i, det.statistic_)
 
     Args:
-        bank: The :class:`FilterBank` to drive (its filters must expose
-            ``last_residual_``, ``W`` and :meth:`inflate` -- both stock filters
-            do).
+        bank: The :class:`FilterBank` to drive. Its filters must expose
+            ``last_residual_``, ``W`` and :meth:`inflate`; both stock ones do.
         alpha: Per-step false-alarm probability; the threshold is
             ``chi2.ppf(1 - alpha, df=K)``.
         inflate: Covariance re-arm factor applied to every filter on a detection
             (``<= 1`` disables the re-arm; the flag is still raised).
         ewma: Decay for the per-stream innovation-variance estimate.
-        warmup: Steps to wait before detecting (defaults to ``3 * window``, so
-            the EWMA variance and the filters have settled).
-        cooldown: Steps to suppress detection after a flag (defaults to one
-            ``window``, so a single fault is not re-flagged every step).
+        warmup: Steps to wait before detecting. Defaults to ``3 * window``,
+            long enough for the EWMA variance and the filters to settle.
+        cooldown: Steps to suppress detection after a flag. Defaults to one
+            ``window``, so a single fault is not re-flagged every step.
     """
 
     def __init__(
@@ -336,17 +329,17 @@ class FusedChiSquareDetector:
         self.threshold_ = float(chi2.ppf(1.0 - alpha, df=self.k))
         self.inflate_factor = float(inflate)
         self.ewma = float(ewma)
-        # W is the filter's window *cap*; for an adaptive-window filter the
-        # effective window starts at min_window and grows, so the default
-        # ``3*W`` warmup is deliberately conservative (it delays first detection
-        # but never causes a false positive). Pass an explicit ``warmup`` sized to
-        # ``min_window`` if you need the detector to arm sooner on adaptive banks.
+        # W is the filter's window cap. An adaptive-window filter starts at
+        # min_window and grows, so the default ``3*W`` warmup is conservative:
+        # it delays first detection but never causes a false positive. Pass an
+        # explicit ``warmup`` sized to ``min_window`` to arm the detector
+        # sooner on an adaptive bank.
         w = int(getattr(bank.filters[0], "W", 1))
         self._warmup = 3 * w if warmup is None else int(warmup)
         self._cooldown_len = w if cooldown is None else int(cooldown)
-        # Annotated shape-agnostic: the running update at ``update`` rebuilds it
-        # from ``np.array([...])`` (general shape), which newer numpy stubs would
-        # otherwise reject against the 1-D shape inferred from ``np.zeros``.
+        # Annotated shape-agnostic. ``update`` rebuilds this from
+        # ``np.array([...])``, a general shape that newer numpy stubs reject
+        # against the 1-D shape inferred from ``np.zeros``.
         self._scale2: np.ndarray = np.zeros(self.k)
         self._step = -1   # raw stream index of the current sample
         self._seen = 0    # number of steps with a full (finite-residual) window
@@ -359,9 +352,9 @@ class FusedChiSquareDetector:
         """Ingest one sample per stream and test for a fused fault.
 
         Updates the bank in place, then returns ``True`` iff this step raises a
-        fault flag. ``flags_`` records the (zero-based) **stream** step indices
-        that fired (counting every :meth:`update` call, including the warm-up
-        steps before the filters' windows fill).
+        fault flag. ``flags_`` records the zero-based stream step indices that
+        fired, counting every :meth:`update` call including the warm-up steps
+        before the filters' windows fill.
         """
         self._step += 1
         self.bank.partial_fit(t, y)

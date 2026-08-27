@@ -1,10 +1,8 @@
-"""Library logging.
+"""Library logging, under the ``"dtfit"`` logger.
 
-dtfit logs through the standard :mod:`logging` module under the ``"dtfit"``
-logger. Following library best practice the logger has only a ``NullHandler``
-attached, so importing dtfit never configures the root logger or prints
-anything by itself. Applications opt in to output; ``enable_logging`` is a
-convenience for notebooks and scripts.
+The logger carries only a ``NullHandler``: importing dtfit never configures
+the root logger or prints anything. ``enable_logging`` is the opt-in for
+notebooks and scripts.
 """
 
 import logging
@@ -20,16 +18,16 @@ def enable_logging(
 ) -> logging.Logger:
     """Attach a stream handler to the dtfit logger and set its level.
 
+    Repeat calls reconfigure the existing dtfit stream handler instead of
+    stacking another one, so a re-run notebook cell does not double its
+    records.
+
     Args:
-        level: Logging level (e.g. ``logging.INFO`` or ``logging.DEBUG``).
+        level: Logging level, e.g. ``logging.INFO``.
         fmt: Format string for the stream handler.
 
     Returns:
         The configured ``"dtfit"`` logger.
-
-    Calling this more than once (common in notebooks) reconfigures the existing
-    dtfit stream handler rather than stacking a new one, so records are not
-    duplicated.
     """
     handler = next(
         (h for h in logger.handlers if isinstance(h, logging.StreamHandler)),
@@ -51,14 +49,13 @@ def echo(
 ) -> None:
     """Emit a fitting-detail message through the dtfit logger.
 
-    Logged at DEBUG by default and silent unless the application configures
-    logging (see :func:`dtfit.enable_logging` -- use
-    ``enable_logging(logging.DEBUG)`` to see fitting detail).
+    Silent until the application configures logging; call
+    ``enable_logging(logging.DEBUG)`` to see these.
 
     Args:
         message: Message to log before any values.
         value: Value(s) to log after the message.
-        level: Logging level (default ``logging.DEBUG``).
+        level: Logging level.
     """
     if not logger.isEnabledFor(level):
         return

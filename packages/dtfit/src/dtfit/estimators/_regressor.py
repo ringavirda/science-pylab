@@ -37,69 +37,72 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
     """Fit a model that is nonlinear in its parameters to 1-D data.
 
     Args:
-        expr: The model, in any of three equivalent forms (resolved by
-            :func:`dtfit.methods.resolve_model`): a SymPy-expression **string**
-            (e.g. ``"a0 + a1*x + a2*exp(a3*x)"``), a :class:`sympy.Expr`, or a
-            plain Python **callable** ``f(x, *params)``. Defaults to a simple
-            affine string so the estimator is constructible with no arguments
-            (the scikit-learn estimator contract: ``NonlineRegressor()`` must
-            work for ``clone`` / meta-estimator introspection). A callable is
-            only supported on the ``"lsi"`` / ``"eac"`` routes -- ``"dsb"`` needs
-            a symbolic spectrum and raises at fit time for a callable model.
-        var: Main variable name in ``expr`` (the single input feature). For a
+        expr: The model, in any of three equivalent forms resolved by
+            :func:`dtfit.methods.resolve_model`: a SymPy-expression string
+            such as ``"a0 + a1*x + a2*exp(a3*x)"``, a :class:`sympy.Expr`, or
+            a plain Python callable ``f(x, *params)``. The default is a
+            simple affine string, because the scikit-learn contract requires
+            ``NonlineRegressor()`` to construct with no arguments for
+            ``clone`` and meta-estimator introspection. A callable works on
+            the ``"lsi"`` and ``"eac"`` routes only; ``"dsb"`` needs a
+            symbolic spectrum and raises at fit time for one.
+        var: Main variable name in ``expr``, the single input feature. For a
             callable model it is a label only.
-        param_names: Parameter names for a **callable** model, in signature order
-            (the parameters after the leading ``x``); introspected from the
-            callable's signature when omitted, and only required when that
-            signature cannot be introspected (e.g. a ``*args`` model). For a
-            symbolic model it is optional and validated against the names parsed
-            from the expression. Stored verbatim (no ``__init__`` validation) and
-            forwarded to the fitter. See :func:`dtfit.methods.resolve_model`.
+        param_names: Parameter names for a callable model, in signature order
+            (those following the leading ``x``). Introspected from the
+            callable when omitted, and required only where the signature
+            cannot be introspected, as with a ``*args`` model. For a symbolic
+            model it is optional and checked against the names parsed from
+            the expression. Stored verbatim, since the sklearn contract
+            forbids validating in ``__init__``, and forwarded to the fitter.
         method: ``"lsi"``, ``"eac"`` or ``"dsb"``.
         k_star: (LSI) number of spectral discretes to match.
         alpha: (LSI) extra exponential down-weight ``exp(-alpha*i)`` on
-            high-order discretes; ``0.0`` (the :func:`dtfit.fit_lsi` default)
+            high-order discretes. ``0.0``, the :func:`dtfit.fit_lsi` default,
             relies on the built-in orthonormal weighting alone.
-        filter_data: (LSI) apply a Savitzky-Golay pre-filter. Off by default --
-            a fitter must not silently modify the user's data (matches
-            :func:`dtfit.fit_lsi`).
-        bounds: (LSI/EAC) optional parameter bounds: a per-parameter
+        filter_data: (LSI) apply a Savitzky-Golay pre-filter. Off by default,
+            matching :func:`dtfit.fit_lsi`: a fitter must not silently modify
+            the user's data.
+        bounds: (LSI/EAC) optional parameter bounds, either a per-parameter
             ``(min, max)`` pair list in sorted-name order or a partial
-            ``{name: (min, max)}`` dict; passed through to the fitter untouched.
-            For LSI, fully finite bounds enable a global search.
-        active_ratio: (EAC) leading fraction of data used for window placement.
-            Defaults to ``1.0`` (all samples, matching :func:`dtfit.fit_eac`).
-        poly_degree: (DSB) polynomial degree for the required pre-fit; if
-            ``None`` it is selected automatically (BIC).
-        p0: Optional initial guess for the parameters: a sequence in
-            sorted-name order or a ``{name: value}`` dict (passed through
-            untouched).
-        random_state: (LSI) seed for the deterministic global / differential-
-            evolution search when ``bounds`` are given, so a bounded fit is
-            reproducible under ``GridSearchCV``/``clone``. ``None`` uses the
-            global RNG.
-        robust: (LSI/EAC) robustify the fit via IRLS winsorization of sample
+            ``{name: (min, max)}`` dict. Passed to the fitter untouched. For
+            LSI, fully finite bounds enable a global search.
+        active_ratio: (EAC) leading fraction of data used for window
+            placement. Defaults to ``1.0``, all samples, matching
+            :func:`dtfit.fit_eac`.
+        poly_degree: (DSB) polynomial degree for the required pre-fit;
+            ``None`` selects it automatically by BIC.
+        p0: Optional initial guess for the parameters, a sequence in
+            sorted-name order or a ``{name: value}`` dict. Passed through
+            untouched.
+        random_state: (LSI) seed for the deterministic global
+            (differential-evolution) search that runs when ``bounds`` are
+            given, keeping a bounded fit reproducible under ``GridSearchCV``
+            and ``clone``. ``None`` uses the global RNG.
+        robust: (LSI/EAC) robustify the fit by IRLS winsorization of sample
             residuals within ``huber_c`` robust sigmas (see the fitters).
         huber_c: (LSI/EAC) winsorization threshold in residual sigmas for
             ``robust=True``.
-        nan_policy: (LSI/EAC) ``"raise"`` (default) rejects non-finite samples;
-            ``"omit"`` drops NaN/inf ``(x, y)`` pairs before fitting.
-        loss: (EAC) least-squares loss on the window-area residuals (e.g.
-            ``"soft_l1"`` for outlier robustness).
-        window_mode: (EAC) window placement -- ``"uniform"`` or ``"curvature"``.
+        nan_policy: (LSI/EAC) ``"raise"`` (default) rejects non-finite
+            samples; ``"omit"`` drops NaN/inf ``(x, y)`` pairs before
+            fitting.
+        loss: (EAC) least-squares loss on the window-area residuals, e.g.
+            ``"soft_l1"`` for outlier robustness.
+        window_mode: (EAC) window placement, ``"uniform"`` or
+            ``"curvature"``.
 
     Fitted attributes:
-        coef_: Fitted coefficients (ordered by parameter name).
+        coef_: Fitted coefficients, ordered by parameter name.
         model_: Callable model evaluated at the fitted coefficients.
         result_: The full :class:`dtfit.FittingResult`, exposing ``cov``,
-            ``stderr()``, ``confidence_intervals()``, ``converged`` and the v0.3
-            fit-quality stats (``rsquared``, ``aic`` / ``bic``) that the LSI / EAC
-            fitters record.
+            ``stderr()``, ``confidence_intervals()``, ``converged`` and the
+            fit-quality stats (``rsquared``, ``aic`` / ``bic``) the LSI and
+            EAC fitters record.
         n_features_in_: Number of input features (always 1).
     """
 
-    # Declared for type checkers; set at fit time by ``validate_data`` /
-    # ``fit`` (sklearn populates the ``*_in_`` attributes during validation).
+    # Declared for type checkers only. ``fit`` sets these; sklearn's
+    # ``validate_data`` fills the ``*_in_`` pair during validation.
     coef_: np.ndarray
     model_: Any
     result_: FittingResult
@@ -147,30 +150,30 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
     def __sklearn_tags__(self):
         tags = super().__sklearn_tags__()
         tags.target_tags.required = True  # y is mandatory for fit
-        # Single-feature estimator: the natural input is a 1-D x vector, and a
-        # single-column 2-D X is also accepted (for Pipeline use), so both
-        # input-type tags hold. (``one_d_array`` also tells the sklearn check
-        # suite to exercise the estimator with 1-D X, as it does for
-        # ``IsotonicRegression``.)
+        # A bare 1-D x vector is the natural input and a single-column 2-D X
+        # is accepted for Pipeline use, so both input-type tags hold.
+        # ``one_d_array`` also tells the sklearn check suite to exercise the
+        # estimator with 1-D X, as it does for ``IsotonicRegression``.
         tags.input_tags.one_d_array = True
-        # With nan_policy="omit" the LSI/EAC fitters drop non-finite pairs, so
-        # NaN input is legitimately accepted.
+        # With nan_policy="omit" the LSI/EAC fitters drop non-finite pairs,
+        # making NaN input legitimate.
         tags.input_tags.allow_nan = (
             self.nan_policy == "omit" and self.method in ("lsi", "eac")
         )
         # ``poor_score`` refers specifically to the check suite's shared
-        # regression dataset: its informative feature is not column 0, so no
-        # single-feature estimator can reach the R^2 > 0.5 the suite asserts.
+        # regression dataset: its informative feature is not column 0,
+        # putting the R^2 > 0.5 the suite asserts out of reach for any
+        # single-feature estimator.
         tags.regressor_tags.poor_score = True
         return tags
 
     def __getstate__(self):
         # Copy: BaseEstimator may hand back the live ``__dict__``.
         state = dict(super().__getstate__())
-        # ``model_`` is a lambdified closure that does not pickle; drop it and
-        # rebuild from ``result_`` on unpickle (:class:`dtfit.FittingResult`
-        # pickles cleanly -- it re-lambdifies its model lazily from
-        # ``expr`` + ``coeffs``).
+        # ``model_`` is a lambdified closure and does not pickle. Drop it and
+        # rebuild from ``result_`` on unpickle; :class:`dtfit.FittingResult`
+        # pickles cleanly, re-lambdifying its model lazily from ``expr`` and
+        # ``coeffs``.
         state.pop("model_", None)
         return state
 
@@ -181,10 +184,11 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
 
     @staticmethod
     def _to_2d(X):
-        """Promote a bare 1-D feature vector (array, Series, plain list, ...)
-        to a single column, leaving 2-D array-likes (and DataFrames, so column
-        names survive) untouched. Sparse inputs pass through so
-        ``validate_data`` raises the standard scikit-learn sparse error."""
+        """Promote a bare 1-D feature vector (array, Series, plain list) to a
+        single column. 2-D array-likes are left alone, DataFrames included,
+        so their column names survive. Sparse input is handed on untouched
+        for ``validate_data`` to reject with the standard scikit-learn sparse
+        error."""
         if sp_sparse.issparse(X):
             return X
         ndim = getattr(X, "ndim", None)
@@ -208,27 +212,24 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
             )
 
     def _sample_weight_to_sigma(self, sample_weight, X, order):
-        """Translate sklearn ``sample_weight`` to the fitters' per-sample ``sigma``.
+        """Translate sklearn ``sample_weight`` into the fitters' ``sigma``.
 
-        Returns ``None`` when no weights are given (the unchanged, equal-weight
-        path). Otherwise validates the weights against ``X`` (sklearn's
-        :func:`~sklearn.utils.validation._check_sample_weight`), reorders them to
-        match the x-sorted samples, and maps them to ``sigma = 1 / sqrt(weight)``
-        -- the relative measurement standard deviation the LSI / EAC weighted
-        integral fit consumes. A zero-weight sample is given a huge (but finite)
-        ``sigma`` so it drops out of the fit without violating the fitters'
-        strictly-positive-``sigma`` contract; negative weights, and all-zero
-        weights, raise.
-
-        Only the integral routes weight samples: ``method="dsb"`` has no
-        per-sample weighting and raises here when a weight is supplied.
+        ``None`` in gives ``None`` out and an equal-weight fit. Otherwise the
+        weights are validated against ``X`` by
+        :func:`~sklearn.utils.validation._check_sample_weight`, reordered to
+        match the x-sorted samples, and mapped to the relative measurement
+        standard deviation ``sigma = 1 / sqrt(weight)``. A zero weight
+        becomes a huge but finite ``sigma``, ignoring that sample while every
+        sigma stays inside the fitters' strictly-positive contract. Negative
+        and all-zero weights raise. So does ``method="dsb"``: the DSB
+        transfer solve has no per-sample weighting at all.
         """
         if sample_weight is None:
             return None
         if is_series(sample_weight):
-            # A pandas Series of weights -> its float values (positional, like
-            # every other array-like sample_weight); sklearn's _check_sample_weight
-            # then validates the length against X.
+            # A Series of weights becomes its float values, positional like
+            # every other array-like sample_weight; _check_sample_weight then
+            # length-checks it against X.
             sample_weight = np.asarray(sample_weight, dtype=float)
         if self.method == "dsb":
             raise ValueError(
@@ -248,9 +249,9 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
             sigma = 1.0 / np.sqrt(sw)
         nonfinite = ~np.isfinite(sigma)
         if nonfinite.any():
-            # weight == 0 -> 1/sqrt(0) = inf: give that sample a huge but finite
-            # sigma so it is effectively ignored, keeping every sigma finite and
-            # positive as the fitters require.
+            # weight == 0 -> 1/sqrt(0) = inf. A huge but finite sigma ignores
+            # the sample and keeps every sigma finite and positive, as the
+            # fitters require.
             finite_max = (
                 float(np.max(sigma[~nonfinite])) if (~nonfinite).any() else 1.0
             )
@@ -261,27 +262,29 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
         """Fit the model to ``(X, y)``.
 
         Args:
-            X: The single input feature (a 1-D vector or a single-column 2-D
-                array / DataFrame).
+            X: The single input feature, a 1-D vector or a single-column 2-D
+                array / DataFrame.
             y: The target values.
-            sample_weight: Optional per-sample weights (the scikit-learn
-                convention). Translated to the integral fitters' per-sample
-                ``sigma = 1 / sqrt(sample_weight)`` and forwarded with
-                ``absolute_sigma=False`` (relative weights), so a down-weighted
-                sample pulls the integral fit less without being dropped. Only the
-                ``"lsi"`` / ``"eac"`` routes support it; ``"dsb"`` has no
-                per-sample weighting and raises when a weight is given. A weight of
-                ``0`` effectively ignores its sample (a huge ``sigma``); all-zero
-                weights raise.
+            sample_weight: Optional per-sample weights, the scikit-learn
+                convention. Translated to the integral fitters' per-sample
+                ``sigma = 1 / sqrt(sample_weight)`` and consumed under the
+                fitters' default ``absolute_sigma=False``, which reads them
+                as relative weights: a down-weighted sample pulls the
+                integral fit less without being dropped. Only the ``"lsi"``
+                and ``"eac"`` routes support it; ``"dsb"`` has no per-sample
+                weighting and raises when a weight is given. A weight of
+                ``0`` effectively ignores its sample through a huge
+                ``sigma``, and all-zero weights raise.
         """
         X = self._to_2d(X)
-        # cast: sklearn's validate_data stub mistypes the array argument as str.
-        # Validate first so sparse / non-finite / empty inputs get the standard
-        # scikit-learn errors; only then apply the single-feature constraint.
+        # cast: the validate_data stub mistypes its array argument as str.
+        # Validation runs first, letting sparse, non-finite and empty inputs
+        # raise the standard scikit-learn errors; the single-feature
+        # constraint is applied only afterwards.
         if self.__sklearn_tags__().input_tags.allow_nan:
             # nan_policy="omit": the fitter drops non-finite (x, y) pairs
-            # itself, so relax the finite check (which guards X and y) by
-            # validating the two separately.
+            # itself. Validating X and y separately relaxes the finite check
+            # that otherwise guards both at once.
             X, y = cast(Any, validate_data)(
                 self,
                 X,
@@ -307,18 +310,18 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
         x = np.asarray(X, dtype=float)[:, 0]
         y = np.asarray(y, dtype=float).ravel()
         # scikit-learn contract: sample order must not matter. The integral
-        # fitters (LSI quadrature, EAC windows) need monotone x, so sort the
-        # (x, y) pairs -- a no-op for already-ordered curve data.
+        # fitters (LSI quadrature, EAC windows) need monotone x, hence the
+        # sort; it is a no-op for already-ordered curve data.
         order = np.argsort(x, kind="stable")
         x, y = x[order], y[order]
 
-        # v0.3: a callable model f(x, *params) is supported on the integral
-        # routes only; DSB needs a symbolic spectrum to balance.
+        # A callable model f(x, *params) works on the integral routes only;
+        # DSB needs a symbolic spectrum to balance.
         model_is_callable = callable(self.expr)
 
-        # v0.3: per-sample weights -> per-sample sigma = 1/sqrt(weight) for the
-        # weighted integral fit (relative weights, the sklearn convention, so
-        # absolute_sigma stays False). Aligned to the x-sorted samples.
+        # Per-sample weights become sigma = 1/sqrt(weight) for the weighted
+        # integral fit, aligned to the x-sorted samples. They are relative
+        # weights by the sklearn convention; absolute_sigma stays False.
         sigma = self._sample_weight_to_sigma(sample_weight, X, order)
 
         if self.method == "lsi":
@@ -373,14 +376,13 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
             degree = self.poly_degree
             if degree is None:
                 degree = find_degree(x, y, method="bic")
-            # Enforce the spectrum-required floor (the model transfer needs at
-            # least this many polynomial coefficients to be well-defined).
             degree = max(degree, min_degree)
-            # Ascending-order polynomial coefficients = the data's Maclaurin
-            # spectrum DSB balances against (np.polyfit returns descending).
+            # Ascending-order polynomial coefficients are the data's Maclaurin
+            # spectrum that DSB balances against; np.polyfit returns them
+            # descending.
             coeffs_poly = np.polyfit(x, y, degree)[::-1]
-            # fit_dsb takes p0 positionally only; normalize here so the
-            # estimator's documented dict form works on every method route.
+            # fit_dsb takes p0 positionally only. Normalizing here keeps the
+            # estimator's documented dict form working on every method route.
             p0 = normalize_p0(self.p0, [str(p) for p in params])
             result = fit_dsb(coeffs_poly, self.expr, self.var, p0=p0)
         else:
@@ -394,24 +396,24 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
     def predict(self, X) -> np.ndarray:
         """Predict ``y`` for the single input feature ``X``.
 
-        pandas in -> pandas out: when ``X`` is a pandas ``Series`` (or a
-        single-column ``DataFrame``) the prediction is returned as a ``Series``
-        aligned to ``X``'s index; the predicted values are unchanged. An ndarray
-        / list input returns an ndarray exactly as before (bit-identical).
+        pandas in, pandas out: a ``Series`` or single-column ``DataFrame``
+        ``X`` gives back a ``Series`` aligned to ``X``'s index, and an
+        ndarray or list input gives back an ndarray. Only the container
+        differs; the predicted values are the same either way.
         """
         check_is_fitted(self, "model_")
-        # pandas in -> pandas out: capture the sample index before validation
-        # coerces X to a plain array, so the prediction can be realigned to it.
-        # (A multi-column DataFrame is rejected by validate_data below, so the
-        # captured index is only ever used for a Series / single-column frame.)
+        # Capture the sample index before validation coerces X to a plain
+        # array; the prediction is realigned to it at the end. validate_data
+        # below rejects a multi-column DataFrame, so the captured index only
+        # ever belongs to a Series or a single-column frame.
         x_index = capture_index(X) if (is_series(X) or is_dataframe(X)) else None
         X = self._to_2d(X)
-        # cast: sklearn's validate_data stub mistypes the array argument as str.
+        # cast: the validate_data stub mistypes its array argument as str.
         X = cast(Any, validate_data)(self, X, reset=False, dtype=np.float64)
         x = np.asarray(X, dtype=float)[:, 0]
         out = np.asarray(self.model_(x), dtype=float)
         if out.ndim == 0:  # constant model -> broadcast
             out = np.full(x.shape, out.item())
         # as_series returns the plain ndarray unchanged when x_index is None
-        # (non-pandas input) or pandas is absent, so the ndarray path is intact.
+        # (non-pandas input) or pandas is absent.
         return as_series(out, x_index)

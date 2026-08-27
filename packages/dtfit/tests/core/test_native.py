@@ -20,7 +20,7 @@ from dtfit import EACFilter, LSIFilter, fit_eac, fit_lsi
 # build is expected, CI sets ``DTFIT_REQUIRE_NATIVE`` so a missing/broken build is
 # a hard failure rather than a silent skip.
 requires_native = pytest.mark.skipif(
-    not K.HAVE_NATIVE, reason="compiled dtfit._native not built (optional on this platform)"
+    not K.HAVE_NATIVE, reason="compiled dtfit._core._native not built (optional on this platform)"
 )
 
 
@@ -37,7 +37,7 @@ def test_native_is_built():
     # build_native.py); otherwise this platform uses the pure-Python fallback.
     if not os.environ.get("DTFIT_REQUIRE_NATIVE"):
         pytest.skip("native extension optional here; set DTFIT_REQUIRE_NATIVE to enforce")
-    assert K.HAVE_NATIVE, "dtfit._native not built -- run python build_native.py"
+    assert K.HAVE_NATIVE, "dtfit._core._native not built -- run python build_native.py"
 
 
 @pytest.mark.parametrize("n", [3, 4, 5, 6, 7, 16, 17, 64, 65])

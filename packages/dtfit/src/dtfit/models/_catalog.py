@@ -1,17 +1,17 @@
 """A catalog of named nonlinear model families with data-driven seeders.
 
-Each factory returns a fresh :class:`Model` whose seeder reads sensible initial
-values and bounds off the data, so a practitioner picks the *structure* and the
-model handles the rest::
+Each factory returns a fresh :class:`Model` whose seeder reads sensible
+initial values and bounds off the data. You pick the structure and the model
+handles the rest::
 
     from dtfit import models
     result = models.logistic().fit(x, y)        # no p0/bounds to hand-write
 
-The families span the shapes that recur across the established domains -- trends
-and growth/decay laws, sigmoids, saturating/rational responses, spectral peaks,
-and oscillations -- and carry a ``category`` tag the recommender uses to shortlist
-candidates. Seeders are heuristics: a starting point the fitter refines, not a
-fit themselves.
+The families cover the shapes that keep recurring: trends and growth or decay
+laws, sigmoids, saturating and rational responses, spectral peaks,
+oscillations. Each carries a ``category`` tag the recommender uses to
+shortlist candidates. Seeders are heuristics, a starting point for the fitter
+to refine rather than a fit in their own right.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from ._model import Model
 INF = float("inf")
 
 
-# seeding helpers
 def _span(x: np.ndarray) -> float:
     return float(x[-1] - x[0]) or 1.0
 
@@ -72,9 +71,9 @@ def cubic() -> Model:
 
 
 def power_law() -> Model:
-    """A scaling law ``a*(x + 1)**b`` (the +1 keeps it finite at x=0).
+    """A scaling law ``a*(x + 1)**b``; the +1 keeps it finite at x=0.
 
-    The model uses ``(x + 1)**b``, so it requires ``x > -1``.
+    Requires ``x > -1``.
     """
     def seed(x, y):
         x = np.asarray(x, float)
@@ -96,9 +95,8 @@ def logarithmic() -> Model:
             raise ValueError(
                 "logarithmic() requires x > -1 (the model uses log(x + 1))"
             )
-        # Seed on the *same* basis the model expression uses (log(x + 1)); the
-        # old ``log(x - min(x) + 1)`` diverged from the model whenever x did not
-        # start near 0, producing a systematically wrong p0.
+        # Fit on the same basis the expression itself uses. Shifting x first
+        # gives a p0 for a different model unless x starts near 0.
         b, a = np.polyfit(np.log(x + 1.0), y, 1)
         return {"a": (float(a), -INF, INF), "b": (float(b), -INF, INF)}
     return Model("a + b*log(x + 1)", name="logarithmic", shape="bulk",
@@ -106,15 +104,15 @@ def logarithmic() -> Model:
 
 
 def sqrt_law() -> Model:
-    """A diffusion-like ``a + b*sqrt(x)`` (e.g. distance vs time; requires ``x >= 0``)."""
+    """Diffusion-like ``a + b*sqrt(x)``, distance vs time. Needs ``x >= 0``."""
     def seed(x, y):
         x = np.asarray(x, float)
         if np.any(x < 0.0):
             raise ValueError(
                 "sqrt_law() requires x >= 0 (the model uses sqrt(x))"
             )
-        # Seed on the model's own basis (sqrt(x)); the old ``sqrt(x - min(x))``
-        # diverged from the model expression for x not anchored at 0.
+        # Fit on the model's own basis, sqrt(x). A shifted one gives a p0 for
+        # a different model unless x is already anchored at 0.
         b, a = np.polyfit(np.sqrt(x), y, 1)
         return {"a": (float(a), -INF, INF), "b": (float(b), -INF, INF)}
     return Model("a + b*sqrt(x)", name="sqrt_law", shape="bulk", category="trend",
@@ -246,7 +244,7 @@ def tanh_step() -> Model:
                  category="sigmoid", seeder=seed)
 
 
-# saturating / rational (curvature on the early rise -> adaptive EAC)
+# saturating / rational; the curvature on the early rise routes these to EAC
 def michaelis_menten() -> Model:
     """Enzyme-kinetics saturation ``Vmax*x/(K + x)``."""
     def seed(x, y):
@@ -318,7 +316,7 @@ def double_gaussian() -> Model:
         name="double_gaussian", shape="peak", category="peak", seeder=seed)
 
 
-# oscillatory (FFT-seeded frequency, oscillatory recipe)
+# oscillatory: FFT-seeded frequency, oscillatory recipe
 def sine() -> Model:
     """A sustained cycle ``c + A*sin(w*x + p)`` (signals, seasonality)."""
     def seed(x, y):
@@ -344,10 +342,10 @@ def damped_oscillation() -> Model:
 
 
 def fourier_series(n_harmonics: int = 3) -> Model:
-    """A periodic waveform: fundamental + ``n_harmonics`` harmonics (AC, gears).
+    """A periodic waveform: fundamental plus ``n_harmonics`` harmonics.
 
-    ``c + sum_k a_k*sin(k*w*x) + b_k*cos(k*w*x)`` -- the right model for a
-    distorted periodic signal a single sine cannot represent.
+    ``c + sum_k a_k*sin(k*w*x) + b_k*cos(k*w*x)``, for a distorted periodic
+    signal (AC mains, gear meshing) that a single sine cannot represent.
     """
     terms = ["c"] + [f"a{k}*sin({k}*w*x) + b{k}*cos({k}*w*x)"
                      for k in range(1, n_harmonics + 1)]
@@ -366,12 +364,10 @@ def fourier_series(n_harmonics: int = 3) -> Model:
                  category="oscillatory", freq_param="w", seeder=seed)
 
 
-# registry
-# The default candidate set used by ``suggest_models`` (fourier_series is a
-# parametric factory, offered separately rather than in the default sweep).
-# ``register`` / ``unregister`` mutate this dict *in place*, so the reference the
-# recommender imported (``from ._catalog import CATALOG``) always sees new
-# families -- never rebind it.
+# The default candidate set for ``suggest_models``. fourier_series takes a
+# parameter and is offered separately rather than in the default sweep.
+# ``register`` and ``unregister`` mutate this dict in place: the recommender
+# imported the name, and rebinding it here would leave that import stale.
 CATALOG: dict[str, Callable[[], Model]] = {
     # trend
     "linear": linear, "quadratic": quadratic, "cubic": cubic,
@@ -399,8 +395,8 @@ def all_models() -> list[Model]:
     return [factory() for factory in CATALOG.values()]
 
 
-# The shipped family names, snapshotted at import so ``register`` can flag an
-# overwrite of a builtin and ``unregister`` can refuse to remove one.
+# The shipped family names, snapshotted at import: ``register`` flags an
+# overwrite of a builtin and ``unregister`` refuses to remove one.
 _BUILTINS = frozenset(CATALOG)
 
 
@@ -412,33 +408,31 @@ def register(
 ) -> None:
     """Register a custom model family into the catalog.
 
-    Once registered, the family is visible everywhere the builtins are: it is
-    returned by :func:`all_models`, appears under its ``name`` in :data:`CATALOG`,
-    and is considered by :func:`~dtfit.models.suggest_models` (a family whose
-    ``category`` is not one of the recommender's known shape categories -- e.g.
-    the default ``"general"`` -- is always kept in the default shortlist, so a
-    registered family never vanishes silently).
+    Once registered, the family is visible everywhere the builtins are:
+    :func:`all_models` returns it, :data:`CATALOG` holds it under its ``name``,
+    and :func:`~dtfit.models.suggest_models` considers it. A family whose
+    ``category`` falls outside the recommender's known shape categories, the
+    default ``"general"`` among them, stays in every default shortlist.
 
     Parameters
     ----------
     name : str
         The catalog key. Must be a non-empty string.
     factory : Callable[[], Model]
-        A zero-argument callable returning a fresh :class:`Model` (matching the
-        builtin factories, e.g. ``lambda: Model("a*x", name="myline")``). It is
-        called once here to validate it, and again -- fresh -- on every use, so
-        return a new instance each call rather than a shared one.
+        A zero-argument callable returning a fresh :class:`Model`, matching
+        the builtin factories: ``lambda: Model("a*x", name="myline")``. It is
+        called once here to validate it and again on every use; return a new
+        instance each call rather than a shared one.
     overwrite : bool, optional
-        By default a collision with an existing family (builtin or previously
-        registered) raises :class:`ValueError`. Pass ``overwrite=True`` to
-        replace it; replacing a *builtin* additionally emits a
-        :class:`UserWarning`.
+        A collision with an existing family, builtin or previously registered,
+        raises :class:`ValueError` by default. Pass ``overwrite=True`` to
+        replace it; replacing a builtin also emits a :class:`UserWarning`.
 
     Raises
     ------
     ValueError
-        If ``name`` is empty/blank, if it collides with an existing family and
-        ``overwrite`` is false, or if ``factory`` raises when called.
+        If ``name`` is empty or blank, if it collides with an existing family
+        and ``overwrite`` is false, or if ``factory`` raises when called.
     TypeError
         If ``factory`` is not callable or does not return a :class:`Model`.
 
@@ -459,8 +453,8 @@ def register(
             f"a {kind} model named {name!r} already exists; pass overwrite=True "
             f"to replace it"
         )
-    # Validate eagerly: a broken factory should fail here, not later inside
-    # all_models()/suggest_models where the traceback points away from the cause.
+    # Validate eagerly. A broken factory should fail here, not later inside
+    # all_models() or suggest_models() where the traceback points elsewhere.
     try:
         probe = factory()
     except Exception as exc:  # noqa: BLE001 - re-raised with context
@@ -482,8 +476,8 @@ def register(
 def unregister(name: str) -> None:
     """Remove a custom family previously added by :func:`register`.
 
-    Builtin families cannot be removed (:func:`register` with ``overwrite=True``
-    is the way to shadow one).
+    Builtin families cannot be removed; :func:`register` with
+    ``overwrite=True`` shadows one instead.
 
     Raises
     ------

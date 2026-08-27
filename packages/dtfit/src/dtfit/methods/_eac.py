@@ -1,44 +1,32 @@
-"""EAC -- Equal-Areas Criterion fitting.
+"""EAC: equal-areas criterion fitting.
 
 Numeric successor to the symbolic DSBE method. Identifies model parameters by
-matching integral areas of the model and the data over a set of windows, rather
-than balancing differential spectra. Integration smooths noise, so this is
-markedly more robust than spectral/derivative-based approaches and works
-directly on raw ``(x, y)`` data.
+matching integral areas of the model and the data over a set of windows rather
+than balancing differential spectra. Integration smooths noise, which makes
+this markedly more robust than spectral or derivative-based approaches, and it
+works directly on raw ``(x, y)`` data.
 
-Overdetermined by default
--------------------------
-The original EAC used exactly ``n`` windows for ``n`` parameters -- an
-exactly-determined system with no redundancy, which throws away the very noise
-averaging that integration buys. Here the active region is split into
-``n_windows >= n`` windows (default ``2n``), giving an **overdetermined**
-area-matching system solved by Levenberg-Marquardt / trust-region least squares
-with an analytic (integrated) Jacobian. More equations than unknowns means the
-random per-window integration errors partly cancel, and a parameter covariance
-can be estimated from the residual Jacobian. Bounds and a robust loss are
-exposed for constrained / outlier-prone fits.
+The active region is split into ``n_windows >= n`` windows, ``2n`` by default,
+giving an overdetermined area-matching system solved by Levenberg-Marquardt or
+trust-region least squares with an analytic (integrated) Jacobian. More
+equations than unknowns means the random per-window integration errors partly
+cancel, and a parameter covariance can be estimated from the residual
+Jacobian.
 
-Window placement (``window_mode``)
-----------------------------------
-The windows are placed either ``"uniform"`` (equal spans over the active region,
-the default) or ``"curvature"`` (edges carrying roughly equal cumulative
-absolute curvature -- narrow where the signal bends, wide where it is smooth).
-The curvature placement is the better-conditioned area-matching system for
-signals with a localized transient (a step take-off, a sharp turn, a peak's
-rise); it was validated as the best estimator on concentrated transients and
-rational-saturating shapes (Michaelis-Menten / Hill) in the parameter-estimation
-domain study.
+Windows are placed either ``"uniform"``, equal spans over the active region,
+or ``"curvature"``, edges carrying roughly equal cumulative absolute curvature:
+narrow where the signal bends, wide where it is smooth. Curvature placement
+conditions the system better for signals with a localized transient, a step
+take-off or a sharp turn or a peak's rise, and the parameter-estimation domain
+study ranked it best on concentrated transients and rational-saturating shapes
+(Michaelis-Menten / Hill).
 
-Robustness
-----------
-Two complementary outlier defences are available. A **robust least-squares
-loss** (``loss=`` / ``f_scale=``) down-weights contaminated *window-area*
-residuals within a single overdetermined fit -- the mechanism characterised in
-the EAC paper. For heavier contamination, :func:`dtfit.ensemble_fit` aggregates
-fits over overlapping windows by median, rejecting whole corrupted windows
-without per-problem ``f_scale`` tuning. Use the robust loss when a few windows
-are mildly contaminated; reach for the ensemble when outliers are dense or the
-loss is hard to scale.
+Two outlier defences are available and they compose. A robust least-squares
+loss (``loss=`` / ``f_scale=``) down-weights contaminated window-area residuals
+within a single fit, the mechanism characterised in the EAC paper. Under
+heavier contamination :func:`dtfit.ensemble_fit` aggregates fits over
+overlapping windows by median, rejecting whole corrupted windows without
+per-problem ``f_scale`` tuning.
 """
 
 from collections.abc import Mapping, Sequence
@@ -63,10 +51,10 @@ from ._modelinput import resolve_model, result_kwargs
 def _dominant_cycles(x: np.ndarray, y: np.ndarray) -> float:
     """Estimate how many full periods of the dominant tone the record spans.
 
-    Uses the FFT peak above DC. Non-oscillatory shapes (a trend, a single peak,
-    a sigmoid) concentrate their energy at/near DC and return ~0-1; a genuine
-    oscillation returns roughly its cycle count. Used to auto-scale the window
-    count so windows stay sub-period (see ``fit_eac``).
+    Reads the FFT peak above DC. Non-oscillatory shapes (a trend, a single
+    peak, a sigmoid) concentrate their energy at or near DC and return ~0-1;
+    a genuine oscillation returns roughly its cycle count. ``fit_eac`` uses
+    this to auto-scale the window count so windows stay sub-period.
     """
     if x.size < 8:
         return 0.0
@@ -109,11 +97,11 @@ def _place_windows(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Place the integration windows and integrate the data areas.
 
-    Returns ``(x_active, y_active, starts, stops, data_areas, m)``. ``"curvature"``
-    placement falls back to ``"uniform"`` when it would leave fewer than ``n``
-    windows (a cryptic scipy ``m < n`` otherwise); ``"uniform"`` clamps to ``>= n``
-    and auto-scales the window count on oscillatory data to keep windows
-    sub-period.
+    Returns ``(x_active, y_active, starts, stops, data_areas, m)``.
+    ``"curvature"`` placement falls back to ``"uniform"`` when it would leave
+    fewer than ``n`` windows, which scipy would otherwise report as a cryptic
+    ``m < n``. ``"uniform"`` clamps to ``>= n`` and auto-scales the window
+    count on oscillatory data to keep windows sub-period.
     """
     if window_mode == "curvature":
         # Information-adaptive edges over all the data: each window carries
@@ -165,14 +153,14 @@ def _area_weights(
 ) -> np.ndarray:
     """Per-window least-squares weights from per-sample ``sigma``.
 
-    A window's area is a fixed linear combination of its samples -- the composite
-    Simpson quadrature weights ``s_i`` (obtained here by integrating the unit
-    vectors, so they match :func:`simpson_windows` exactly). With independent
-    per-sample noise of std ``sigma_i`` the area variance is
-    ``sum_i (s_i * sigma_i)**2``; the window weight is the inverse area standard
-    deviation ``1 / sqrt(area_var)``. Multiplying each area residual by it turns
-    the area-matching system into weighted least squares (residuals scaled by
-    ``1 / sigma_area``), so ``absolute_sigma`` then reads exactly as in
+    A window's area is a fixed linear combination of its samples, the
+    composite Simpson quadrature weights ``s_i``, obtained here by integrating
+    the unit vectors so they match :func:`simpson_windows` exactly. With
+    independent per-sample noise of std ``sigma_i`` the area variance is
+    ``sum_i (s_i * sigma_i)**2`` and the window weight is the inverse area
+    standard deviation ``1 / sqrt(area_var)``. Multiplying each area residual
+    by it turns the area-matching system into weighted least squares, which is
+    what makes ``absolute_sigma`` read exactly as in
     :func:`scipy.optimize.curve_fit`.
     """
     w = np.empty(starts.size, dtype=float)
@@ -221,118 +209,115 @@ def fit_eac(
 
     Args:
         data_x, data_y: Observed samples.
-        expr: The model, in any of three equivalent forms (resolved by
-            :func:`dtfit.methods.resolve_model`): a SymPy expression *string*
-            (e.g. ``"a * atan(w * x)"``), a :class:`sympy.Expr`, or a plain
+        expr: The model, in any of three equivalent forms resolved by
+            :func:`dtfit.methods.resolve_model`: a SymPy expression string
+            such as ``"a * atan(w * x)"``, a :class:`sympy.Expr`, or a plain
             Python callable ``f(x, *params)``. A symbolic model differentiates
             exactly for its area Jacobian; a callable is forward-differenced.
-            The canonical parameter order is sorted-by-name for a symbolic model
-            and signature order for a callable -- the layout of ``coeffs`` /
-            ``p0`` / ``bounds`` / the covariance and of ``result.names``.
+            The canonical parameter order is sorted-by-name for a symbolic
+            model and signature order for a callable, and it is the layout of
+            ``coeffs``, ``p0``, ``bounds``, the covariance and
+            ``result.names``.
         var: Main variable name in ``expr``. Required for a symbolic model; a
-            label only for a callable (defaults to ``"x"``).
-        active_ratio: Fraction of the (leading) data used for window placement
-            in ``window_mode="uniform"``. Defaults to ``1.0`` -- all samples
-            are used; the fitter must not silently discard trailing data.
+            label only for a callable, where it defaults to ``"x"``.
+        active_ratio: Fraction of the leading data used for window placement
+            under ``window_mode="uniform"``. Defaults to ``1.0``, all samples:
+            the fitter must not silently discard trailing data.
             ``active_ratio=0.8`` is the tuned recipe for signals whose
-            informative transient leads (a step take-off, a saturating rise):
-            it concentrates the windows on the leading transient and drops the
-            flat tail. Ignored by ``"curvature"`` placement (which spans all
-            the data).
+            informative transient leads, a step take-off or a saturating rise,
+            concentrating the windows on that transient and dropping the flat
+            tail. Ignored by ``"curvature"`` placement, which spans all the
+            data.
         n_windows: Number of integration windows (area equations). Defaults to
-            ``2 * n_params`` for an overdetermined, noise-averaging fit. Must be
-            ``>= n_params``; clamped so each window keeps at least 3 samples.
-        window_mode: Window placement -- ``"uniform"`` (equal spans over the
-            active region, the default) or ``"curvature"`` (edges carrying equal
-            cumulative absolute curvature: narrow where the signal bends, wide
-            where it is smooth). ``"curvature"`` is better-conditioned for
-            signals with a localized transient (step take-off, sharp turn, a
-            peak's rise) -- validated as the best estimator on concentrated
-            transients and rational-saturating shapes in the parameter-estimation
-            domain study.
+            ``2 * n_params`` for an overdetermined, noise-averaging fit. Must
+            be ``>= n_params``; clamped so each window keeps at least 3
+            samples.
+        window_mode: Window placement. ``"uniform"`` gives equal spans over
+            the active region; ``"curvature"`` places edges carrying equal
+            cumulative absolute curvature, narrow where the signal bends and
+            wide where it is smooth. ``"curvature"`` conditions the system
+            better for signals with a localized transient (step take-off,
+            sharp turn, a peak's rise), and the parameter-estimation domain
+            study ranked it best on concentrated transients and
+            rational-saturating shapes.
         bounds: Optional parameter bounds: a per-parameter ``(min, max)`` pair
             list in sorted-name order (the canonical form), a partial
-            ``{name: (min, max)}`` dict (unnamed parameters stay unbounded),
-            or the legacy scipy-style ``(lower, upper)`` 2-tuple (see
-            :func:`dtfit.methods.normalize_bounds`, including its documented
+            ``{name: (min, max)}`` dict where unnamed parameters stay
+            unbounded, or a scipy-style ``(lower, upper)`` 2-tuple (see
+            :func:`dtfit.methods.normalize_bounds` and its documented
             2-parameter ambiguity rule). Any bounds switch the solver to
             trust-region.
-        loss: Least-squares loss (e.g. ``"linear"`` or ``"soft_l1"`` for outlier
-            robustness, as in the EAC paper). The loss acts on the *window-area*
-            residuals, so it down-weights whole contaminated windows -- give it
-            enough windows (``n_windows``) that outliers stay localized for it to
-            bite.
-        f_scale: Soft margin of the robust ``loss`` (``scipy``'s ``f_scale``):
+        loss: Least-squares loss, ``"linear"`` or ``"soft_l1"`` for outlier
+            robustness as in the EAC paper. The loss acts on the window-area
+            residuals and down-weights whole contaminated windows, so give it
+            enough windows (``n_windows``) that outliers stay localized. Where
+            contamination is dense and ``f_scale`` hard to tune,
+            :func:`dtfit.ensemble_fit` is the complementary path.
+        f_scale: Soft margin of the robust ``loss`` (scipy's ``f_scale``):
             residuals below it stay quadratic, above it are down-weighted.
-            Defaults to ``None`` -- **auto-scaled** to the data: a quick
-            linear-loss seed fit is run and ``f_scale`` is set to a robust scale
-            (``1.4826 * MAD``) of that fit's window-area residuals, so a robust
-            ``loss`` actually engages instead of sitting in its quadratic regime
-            (the historical fixed default ``1.0`` was far larger than typical
-            window-area residuals and silently disabled the robustness). Pass an
-            explicit value to override. Ignored when ``loss="linear"``.
-        robust: If True, robustify the **integrand itself** (not just the window
-            areas): an IRLS loop winsorizes each sample's residual to the current
-            model within ``huber_c`` robust sigmas (MAD) before re-integrating, so
-            individual outlier *samples* cannot distort a window's area. This is
-            finer-grained than ``loss=`` (which down-weights whole window areas)
-            and is the "robust integral" lever -- the two compose. Cheap (a few
-            re-solves) and needs no ``f_scale`` tuning.
+            ``None`` (the default) auto-scales it to the data. A quick
+            linear-loss seed fit is run and ``f_scale`` is set to a robust
+            scale (``1.4826 * MAD``) of that fit's window-area residuals,
+            which puts the margin where a robust ``loss`` actually engages
+            instead of sitting in its quadratic regime. Pass an explicit value
+            to override. Ignored when ``loss="linear"``.
+        robust: If True, robustify the integrand itself rather than only the
+            window areas: an IRLS loop winsorizes each sample's residual to
+            the current model within ``huber_c`` robust sigmas (MAD) before
+            re-integrating, keeping individual outlier samples from distorting
+            a window's area. Finer-grained than ``loss=``, which down-weights
+            whole window areas, and the two compose. Costs a few re-solves and
+            needs no ``f_scale`` tuning.
         huber_c: Robust winsorization threshold in residual sigmas for
             ``robust=True`` (~3 leaves clean samples untouched).
         p0: Optional initial guess (defaults to ones): a sequence in
             parameter order (sorted-name for symbolic, signature order for a
             callable) or a full ``{name: value}`` dict.
-        sigma: Optional per-sample measurement standard deviation of ``data_y``
-            (same length as the raw input). Each integration window's area
-            residual is weighted by ``1 / sigma_area`` -- with
+        sigma: Optional per-sample measurement standard deviation of
+            ``data_y``, the same length as the raw input. Each window's area
+            residual is weighted by ``1 / sigma_area``, with
             ``sigma_area**2 = sum_i (simpson_weight_i * sigma_i)**2`` over the
-            window -- turning the area-matching system into weighted least
-            squares (heteroscedastic data). ``None`` (default) fits unweighted.
-            Entries must be finite and strictly positive.
-        absolute_sigma: If ``True``, treat ``sigma`` as absolute errors and do
-            **not** rescale the covariance by the reduced chi-square (the
-            residual is already ``1/sigma``-scaled), matching
-            :func:`scipy.optimize.curve_fit`. If ``False`` (default) only the
-            relative magnitudes of ``sigma`` matter and the covariance is scaled
-            by the residual variance.
+            window, turning the area-matching system into weighted least
+            squares for heteroscedastic data. ``None`` (the default) fits
+            unweighted. Entries must be finite and strictly positive.
+        absolute_sigma: If ``True``, treat ``sigma`` as absolute errors and
+            leave the covariance unscaled by the reduced chi-square, the
+            residual already being ``1/sigma``-scaled, matching
+            :func:`scipy.optimize.curve_fit`. If ``False`` (the default) only
+            the relative magnitudes of ``sigma`` matter and the covariance is
+            scaled by the residual variance.
         solver_options: Optional mapping forwarded to
-            :func:`scipy.optimize.least_squares` on every solve (the main fit,
-            the ``f_scale`` seed fit and any robust IRLS re-solves) -- e.g.
-            ``{"xtol": 1e-12, "max_nfev": 500}``. The fitter's managed keys
-            (``loss`` / ``f_scale`` / ``bounds`` / ``method`` / ``jac``) always
-            win over it.
-        param_names: For a callable model, the parameter names (in signature
-            order) when they cannot be introspected from the signature (a
-            ``*args`` model or a signature-less builtin); validated against the
-            introspected names otherwise. For a symbolic model it is optional and
-            validated against the names parsed from the expression.
-        nan_policy: ``"raise"`` (default) rejects non-finite samples; ``"omit"``
-            drops NaN/inf ``(x, y)`` pairs before fitting -- useful for gappy
-            sensor/GPS telemetry.
-
-    For dense contamination where ``f_scale`` is hard to tune, prefer
-    :func:`dtfit.ensemble_fit` (median over overlapping windows) as a
-    complementary robust path.
+            :func:`scipy.optimize.least_squares` on every solve: the main fit,
+            the ``f_scale`` seed fit and any robust IRLS re-solves. For
+            example ``{"xtol": 1e-12, "max_nfev": 500}``. The fitter's managed
+            keys (``loss`` / ``f_scale`` / ``bounds`` / ``method`` / ``jac``)
+            always win over it.
+        param_names: For a callable model, the parameter names in signature
+            order when they cannot be introspected from the signature (a
+            ``*args`` model or a signature-less builtin); validated against
+            the introspected names otherwise. For a symbolic model it is
+            optional and validated against the names parsed from the
+            expression.
+        nan_policy: ``"raise"`` (the default) rejects non-finite samples;
+            ``"omit"`` drops NaN/inf ``(x, y)`` pairs before fitting, which
+            suits gappy sensor or GPS telemetry.
 
     Returns:
-        FittingResult with the fitted coefficients, a callable model and (when
-        overdetermined) a parameter covariance estimate. Also carries the
-        fit-quality diagnostics ``n_obs`` / ``rss`` / ``tss`` (enabling
-        ``.rsquared`` / ``.aic`` / ``.bic``) and the optimizer's ``nfev`` /
-        ``cost``. For a callable model the result carries a bound ``f(x)`` model
-        and a ``param_model`` evaluator instead of ``expr`` (so ``.to_dict``
-        raises, as for any expression-less fit).
+        FittingResult with the fitted coefficients, a callable model and, when
+        overdetermined, a parameter covariance estimate. It also carries the
+        fit-quality diagnostics ``n_obs`` / ``rss`` / ``tss`` behind
+        ``.rsquared`` / ``.aic`` / ``.bic``, plus the optimizer's ``nfev`` and
+        ``cost``. For a callable model the result carries a bound ``f(x)``
+        model and a ``param_model`` evaluator instead of ``expr``, so
+        ``.to_dict`` raises as it does for any expression-less fit.
     """
     if window_mode not in ("uniform", "curvature"):
         raise ValueError(
             f"window_mode must be 'uniform' or 'curvature', got {window_mode!r}"
         )
-    # Resolve the model to the unified spec: a string / sympy.Expr keeps the
-    # historical sorted-name parameter order; a callable uses signature order.
-    # ``spec.eval`` / ``spec.param_derivs`` replace the ad-hoc lambdify pair --
-    # symbolic derivatives are still ``sp.diff`` (numerically identical to the
-    # old jac_funcs), while a callable forward-differences (the FD-Jacobian).
+    # A string or sympy.Expr keeps the sorted-name parameter order; a callable
+    # uses signature order. Symbolic derivatives come from ``sp.diff``, a
+    # callable is forward-differenced.
     spec = resolve_model(expr, var, param_names=param_names)
     names = list(spec.names)
     n = len(names)
@@ -348,12 +333,9 @@ def fit_eac(
     )
     so: dict[str, Any] = dict(solver_options) if solver_options else {}
 
-    # Accept pandas Series / single-column DataFrame inputs (pandas in): coerce
-    # to plain 1-D float arrays up front. Gated on the pandas types so a raw
-    # ndarray / list is passed through untouched and stays BIT-IDENTICAL
-    # (including the existing 2-D rejection in ``_validate_xy``). This unifies
-    # the historical ``np.asarray`` Series path with :func:`fit_lsi` and adds
-    # single-column DataFrame support.
+    # Coerce pandas Series / single-column DataFrame input to plain 1-D float
+    # arrays. Gated on the pandas types: a raw ndarray or list passes through
+    # untouched, the 2-D rejection in ``_validate_xy`` included.
     if is_series(data_x) or is_dataframe(data_x):
         data_x = to_1d_array(data_x, "data_x")
     if is_series(data_y) or is_dataframe(data_y):
@@ -362,9 +344,9 @@ def fit_eac(
     x, y = _validate_xy(data_x, data_y, min_size=2 * n, nan_policy=nan_policy)
     sigma_active = _resolve_sigma(sigma, data_x, data_y, x, nan_policy)
 
-    # Contiguous window spans [start, stop) over the (active) region. The model
+    # Contiguous window spans [start, stop) over the active region. The model
     # and its sensitivities are evaluated once over the whole region per solver
-    # step and integrated per window by the (compiled) Simpson kernel, rather
+    # step, then integrated per window by the compiled Simpson kernel, rather
     # than re-evaluated window by window.
     x_active, y_active, starts, stops, data_areas_arr, m = _place_windows(
         x, y, n, window_mode=window_mode, active_ratio=active_ratio,
@@ -372,12 +354,10 @@ def fit_eac(
     )
     echo(f"EAC windows: {m} (params: {n}, mode: {window_mode})")
 
-    # Per-window least-squares weights from the per-sample sigma: each window's
-    # area residual is scaled by 1 / sigma_area (see ``_area_weights``), turning
-    # the area-matching system into weighted least squares. ``x_active`` is always
-    # a leading slice of ``x`` (a prefix in "uniform", all of it in "curvature"),
-    # so the sigma aligns by that same prefix. ``None`` -> the unweighted system,
-    # bit-identical to the pre-sigma path.
+    # Per-window least-squares weights from the per-sample sigma (see
+    # ``_area_weights``). ``x_active`` is always a leading slice of ``x``: a
+    # prefix under "uniform", all of it under "curvature". The sigma aligns by
+    # that same prefix. ``None`` leaves the system unweighted.
     area_w = (
         _area_weights(x_active, sigma_active[: x_active.size], starts, stops)
         if sigma_active is not None else None
@@ -386,17 +366,19 @@ def fit_eac(
     def _clean(v: np.ndarray) -> np.ndarray:
         """Neutralize singular samples in a model value / sensitivity array.
 
-        Factored so BOTH the model area and every parameter-sensitivity area
-        pass through the same cleanup. A transcendental sensitivity can be
-        singular at an ISOLATED sample (e.g. ``d/dn`` of ``x**n`` is
-        ``x**n*log(x)``, NaN at ``x=0``) while its integral over the window is
-        finite -- the limit there is 0. Neutralize such measure-zero blow-ups to
-        0 so the area stays well-posed. But a WIDESPREAD blow-up (a diverging
-        trial: ``exp(b*x)`` with ``b`` runaway) must NOT be silently zeroed --
-        that makes a divergent model's area look small and lets LM converge to a
-        wrong basin. Cap those at a large finite penalty (matched to the data
-        scale) so the residual stays large and the solver is pushed away from
-        the divergent region instead.
+        A transcendental sensitivity can be singular at an isolated sample
+        while its integral over the window is finite: ``d/dn`` of ``x**n`` is
+        ``x**n*log(x)``, NaN at ``x=0``, with limit 0 there. Such
+        measure-zero blow-ups become 0 and the area stays well-posed. A
+        widespread blow-up is a different animal, a diverging trial such as
+        ``exp(b*x)`` with ``b`` runaway, and zeroing it would make a divergent
+        model's area look small and let LM settle in the wrong basin. Those
+        are capped at a large finite penalty matched to the data scale, which
+        keeps the residual large and pushes the solver out of the divergent
+        region.
+
+        Both the model area and every parameter-sensitivity area pass through
+        here.
         """
         v = np.ascontiguousarray(v, dtype=float)
         finite = np.isfinite(v)
@@ -423,8 +405,8 @@ def fit_eac(
 
     guess = _validate_p0(p0_arr, names)
     if scipy_bounds is not None:
-        # Keep the (default all-ones) seed feasible inside the user's box,
-        # matching solve_weighted_nlls; scipy's trf rejects an out-of-bounds x0.
+        # scipy's trf rejects an out-of-bounds x0. Clip the (all-ones by
+        # default) seed into the user's box, as solve_weighted_nlls does.
         guess = np.clip(guess, scipy_bounds[0], scipy_bounds[1])
 
     nfev_total = 0
@@ -442,12 +424,10 @@ def fit_eac(
         method = "trf"
         fs = f_scale
         if loss != "linear" and fs is None:
-            # Auto-scale the robust margin to the data. At the (all-ones) seed the
-            # window-area residuals are huge, so estimate the margin from a quick
-            # linear-loss fit's residuals instead: f_scale = 1.4826 * MAD, the
-            # robust scale of a clean window's area residual. This makes the robust
-            # loss engage where the old fixed default (1.0, >> typical residuals)
-            # silently left it quadratic.
+            # Auto-scale the robust margin to the data. At the all-ones seed
+            # the window-area residuals are huge, so the margin comes from a
+            # quick linear-loss fit's residuals instead: f_scale = 1.4826 *
+            # MAD, the robust scale of a clean window's area residual.
             seed_kwargs: dict[str, Any] = dict(so)
             seed_method = "trf" if scipy_bounds is not None else "lm"
             if scipy_bounds is not None:
@@ -479,11 +459,12 @@ def fit_eac(
     coeffs = np.asarray(sol.x, dtype=np.float64)
 
     if robust:
-        # Robust integral via IRLS: winsorize each sample's residual to the
-        # current model (within huber_c robust sigmas) and re-integrate, so an
-        # outlier sample can no longer distort its window's area. ``data_areas_arr``
-        # is reassigned here and the ``residuals`` closure reads it lazily, so the
-        # re-solve sees the winsorized data areas. A few passes suffice.
+        # Robust integral by IRLS: winsorize each sample's residual to the
+        # current model within huber_c robust sigmas, then re-integrate,
+        # keeping an outlier sample from distorting its window's area.
+        # ``data_areas_arr`` is reassigned here and the ``residuals`` closure
+        # reads it lazily, so the re-solve sees the winsorized areas. Three
+        # passes suffice.
         for _ in range(3):
             mv = _clean(spec.eval(x_active, coeffs))
             resid = y_active - mv
@@ -507,25 +488,23 @@ def fit_eac(
     echo("EAC fitted coefficients:", coeffs)
 
     cov = _covariance(sol.jac, sol.fun, n, absolute_sigma=absolute_sigma)
-    # Honest convergence: propagate the last solver's actual status on both
-    # paths; the robust path labels it but must not stamp success.
+    # The robust path relabels the message; the status stays the solver's own.
     converged = bool(sol.success)
     message = f"robust IRLS ({sol.message})" if robust else str(sol.message)
 
-    # Fit-quality diagnostics over the FULL (x, y): rss/tss/n_obs feed R^2 and
-    # AIC/BIC; nfev (summed across any robust IRLS re-solves) and cost are the
-    # optimizer's own accounting. A monkeypatched solver namespace may omit
-    # nfev/cost, so both are read defensively.
+    # Diagnostics over the full (x, y): rss/tss/n_obs feed R^2 and AIC/BIC,
+    # while nfev (summed across any robust IRLS re-solves) and cost come from
+    # the optimizer. A monkeypatched solver namespace may omit either, hence
+    # the defensive reads.
     yhat = np.asarray(spec.eval(x, coeffs), dtype=float)
     rss = float(np.sum((y - yhat) ** 2))
     tss = float(np.sum((y - float(np.mean(y))) ** 2))
     cost_val = getattr(sol, "cost", None)
 
-    # Build the result per the v0.3 contract: a symbolic model keeps the lambdify
-    # path (expr/var/names) so std bands and to_dict work unchanged; a callable
-    # carries a bound f(x) closure plus the params-explicit evaluator for
-    # finite-differenced std bands. The model rebuilds lazily on first access, so
-    # no eager compile is spent for callers that read only coeffs/cov.
+    # A symbolic model keeps the lambdify path (expr/var/names) that std bands
+    # and to_dict run on; a callable carries a bound f(x) closure plus the
+    # params-explicit evaluator for finite-differenced std bands. The model
+    # rebuilds lazily, so reading only coeffs/cov spends no compile.
     return FittingResult(
         coeffs=coeffs, cov=cov,
         converged=converged, message=message,

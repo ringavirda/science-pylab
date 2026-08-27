@@ -1,20 +1,16 @@
-"""The :class:`Model` -- a named, self-seeding, composable model family.
+"""The :class:`Model`: a named, self-seeding, composable model family.
 
-A :class:`Model` bundles everything needed to *fit a structurally-correct model
-without hand-writing sympy strings and guessing ``p0``/``bounds``*: the
-expression, its parameters, a shape tag (which decides the estimator variant),
-and a **data-driven seeder** that reads sensible initial values and bounds off
-the data. It fits via the stable engines (routing through
-:func:`dtfit.auto_estimate`), and models compose with ``+`` (e.g. trend +
-seasonal, a sum of peaks).
+A :class:`Model` bundles the expression, its parameters, a shape tag that
+decides the estimator variant, and a seeder that reads initial values and
+bounds off the data. Fitting routes through :func:`dtfit.auto_estimate`, and
+models compose with ``+`` (trend plus seasonal, a sum of peaks).
 
-A model may be given symbolically (a SymPy expression string, the historical
-form) **or** as a plain Python callable ``f(x, *params)``. A callable is
-resolved through :func:`dtfit.methods.resolve_model`, so its parameter order is
-the callable's *signature* order (not the sorted order symbolic models use) and
-it fits through the same engines. Composition with ``+`` and the seed-detrend
-evaluator require *symbolic* operands; a callable model raises a clear error
-there (see :meth:`__add__`).
+The model itself is either a SymPy expression string or a plain Python
+callable ``f(x, *params)``. A callable is resolved through
+:func:`dtfit.methods.resolve_model` and keeps its signature parameter order,
+where a symbolic model sorts its names; both fit through the same engines.
+Composition with ``+`` and the seed-detrend evaluator need symbolic operands,
+and a callable raises a clear error there (see :meth:`__add__`).
 """
 
 from __future__ import annotations
@@ -40,10 +36,10 @@ def _params_of(
 ) -> tuple[str, ...]:
     """Canonical parameter order of ``expr``.
 
-    Symbolic expressions parse their free symbols (sorted by name, the historical
-    layout); a callable is delegated to :func:`dtfit.methods.resolve_model`, whose
-    :attr:`~dtfit.methods.ModelSpec.names` are the callable's *signature* order
-    (introspected, or ``param_names`` when given / not introspectable).
+    A symbolic expression parses its free symbols and sorts them by name. A
+    callable is delegated to :func:`dtfit.methods.resolve_model`, whose
+    :attr:`~dtfit.methods.ModelSpec.names` follow the signature order, either
+    introspected or taken from ``param_names``.
     """
     if callable(expr):
         return resolve_model(expr, var, param_names=param_names).names
@@ -64,35 +60,37 @@ class Model:
     """A model family: expression + parameters + shape + data-driven seeder.
 
     Args:
-        expr: The model. Either a SymPy expression string (e.g. ``"a*exp(b*x)"``)
-            or a plain Python callable ``f(x, *params)`` (see
-            :meth:`from_callable`). A callable is resolved via
+        expr: The model. Either a SymPy expression string such as
+            ``"a*exp(b*x)"``, or a plain Python callable ``f(x, *params)``
+            (see :meth:`from_callable`). A callable is resolved via
             :func:`dtfit.methods.resolve_model` and its parameters keep their
-            *signature* order.
-        var: The main variable name. For a callable it is a label only (defaults
-            to ``"x"``).
+            signature order.
+        var: The main variable name. For a callable it is a label only,
+            defaulting to ``"x"``.
         name: A short human label.
-        shape: Routing tag -- one of ``"bulk"``, ``"oscillatory"``,
-            ``"transient"``, ``"peak"``, ``"composite"`` -- which decides the
-            estimator variant in :meth:`fit` (``method="auto"``).
-        freq_param: Name of the angular-frequency parameter, if oscillatory
-            (forwarded to the LSI oscillatory recipe).
-        seeder: ``(x, y) -> {name: (p0, lo, hi)}`` producing data-driven initial
-            values and bounds; ``None`` falls back to ones / unbounded.
+        shape: Routing tag, one of ``"bulk"``, ``"oscillatory"``,
+            ``"transient"``, ``"peak"``, ``"composite"``. It picks the
+            estimator variant in :meth:`fit` under ``method="auto"``.
+        freq_param: Name of the angular-frequency parameter, if oscillatory.
+            Forwarded to the LSI oscillatory recipe.
+        seeder: ``(x, y) -> {name: (p0, lo, hi)}`` producing data-driven
+            initial values and bounds. ``None`` falls back to ones and no
+            bounds.
         param_names: For a callable ``expr`` whose parameter names cannot be
-            introspected (a builtin, or an ``f(x, *params)`` signature), the names
-            of the parameters after the leading ``x`` (in call order). Ignored for
-            a symbolic ``expr`` except that, if given, it is validated against the
-            parsed names.
+            introspected (a builtin, or an ``f(x, *params)`` signature), the
+            names of the parameters after the leading ``x``, in call order.
+            Ignored for a symbolic ``expr``, beyond being validated against
+            the parsed names when given.
 
     Attributes:
         is_symbolic: ``True`` for a symbolic (string) model, ``False`` for a
             callable one.
         expr: The SymPy expression string when symbolic, else ``None``.
         func: The Python callable when non-symbolic, else ``None``.
-        params: The parameter names in canonical order (sorted for a symbolic
-            model, signature order for a callable) -- the layout of ``p0`` /
-            ``bounds`` and of :attr:`dtfit.types.FittingResult.names`.
+        params: The parameter names in canonical order, sorted for a symbolic
+            model and in signature order for a callable. This is the layout of
+            ``p0``, of ``bounds``, and of
+            :attr:`dtfit.types.FittingResult.names`.
     """
 
     def __init__(
@@ -109,8 +107,8 @@ class Model:
     ) -> None:
         pnames = tuple(param_names) if param_names is not None else None
         if callable(expr):
-            # Resolve once to validate the callable and pin the canonical
-            # (signature-order) parameter names; keep the callable for the fitters.
+            # Resolve once to validate the callable and pin its signature-order
+            # names; the callable itself is kept for the fitters.
             spec = resolve_model(expr, var, param_names=pnames)
             self.is_symbolic = False
             self.expr: str | None = None
@@ -146,11 +144,11 @@ class Model:
     ) -> "Model":
         """Build a :class:`Model` from a Python callable ``func(x, *params)``.
 
-        A convenience wrapper over the constructor's callable path. ``names`` are
-        the parameter names after the leading ``x`` (in call order); they are
-        introspected from the signature when omitted and are only *required* for a
-        callable with no inspectable signature (a builtin) or an ``*params``
-        signature. The parameter order is the callable's signature order.
+        A convenience wrapper over the constructor's callable path. ``names``
+        are the parameter names after the leading ``x``, in call order,
+        introspected from the signature when omitted. They are required only
+        for a callable with no inspectable signature (a builtin) or an
+        ``*params`` one. Parameter order is the signature order.
         """
         return cls(
             func,
@@ -167,7 +165,6 @@ class Model:
         what = repr(self.expr) if self.is_symbolic else "<callable>"
         return f"Model({self.name!r}, expr={what}, shape={self.shape!r})"
 
-    # seeding
     def seed(self, x: np.ndarray, y: np.ndarray) -> dict[str, tuple[float, float, float]]:
         """The data-driven ``{name: (p0, lo, hi)}`` seed map (empty if none)."""
         if self.seeder is None:
@@ -175,11 +172,12 @@ class Model:
         return self.seeder(np.asarray(x, float), np.asarray(y, float))
 
     def _eval_seed(self, x: np.ndarray, seed: dict) -> np.ndarray | None:
-        """Evaluate the model at its *seed* parameter values (a cheap approximate
-        curve, no fit) -- used to detrend before seeding a composed component.
+        """Evaluate the model at its seed parameter values.
 
-        Symbolic only: a callable model cannot participate in composition (see
-        :meth:`__add__`), so this returns ``None`` for one.
+        A cheap approximate curve, not a fit; it detrends the data before the
+        next component of a composition is seeded. Symbolic only, since a
+        callable model cannot compose (see :meth:`__add__`), and one returns
+        ``None`` here.
         """
         if not seed or not self.is_symbolic:
             return None
@@ -211,19 +209,17 @@ class Model:
             else:
                 p0.append(1.0)
                 bounds.append((-np.inf, np.inf))
-        # Partially-infinite bounds are kept: the solvers skip the global (DE)
-        # stage unless every bound is finite, but the local (trf) solve honours
-        # mixed bounds directly (see ``solve_weighted_nlls``), so a seeder's
-        # positivity guard (e.g. sigma > 0) survives an otherwise unbounded
-        # seed instead of being dropped wholesale. A *fully* unbounded seed
-        # carries no constraint at all, so it maps to ``None`` -- keeping the
-        # unconstrained (LM) solver instead of pointlessly forcing the bounded
-        # path (which measurably degrades e.g. tanh_step accuracy).
+        # Partially-infinite bounds are kept. The solvers skip the global (DE)
+        # stage unless every bound is finite, but the local trf solve honours
+        # mixed bounds directly (see ``solve_weighted_nlls``), which is how a
+        # seeder's positivity guard on one parameter survives an otherwise
+        # unbounded seed. A fully unbounded seed constrains nothing and maps to
+        # ``None``, keeping the unconstrained LM solver; forcing the bounded
+        # path there measurably degrades tanh_step accuracy.
         if all(np.isneginf(lo) and np.isposinf(hi) for lo, hi in bounds):
             return p0, None
         return p0, bounds
 
-    # fitting
     def fit(
         self,
         x: np.ndarray,
@@ -236,35 +232,28 @@ class Model:
         """Fit this model to ``(x, y)``.
 
         ``method="auto"`` (default) routes by :attr:`shape` through
-        :func:`dtfit.auto_estimate`; ``"lsi"``/``"eac"``/``"adaptive"`` force a
-        specific engine. Seeds and bounds come from the model's seeder unless
-        overridden. A callable model is passed straight through to the fitters
-        (which resolve it via :func:`dtfit.methods.resolve_model`).
+        :func:`dtfit.auto_estimate`; ``"lsi"``, ``"eac"`` and ``"adaptive"``
+        force a specific engine. Seeds and bounds come from the model's seeder
+        unless overridden. A callable model is passed straight through to the
+        fitters, which resolve it via :func:`dtfit.methods.resolve_model`.
         """
         sp0, sb = self._seed_arrays(x, y)
         p0 = sp0 if p0 is None else p0
         bounds = sb if bounds is None else bounds
-        # The fitters accept either a sympy string (symbolic) or the callable
-        # itself; both resolve to the same canonical parameter order.
         model: ModelExpr = self.expr if self.is_symbolic else self.func  # type: ignore[assignment]
-        # For a callable, pin the names the fitter must use: a callable is
-        # re-resolved inside the fitter, and re-introspection would either fail
-        # (an ``f(x, *params)`` signature) or, for a user-renamed callable, yield
-        # the raw signature names instead of ``self.params``. Forwarding
-        # ``param_names`` keeps the canonical order the Model already committed to.
-        # A symbolic model re-parses to the same sorted names, so it needs none.
+        # The fitter re-resolves a callable, and re-introspection would either
+        # fail on an ``f(x, *params)`` signature or, for a renamed callable,
+        # return the raw signature names rather than ``self.params``. Passing
+        # the names explicitly holds the order this Model committed to. A
+        # symbolic model re-parses to the same sorted names and needs nothing.
         pnames: tuple[str, ...] | None = None if self.is_symbolic else self.params
         if method == "auto":
-            # A composite (e.g. trend + sine) fits as 'bulk' LSI but still carries
-            # its freq_param: the cycle is resolved by the tight FFT seed the
-            # composed seeder computes on the detrended residual, which is
-            # empirically more robust here than forcing the full oscillatory
-            # recipe (whose raised order can over-fit a trend+cycle spectrum).
+            # A composite such as trend + sine fits as 'bulk' LSI while still
+            # carrying its freq_param. The cycle is pinned by the tight FFT
+            # seed the composed seeder takes off the detrended residual, which
+            # empirically beats the full oscillatory recipe here: its raised
+            # order tends to over-fit a trend-plus-cycle spectrum.
             shape = self.shape if self.shape != "composite" else "bulk"
-            # Forward ``param_names`` so a callable's committed names survive the
-            # re-resolution inside the base fitters (a ``*params`` signature would
-            # otherwise fail to re-introspect, and a renamed callable would revert
-            # to its raw signature names). Symbolic models pass ``None``.
             return auto_estimate(x, y, model, self.var, shape=shape,
                                  freq_param=self.freq_param, p0=p0, bounds=bounds,
                                  param_names=pnames)
@@ -273,27 +262,23 @@ class Model:
                            freq_param=self.freq_param, param_names=pnames)
         if method in ("eac", "adaptive"):
             wm = "curvature" if method == "adaptive" else "uniform"
-            # Both EAC paths forward the model's self-seeded bounds; the adaptive
-            # (curvature) path previously dropped them, so a seeded model fit
-            # silently ran unconstrained there. The pair list is fit_eac's
-            # canonical form — no scipy-tuple conversion (ambiguous for
-            # 2-parameter models and lossy for partially-infinite bounds).
+            # Bounds go as a pair list, fit_eac's canonical form. Converting to
+            # a scipy 2-tuple would be ambiguous for a 2-parameter model and
+            # lossy for partially-infinite bounds.
             return fit_eac(x, y, model, self.var, window_mode=wm,
                            p0=p0, bounds=bounds, param_names=pnames)
         raise ValueError(
             f"unknown method {method!r}; expected auto/lsi/eac/adaptive"
         )
 
-    # composition
     def __add__(self, other: "Model") -> "Model":
-        """Compose two models additively (e.g. ``trend + seasonal``).
+        """Compose two models additively, as in ``trend + seasonal``.
 
-        Colliding parameter names in ``other`` are renamed; the seeders compose
-        so the combined model is still self-seeding.
+        Colliding parameter names in ``other`` are renamed, and the seeders
+        compose too, leaving the combined model self-seeding.
 
-        Symbolic composition only: both operands must be symbolic (string)
-        models -- a callable's expression cannot be manipulated / renamed
-        symbolically, so composing one raises :class:`TypeError`.
+        Both operands must be symbolic. A callable carries no expression to
+        rename or detrend against, and composing one raises :class:`TypeError`.
         """
         if not self.is_symbolic or not other.is_symbolic:
             raise TypeError(
@@ -332,9 +317,9 @@ class Model:
             y = np.asarray(y, float)
             s_seed = self.seed(x, y)
             d = dict(s_seed)
-            # Seed the second component on the *residual* after removing the
-            # first's seed-approximation, so e.g. a cycle is seeded on detrended
-            # data (correct frequency/amplitude) rather than on the raw trend.
+            # Seed the second component on the residual left after removing
+            # the first's seed approximation. A cycle then reads its frequency
+            # and amplitude off detrended data instead of off the raw trend.
             resid = y
             approx = self._eval_seed(x, s_seed)
             if approx is not None:

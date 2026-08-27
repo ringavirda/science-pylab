@@ -1,12 +1,12 @@
 """Shared plumbing for the streaming filters (EACFilter / LSIFilter).
 
-Both are Kalman-style recursive estimators that differ only in the *measurement*
-(an integrated **area** vs a **Legendre spectrum**) and the measurement-specific
-hot path (``partial_fit`` and the drift step). Everything else -- the parameter /
-uncertainty read-out, the external-regressor handling, prediction at the current
-estimate, and the covariance re-arm hook -- is identical and lives here, so the
-two filters share one implementation. Each subclass sets the attributes these
-methods read (``p``, ``P``, ``params``, ``regressors``, ``_f``, ``_has_reg``,
+Both are Kalman-style recursive estimators that differ only in the measurement
+(an integrated area against a Legendre spectrum) and in the two
+measurement-specific methods, ``partial_fit`` and the drift step. All else is
+identical and lives here: the parameter and uncertainty read-out, the
+external-regressor handling, prediction at the current estimate, and the
+covariance re-arm hook. Each subclass sets the attributes these methods read
+(``p``, ``P``, ``params``, ``regressors``, ``_f``, ``_has_reg``,
 ``drift_inflation``) in its own ``__init__``.
 """
 
@@ -22,7 +22,7 @@ import numpy as np
 class _RecursiveFilter:
     """Mixin base: the measurement-agnostic surface of a streaming filter."""
 
-    # Set by each subclass's ``__init__`` (declared here for the type checkers).
+    # Set by each subclass's ``__init__``; declared here for the type checkers.
     params: list                 # parameter names: sympy symbols (symbolic model)
     #                              or plain name strings (callable model)
     _symbolic_model: bool        # True for a str / sympy.Expr model; False for a
@@ -37,8 +37,8 @@ class _RecursiveFilter:
     _d2fdt2: Callable[..., Any]  # compiled d^2 f / d t^2 (for coast(order=2))
     _dfdt_jac: list[Callable[..., Any]]    # compiled d/dp (d f/d t) (coast_cov)
     _d2fdt2_jac: list[Callable[..., Any]]  # compiled d/dp (d^2 f/d t^2) (coast_cov)
-    # Extrapolable (regressor-dependent) vs nuisance (time-only drift) split, for
-    # coasting a regressor model forward with supplied future regressor values.
+    # Extrapolable (regressor-dependent) against nuisance (time-only drift)
+    # split, for coasting a regressor model forward on supplied future values.
     _f_reg: Callable[..., Any] | None      # terms containing a regressor
     _f_drift: Callable[..., Any] | None    # time-only nuisance terms
     _f_drift_dt: Callable[..., Any] | None
@@ -55,8 +55,8 @@ class _RecursiveFilter:
 
     @property
     def param_cov_(self) -> np.ndarray:
-        """Current parameter covariance ``P`` (the running Kalman state
-        covariance), shape ``(n_params, n_params)`` -- the streaming analogue of
+        """Running Kalman state covariance ``P``, shape
+        ``(n_params, n_params)``; the streaming analogue of
         :attr:`dtfit.FittingResult.cov`. Its diagonal's square roots are the
         standard errors (:attr:`stderr_`). Large early on, it contracts as the
         parameters become identified and re-inflates on a detected drift."""
@@ -64,10 +64,10 @@ class _RecursiveFilter:
 
     @property
     def stderr_(self) -> dict[str, float]:
-        """Per-parameter running standard errors -- ``sqrt`` of the
-        :attr:`param_cov_` diagonal -- as a ``{name: value}`` mapping. The online
-        twin of :meth:`dtfit.FittingResult.stderr`, giving an uncertainty band on
-        the streamed estimate (embedded control, fault detection)."""
+        """Per-parameter running standard errors as a ``{name: value}``
+        mapping, the ``sqrt`` of the :attr:`param_cov_` diagonal. This is the
+        online twin of :meth:`dtfit.FittingResult.stderr` and gives an
+        uncertainty band on the streamed estimate."""
         se = np.sqrt(np.clip(np.diag(self.P), 0.0, None))
         return {str(s): float(v) for s, v in zip(self.params, se)}
 
@@ -80,18 +80,17 @@ class _RecursiveFilter:
     ) -> int:
         """Resolve the model input and compile the fast-path callables.
 
-        ``expr`` may be a SymPy-expression **string**, a :class:`sympy.Expr`, or a
-        plain Python **callable** ``f(t, *params)``. Sets up the external-regressor
+        ``expr`` may be a SymPy-expression string, a :class:`sympy.Expr`, or a
+        plain Python callable ``f(t, *params)``. Sets up the external-regressor
         channels, determines the canonical parameter order (:attr:`params`),
         records whether the model is symbolic (:attr:`_symbolic_model`) and
-        lambdifies / wraps the model evaluator and per-parameter Jacobian once off
-        the hot path. Shared verbatim by both filters' ``__init__`` (the block was
-        duplicated in each). Returns the parameter count.
+        lambdifies or wraps the model evaluator and per-parameter Jacobian once
+        off the hot path. Returns the parameter count.
 
-        A callable model has no closed-form time derivatives, so :meth:`coast` /
-        :meth:`coast_cov` are unavailable for it (they guard on
-        :attr:`_symbolic_model`), and external regressors -- a symbolic-only
-        feature -- are rejected.
+        A callable model has no closed-form time derivatives, so :meth:`coast`
+        and :meth:`coast_cov` are unavailable for it; both guard on
+        :attr:`_symbolic_model`. External regressors are symbolic-only and are
+        rejected for a callable.
         """
         import sympy as sp
 
@@ -106,7 +105,7 @@ class _RecursiveFilter:
         self._has_reg = bool(self.regressors)
 
         if callable(expr) and not isinstance(expr, (str, sp.Expr)):
-            # Callable model f(t, *params): no symbolic form -> no time
+            # Callable model f(t, *params): no symbolic form, therefore no time
             # derivatives (coast() is unavailable) and no external regressors.
             if self.regressors:
                 raise ValueError(
@@ -124,8 +123,7 @@ class _RecursiveFilter:
             self._compile_callable_model(spec)
             return n
 
-        # Symbolic model (string / sympy.Expr) -- unchanged from the historical
-        # path so behaviour stays bit-identical.
+        # Symbolic model (string / sympy.Expr).
         t_sym = sp.Symbol(var)
         reg_syms = [sp.Symbol(r_) for r_ in self.regressors]
         # Bind var + regressor names to plain Symbols so names that clash with a
@@ -142,21 +140,21 @@ class _RecursiveFilter:
             raise RuntimeError("Model expression has no free parameters to fit.")
         self._symbolic_model = True
         # Compile the model, its derivatives and the coast split once, off the
-        # hot path (shared with the subclasses via this base class).
+        # hot path.
         self._compile_model(model, t_sym, reg_syms)
         return n
 
     def _compile_callable_model(self, spec: Any) -> None:
         """Wrap a callable model's :class:`~dtfit.methods.ModelSpec` as the
-        ``_f`` / ``_jac`` fast-path callables, matching the ``(t, *params)`` call
-        signature the symbolic lambdas expose so the measurement hot path is
-        untouched.
+        ``_f`` / ``_jac`` fast-path callables. They take the same
+        ``(t, *params)`` signature the symbolic lambdas expose, leaving the
+        measurement hot path untouched.
 
         ``spec.eval`` already broadcasts a constant model to the sample shape and
         ``spec.param_derivs`` returns the per-parameter sensitivities (a
         forward-difference for a callable). A callable has no symbolic time
         derivatives, so the :meth:`coast` / :meth:`coast_cov` dead-reckoning
-        callables are left unset -- those methods guard on
+        callables are left unset; those methods guard on
         :attr:`_symbolic_model` and raise ``NotImplementedError``.
         """
         self._spec = spec
@@ -191,10 +189,9 @@ class _RecursiveFilter:
 
     def _compile_model(self, model, t_sym, reg_syms) -> None:
         """Lambdify the model, its per-parameter Jacobian, its time derivatives
-        (for :meth:`coast`) and the mixed derivatives (for :meth:`coast_cov`) once,
-        off the hot path -- then split it for regressor coasting. Regressor symbols
-        are passed positionally before the parameters. Shared by both filters'
-        ``__init__`` (the block was previously duplicated verbatim in each)."""
+        (for :meth:`coast`) and the mixed derivatives (for :meth:`coast_cov`)
+        once, off the hot path, then split it for regressor coasting. Regressor
+        symbols are passed positionally before the parameters."""
         import sympy as sp
 
         self._f = sp.lambdify([t_sym, *reg_syms, *self.params], model, "numpy")
@@ -203,8 +200,8 @@ class _RecursiveFilter:
             for p in self.params
         ]
         # Time derivatives, for coast() dead-reckoning through gaps. Only
-        # meaningful without external regressors (a measured regressor has no
-        # closed-form time derivative); coast() guards on that.
+        # meaningful without external regressors: a measured regressor has no
+        # closed-form time derivative, and coast() guards on that.
         self._dfdt = sp.lambdify(
             [t_sym, *reg_syms, *self.params], sp.diff(model, t_sym), "numpy"
         )
@@ -228,8 +225,8 @@ class _RecursiveFilter:
 
     def _compile_regressor_coast(self, model, t_sym, reg_syms) -> None:
         """Split the model into extrapolable (regressor-dependent) and nuisance
-        (time-only drift) parts so :meth:`coast` can roll a regressor model
-        forward. Called by each subclass ``__init__`` (has the symbolic model)."""
+        (time-only drift) parts. This split is what lets :meth:`coast` roll a
+        regressor model forward."""
         import sympy as sp
 
         self._f_reg = self._f_drift = None
@@ -271,8 +268,8 @@ class _RecursiveFilter:
     @staticmethod
     def _validate_drift_reset(drift_reset: str) -> str:
         """Validate the ``drift_reset`` mode at construction. ``_on_drift``
-        branches ``if drift_reset == "inflate" ... else <full>``, so any other
-        string would silently behave as ``"full"``; reject it up front."""
+        branches ``if drift_reset == "inflate" ... else <full>``; any other
+        string would silently behave as ``"full"``. Reject it up front."""
         if drift_reset not in ("full", "inflate"):
             raise ValueError(
                 f"drift_reset must be 'full' or 'inflate', got {drift_reset!r}"
@@ -283,16 +280,16 @@ class _RecursiveFilter:
         """Validate one incoming ``(t, y[, regressors])`` sample and append it
         to the sliding window.
 
-        Finiteness is checked **at entry, before the append**: a NaN/inf that
+        Finiteness is checked at entry, before the append. A NaN or inf that
         entered the window would poison every innovation until it slid out
         (~``window_size`` updates), with the non-finite update guard rejecting
-        each of those steps. A skipped sample leaves the whole filter state --
-        window, parameters, covariance, ``last_residual_`` -- untouched.
+        each of those steps. A skipped sample leaves the whole filter state
+        untouched: window, parameters, covariance, ``last_residual_``.
 
         Returns:
-            True if the sample was appended; False if it was skipped (a
-            ``RuntimeWarning`` is emitted -- Python's default warning filter
-            dedupes repeats per call site).
+            True if the sample was appended; False if it was skipped. A skip
+            emits a ``RuntimeWarning`` (Python's default warning filter dedupes
+            repeats per call site).
         """
         t_val = float(t_new)
         y_val = float(y_new)
@@ -325,9 +322,9 @@ class _RecursiveFilter:
                 for c in range(len(self.regressors))]
 
     def inflate(self, factor: float | None = None) -> None:
-        """Inflate the parameter covariance so new data dominates -- a public
-        hook for an *external* maneuver/change detector to re-arm the filter for
-        fast re-adaptation without discarding the current estimate.
+        """Inflate the parameter covariance so new data dominates. This is the
+        public hook for an external maneuver or change detector to re-arm the
+        filter for fast re-adaptation without discarding the current estimate.
 
         Args:
             factor: Covariance multiplier; defaults to ``drift_inflation``.
@@ -342,43 +339,41 @@ class _RecursiveFilter:
         ``(len(x), n_reg)`` array)."""
         xa = np.asarray(x, dtype=float)
         if not self._has_reg:
-            # Broadcast to x's shape so a t-independent model (e.g. "c0") still
-            # returns an (len(x),) array rather than a bare scalar, matching the
-            # documented contract and the regressor/predict_cov branches.
+            # Broadcast to x's shape: a t-independent model (e.g. "c0") must
+            # still return an (len(x),) array rather than a bare scalar, to
+            # match the documented contract and the other branches.
             return np.broadcast_to(np.asarray(self._f(xa, *self.p), float), xa.shape)
         cols = self._predict_cols(xa, regressors)
         return self._f(xa, *cols, *self.p)
 
     def coast(self, x, *, order: int = 1, regressors=None) -> np.ndarray:
-        """Extrapolate *beyond the fitted window* by dead-reckoning, not by
+        """Extrapolate beyond the fitted window by dead-reckoning, not by
         evaluating the model off its support.
 
-        :meth:`predict` evaluates the fitted model ``f(x)`` directly. That is
-        exact inside the window the parameters were identified on, but a
-        higher-order model *diverges* once ``x`` runs past it -- a fitted cubic's
-        ``c3 * x**3`` term blows up -- so a measurement gap (no ``partial_fit``
-        while ``x`` advances) turns a good fit into an unbounded extrapolation.
+        :meth:`predict` evaluates the fitted model ``f(x)`` directly, exact
+        inside the window the parameters were identified on. A higher-order
+        model diverges once ``x`` runs past that window; a fitted cubic's
+        ``c3 * x**3`` term blows up. A measurement gap then turns a good fit
+        into an unbounded extrapolation.
 
         ``coast`` instead anchors at the last in-window sample ``a = self._t[-1]``
         and propagates a Taylor expansion from there:
 
-        * ``order=1`` -- position + velocity: ``f(a) + f'(a)*(x - a)`` (constant
-          velocity / frozen rate). Bounded for any model; the safe default.
-        * ``order=2`` -- also ``+ 1/2 f''(a)*(x - a)**2`` (constant acceleration).
+        * ``order=1``, position plus velocity: ``f(a) + f'(a)*(x - a)``, a
+          constant-velocity coast. Bounded for any model, and the safe default.
+        * ``order=2``, also ``+ 1/2 f''(a)*(x - a)**2``, constant acceleration.
 
-        It reduces to :meth:`predict` at and before the anchor (``x <= a``), so it
-        is a drop-in for the whole track: exact where the window supports ``x``,
-        bounded dead-reckoning past it.
+        At and before the anchor (``x <= a``) it reduces to :meth:`predict`,
+        making it a drop-in for the whole track: exact where the window holds
+        ``x``, bounded dead-reckoning past it.
 
-        **With external regressors**, pass ``regressors`` (the *future* regressor
-        value(s) at ``x`` -- e.g. an IMU-propagated motion basis). The model is
-        then split into its **extrapolable** part (terms containing a regressor,
-        rolled forward with the supplied future regressor) and its **nuisance**
-        part (time-only drift terms, which *would* blow up if extrapolated), and
-        only the nuisance drift is dead-reckoned (frozen rate). This rolls a fused
-        model forward using the sensed regressor instead of a crude finite
-        difference. Without ``regressors``, a regressor model raises (the future
-        regressor is unknown) -- call :meth:`predict` there.
+        With external regressors, pass ``regressors``, the future regressor
+        value(s) at ``x`` (an IMU-propagated motion basis, for example). The
+        model is split into an extrapolable part, rolled forward on that
+        supplied value, and a time-only nuisance drift, which would blow up if
+        extrapolated and is dead-reckoned at a frozen rate instead. Without
+        ``regressors`` a regressor model raises, the future value being
+        unknown. Call :meth:`predict` there.
 
         Args:
             x: Query time(s).
@@ -405,8 +400,8 @@ class _RecursiveFilter:
                 return np.asarray(in_support, dtype=float)
             a_arr = np.asarray(float(self._t[-1]), dtype=float)
             dt = xa - float(a_arr)
-            # Extrapolable part: evaluate at the future time AND the supplied
-            # future regressor (rolled forward, not extrapolated blindly).
+            # Extrapolable part: evaluate at the future time and at the
+            # supplied future regressor value.
             reg_part = np.asarray(self._f_reg(xa, *cols, *self.p), dtype=float)
             # Nuisance drift part: dead-reckon from the anchor (frozen rate).
             assert self._f_drift is not None and self._f_drift_dt is not None
@@ -435,22 +430,23 @@ class _RecursiveFilter:
         return np.where(dt > 0.0, coasted, np.asarray(in_support, dtype=float))
 
     def coast_cov(self, x, *, order: int = 1) -> np.ndarray:
-        """Predictive variance of :meth:`coast` -- the uncertainty band around a
+        """Predictive variance of :meth:`coast`: the uncertainty band around a
         gap dead-reckon, propagated from the parameter covariance ``P``.
 
-        This is the companion to :meth:`coast` that :meth:`predict_cov` is to
-        :meth:`predict`. The coasted value ``c(x) = f(a) + f'(a) dt [+ 1/2
-        f''(a) dt^2]`` (anchor ``a = self._t[-1]``, ``dt = x - a``) is a function
-        of the parameters, so its variance is ``J_c(x)^T P J_c(x)`` with the coast
-        Jacobian ``J_c[k] = df/dp_k(a) + d f'/dp_k(a) dt [+ 1/2 d f''/dp_k(a)
-        dt^2]``. The ``dt`` / ``dt^2`` factors make the band **grow with gap
-        length** -- confidence correctly decays the longer the filter coasts --
-        so a downstream fuser gets an honest, widening ``coast(x) +/-
-        sqrt(coast_cov(x))`` pseudo-measurement across a measurement dropout.
+        This is to :meth:`coast` what :meth:`predict_cov` is to
+        :meth:`predict`. The coasted value
+        ``c(x) = f(a) + f'(a) dt [+ 1/2 f''(a) dt^2]`` (anchor
+        ``a = self._t[-1]``, ``dt = x - a``) is a function of the parameters,
+        so its variance is ``J_c(x)^T P J_c(x)`` with the coast Jacobian
+        ``J_c[k] = df/dp_k(a) + d f'/dp_k(a) dt [+ 1/2 d f''/dp_k(a) dt^2]``.
+        The ``dt`` and ``dt^2`` factors grow the band with gap length, giving
+        a downstream fuser an honest, widening
+        ``coast(x) +/- sqrt(coast_cov(x))`` pseudo-measurement across a
+        dropout.
 
-        At and before the anchor (``x <= a``) it returns :meth:`predict_cov`, so
-        it is a drop-in for the whole track. Not defined for models with external
-        regressors (as :meth:`coast`).
+        At and before the anchor (``x <= a``) it returns :meth:`predict_cov`,
+        making it a drop-in for the whole track. Not defined for models with
+        external regressors, as with :meth:`coast`.
 
         Args:
             x: Query time(s).
@@ -490,18 +486,18 @@ class _RecursiveFilter:
         return np.where(dt > 0.0, np.clip(var, 0.0, None), base_cov)
 
     def predict_cov(self, x, regressors=None) -> np.ndarray:
-        """Predictive variance of the model **output** at ``x``, propagated from
+        """Predictive variance of the model output at ``x``, propagated from
         the parameter covariance: ``Var[f(x)] = J(x)ᵀ P J(x)`` where
         ``J(x) = ∂f/∂params`` (the delta method).
 
-        :attr:`stderr_` gives the uncertainty of each *parameter*; this maps that
-        covariance into *output* space, so the streamed estimate carries a
-        calibrated one-sigma band ``predict(x) ± sqrt(predict_cov(x))``. That is
-        what lets a downstream consumer *fuse* the dtfit output (as a
-        pseudo-measurement with a known variance) or gate on its confidence.
-        Nearly free: the parameter Jacobian ``∂f/∂p`` is already compiled.
+        :attr:`stderr_` gives the uncertainty of each parameter; this maps that
+        covariance into output space, giving the streamed estimate a calibrated
+        one-sigma band ``predict(x) ± sqrt(predict_cov(x))``. A downstream
+        consumer can then fuse the dtfit output as a pseudo-measurement with a
+        known variance, or gate on its confidence. It costs almost nothing,
+        because the parameter Jacobian ``∂f/∂p`` is already compiled.
 
-        Note this is the variance from the *estimate's* uncertainty only; add the
+        This is the variance from the estimate's uncertainty alone; add the
         measurement-noise floor separately for a full predictive interval.
 
         Args:

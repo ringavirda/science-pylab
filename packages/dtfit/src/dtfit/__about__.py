@@ -1,7 +1,7 @@
-"""Single source of truth for the package version.
+"""Package version.
 
-Read by ``pyproject.toml`` (``[tool.setuptools.dynamic]``) at build time and
-re-exported as ``dtfit.__version__`` at runtime, so the version is defined once.
+``pyproject.toml`` reads it at build time through
+``[tool.setuptools.dynamic]``; ``dtfit.__version__`` re-exports it at runtime.
 """
 
 __version__ = "0.4.0"

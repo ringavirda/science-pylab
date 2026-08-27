@@ -1,6 +1,6 @@
 """Native kernels stay numerically identical to the NumPy/SciPy fallback.
 
-Guards the GIL-release refactor of dtfit._native: dropping the GIL around the
+Guards the GIL-release refactor of dtfit._core._native: dropping the GIL around the
 pure compute loops must not change any result. Also exercises concurrent calls
 from multiple threads to catch a botched GIL handshake (which would deadlock or
 corrupt output).

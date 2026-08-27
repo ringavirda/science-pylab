@@ -384,7 +384,43 @@ Every Phase 1 task follows the identical shape below. `<PATHS>` is the task's fi
 
 1. Rewrite prose in `<PATHS>` per the Global Constraints.
 2. `.venv/Scripts/python.exe tools/prose_guard.py HEAD <PATHS>` -> expect `OK`, exit 0. A `LOGIC CHANGED` line means revert that file's logic edit; the guard is not advisory.
-3. `.venv/Scripts/python.exe -m ruff check <PATHS>` -> expect no findings (79-column limit).
+3. `.venv/Scripts/python.exe -m ruff check <PATHS>` -> expect no findings.
+
+   **`ruff check` does NOT enforce the 79-column limit.** `pyproject.toml` sets
+   `line-length = 79` but declares no `[tool.ruff.lint] select`, so ruff runs its
+   default `E4/E7/E9/F` set, and E501 is not in it. The repo carries 390 E501
+   violations today and always has. Do not attempt a repo-wide E501 cleanup: that
+   means reflowing code, which is out of scope.
+
+   What IS required is that prose YOU write fits in 79 columns. Check only your
+   own added lines:
+
+   ```bash
+   git diff -U0 -- <PATHS> > "$SCRATCH/d.txt" && .venv/Scripts/python.exe -c "
+import io
+n = 0
+for ln in io.open(r'<SCRATCH>/d.txt', encoding='utf-8', errors='replace'):
+    ln = ln.rstrip('
+')
+    if ln.startswith('+') and not ln.startswith('+++') and len(ln) - 1 > 79:
+        n += 1; print(len(ln) - 1, ln)
+print(n, 'overlong added lines')
+"
+   ```
+
+   Expect `0 overlong added lines`. Pre-existing overlong lines are not yours
+   to fix.
+
+   Write the diff to a real file under your scratchpad directory, not `/tmp`
+   (a Git Bash path the Windows interpreter cannot open), and substitute its
+   absolute path for `<SCRATCH>`.
+
+   The file-with-explicit-encoding form is deliberate. Do NOT use
+   `awk 'length>80'` (awk counts BYTES) and do NOT pipe into bare `python -c`
+   (on Windows, stdin decodes as the console codepage, not UTF-8). Both
+   over-count any line holding a multi-byte character, and this codebase's math
+   prose is full of them (`β`, `∫`, `φ`, `·`). Each wrong form reported a
+   76-character line as 81.
 4. `.venv/Scripts/python.exe -m pytest <SUITE> -q; echo "EXIT=${PIPESTATUS[0]}"` -> expect the recorded baseline, `EXIT=0`.
 5. **Only for tasks editing `packages/dtfit/src` (Tasks 2-7)**, from `packages/dtfit/`:
 
@@ -399,6 +435,16 @@ Every Phase 1 task follows the identical shape below. `<PATHS>` is the task's fi
    `MKDOCS_EXIT=0`. A mkdocs failure after a docstring rewrite is almost always
    a broken indent in an `Args:` block -- fix the docstring, not the config.
 6. Report the files changed and the verification output. Do not stage or commit.
+
+**Read the full prose of every file you touch, end to end, before reporting.**
+Not the diff hunks: the actual docstrings and comments as they now read. Four
+separate tasks lost a clause that a hunk-level view hid, in three different ways:
+a changelog sentence cut together with the conclusion it shared a semicolon with;
+an ordinary tightening that swept up an adjacent claim carrying no changelog word
+at all; and a reflow that amputated a clause mid-paragraph, leaving "contiguous
+sub-areas are shrink in magnitude" in a published module docstring. `prose_guard`
+cannot catch any of these, because prose is not in the AST. Reading is the only
+gate there is.
 
 Because the guard proves logic is untouched, a test failure at step 4 means a docstring was load-bearing -- a doctest, or a `__doc__` read at runtime. Investigate rather than reverting wholesale.
 
@@ -417,7 +463,9 @@ Known targets: `_spectral.py` carries 60 comment lines in 507; `types.py::Fittin
 
 ### Task 3: dtfit/src -- methods
 
-**Files:** `packages/dtfit/src/dtfit/methods/` -- `__init__.py`, `_common.py`, `_dsb.py`, `_eac.py`, `_ensemble.py`, `_lsi.py`, `_modelinput.py`. 7 files.
+**Files:** `packages/dtfit/src/dtfit/methods/` -- `__init__.py`, `_common.py`, `_dsb.py`, `_eac.py`, `_ensemble.py`, `_lsi.py`, `_modelinput.py` (7), plus `packages/dtfit/src/dtfit/_core/_native.c` (1). 8 files.
+
+`_native.c` is added here to close a scope gap: Phase 1 enumerated only `.py` files and Task 15 covers only the hardware firmware, so this 373-line C source (71 comment lines, 19%) fell between them. It is the only C source in `dtfit`. `prose_guard.py` cannot parse C, so exclude it from the Step 2 guard command and re-read its diff by hand, exactly as Task 15 does for the firmware.
 
 Known targets: `fit_eac` (107-line docstring), `fit_lsi` (105), `_eac.py` module docstring (42). `_eac.py` holds four changelog comments at lines 332, 355, 449, 484 ("historical sorted-name parameter order", "the old fixed default"). Keep the `Args:`/`Returns:`/`Raises:` blocks on both public fitters.
 
@@ -507,6 +555,22 @@ Known targets: changelog comments at `test_auto.py:495`, `test_dsb.py:36`, `test
 - [ ] **Step 5:** Report the files changed and the verification output. Do not stage or commit.
 
 ### Task 10: dtfit/tests -- remaining subdirectories
+
+**KNOWN BASELINE DEVIATION -- read before running the guard.**
+`packages/dtfit/tests/core/test_native.py` already reports `LOGIC CHANGED`
+against HEAD, and that is correct and accepted. A separate fix corrected eight
+stale `dtfit._native` references to `dtfit._core._native` (the module the C
+extension actually builds to; `import dtfit._native` raises ModuleNotFoundError).
+Two of those eight sites are genuine string literals in this file, a pytest
+`reason=` and an assert message, so the guard sees a real AST difference:
+
+    reason="compiled dtfit._core._native not built (optional on this platform)"
+    assert K.HAVE_NATIVE, "dtfit._core._native not built -- run python build_native.py"
+
+Do NOT revert them and do NOT try to make the guard return `OK` for this file.
+Expect `1 of N file(s) changed more than prose` naming exactly this file, and
+confirm the only non-prose difference is those two strings. Any OTHER file
+reporting `LOGIC CHANGED` is a real defect.
 
 **Files:** `packages/dtfit/tests/` -- `accuracy/` (4), `core/` (3), `diagnostics/` (1), `estimators/` (2), `scale/` (5), `streaming/` (2). 17 files.
 

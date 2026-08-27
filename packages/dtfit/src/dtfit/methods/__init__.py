@@ -1,10 +1,9 @@
 """dtfit fitting methods.
 
-The differential-transformation batch fitters (``fit_lsi``, ``fit_eac`` -- with
-uniform or curvature-adaptive window placement -- and ``fit_dsb``), the
-``find_degree`` polynomial support primitive the DSB scheme builds on, the
-shared symbolic helpers (``model_params``, ``taylor_coeffs``) and the
-user-input normalizers (``normalize_p0``, ``normalize_bounds``).
+The differential-transformation batch fitters ``fit_lsi``, ``fit_eac`` and
+``fit_dsb``; the ``find_degree`` polynomial primitive that DSB builds on; the
+symbolic helpers ``model_params`` and ``taylor_coeffs``; and the user-input
+normalizers ``normalize_p0`` and ``normalize_bounds``.
 """
 
 from ._common import (

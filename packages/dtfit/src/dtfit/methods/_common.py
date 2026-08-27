@@ -1,13 +1,10 @@
 """Shared internals of the differential-transformation fitting methods.
 
-Collected here so the method modules (``lsi`` / ``eac`` / ``dsb``) draw on one
-small toolbox rather than a scatter of one-function files:
-
 - symbolic spectrum helpers: :func:`model_params`, :func:`taylor_coeffs`;
-- user-input normalizers shared by the batch fitters: :func:`normalize_p0`,
+- user-input normalizers for the batch fitters: :func:`normalize_p0`,
   :func:`normalize_bounds`;
 - numeric statistics: :func:`_covariance`, :func:`information_criteria`;
-- polynomial-degree selection (the DSB pre-fit support): :func:`find_degree`.
+- polynomial-degree selection, the DSB pre-fit support: :func:`find_degree`.
 """
 
 from collections.abc import Mapping, Sequence
@@ -21,11 +18,8 @@ from dtfit.log import echo
 
 
 def _savgol_prefilter(y: np.ndarray) -> np.ndarray:
-    """Savitzky-Golay pre-smoother applied before an LSI spectral projection
-    (window <= 11, cubic polyorder); a no-op for series shorter than 5 samples.
-
-    Shared by :func:`dtfit.fit_lsi` and the experimental basis-LSI fitter so the
-    smoothing heuristic lives in one place.
+    """Savitzky-Golay pre-smoother for an LSI spectral projection: window
+    <= 11, cubic polyorder, and a no-op below 5 samples.
     """
     y = np.asarray(y, dtype=float)
     if y.size >= 5:
@@ -37,12 +31,12 @@ def _savgol_prefilter(y: np.ndarray) -> np.ndarray:
 
 # symbolic (Taylor / Maclaurin) spectrum helpers
 #
-# The differential transform of ``f`` about ``t0=0`` with sampling interval ``H``
-# is ``F(k) = (H**k / k!) * f^(k)(0)``. In a *spectra balance* every equation sets
-# a model discrete equal to the data discrete at the same order ``k``, so the
-# common ``H**k`` factor cancels and the balance reduces to matching plain Taylor
-# (Maclaurin) coefficients ``f^(k)(0)/k!`` -- available for any expression SymPy
-# can differentiate, with no hand-written per-function discrete rules.
+# The differential transform of ``f`` about ``t0=0`` with sampling interval
+# ``H`` is ``F(k) = (H**k / k!) * f^(k)(0)``. In a spectra balance every
+# equation sets a model discrete equal to the data discrete at the same order
+# ``k``. The common ``H**k`` factor therefore cancels and the balance reduces
+# to matching plain Taylor (Maclaurin) coefficients ``f^(k)(0)/k!``, which
+# SymPy can produce for any differentiable expression.
 def model_params(f_sym: sp.Expr, t: sp.Symbol) -> list[sp.Symbol]:
     """Return the free parameters of ``f_sym`` (all symbols except ``t``),
     ordered by name for a stable coefficient layout."""
@@ -52,7 +46,7 @@ def model_params(f_sym: sp.Expr, t: sp.Symbol) -> list[sp.Symbol]:
 
 def taylor_coeffs(f_sym: sp.Expr, t: sp.Symbol, order: int) -> list[sp.Expr]:
     """Symbolic Maclaurin coefficients ``a_k = f^(k)(0) / k!`` for
-    ``k = 0 .. order`` (inclusive) -- the ``H``-free differential spectrum."""
+    ``k = 0 .. order`` inclusive: the ``H``-free differential spectrum."""
     coeffs: list[sp.Expr] = []
     deriv = f_sym
     for k in range(order + 1):
@@ -72,15 +66,13 @@ def _validate_xy(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Coerce and validate a 1-D ``(x, y)`` sample pair.
 
-    Returns float arrays. Raises :class:`ValueError` with a clear message on a
-    shape mismatch, a non-1-D input, or fewer than ``min_size`` samples -- so
-    every batch fitter (``fit_lsi`` / ``fit_eac``) rejects malformed input the
-    same way instead of failing obscurely deeper in.
+    Returns float arrays. A shape mismatch, a non-1-D input or fewer than
+    ``min_size`` samples raises :class:`ValueError`.
 
-    ``nan_policy`` controls non-finite handling: ``"raise"`` (default) rejects any
-    NaN/inf; ``"omit"`` drops the offending ``(x, y)`` pairs before fitting, so
-    gappy real-world telemetry (dropped GPS/sensor samples) can be fit directly
-    without external masking. The finite-count floor still applies after omission.
+    ``nan_policy`` controls non-finite handling. ``"raise"`` (the default)
+    rejects any NaN/inf; ``"omit"`` drops the offending ``(x, y)`` pairs
+    before fitting, which is what gappy telemetry with dropped GPS or sensor
+    samples needs. The ``min_size`` floor applies after omission.
     """
     x = np.asarray(data_x, dtype=float)
     y = np.asarray(data_y, dtype=float)
@@ -120,13 +112,13 @@ def _validate_xy(
 
 
 def _validate_p0(p0, params: list) -> np.ndarray:
-    """Coerce an initial guess to a float vector and length-check it against the
-    parameter list.
+    """Coerce an initial guess to a float vector and length-check it against
+    the parameter list.
 
-    ``None`` yields all-ones. A wrong-length ``p0`` raises :class:`ValueError`
-    naming the expected count *and order* -- parameters are laid out sorted by
-    name (:func:`model_params`), which surprises callers passing a positional
-    ``p0`` in source order, so the message spells the order out.
+    ``None`` yields all-ones. A wrong-length ``p0`` raises
+    :class:`ValueError` naming both the expected count and the order:
+    parameters are laid out sorted by name (:func:`model_params`), not in the
+    order they appear in the expression.
     """
     n = len(params)
     if p0 is None:
@@ -149,14 +141,14 @@ def normalize_p0(
 
     Accepted forms:
 
-    - ``None`` -- no guess supplied; returned unchanged so callers can still
-      distinguish "seeded" from "unseeded" paths;
-    - a positional sequence -- one value per parameter, laid out in the
-      alphabetically-sorted parameter-name order (:func:`model_params`),
-      length-checked like :func:`_validate_p0`;
-    - a ``{name: value}`` mapping -- must cover **all** parameters; a missing
-      or unknown name raises :class:`ValueError` listing the valid names in
-      sorted order.
+    - ``None``: no guess supplied, returned unchanged so callers can still
+      tell a seeded path from an unseeded one;
+    - a positional sequence: one value per parameter in the
+      alphabetically-sorted name order of :func:`model_params`,
+      length-checked as in :func:`_validate_p0`;
+    - a ``{name: value}`` mapping, which must cover every parameter. A
+      missing or unknown name raises :class:`ValueError` listing the valid
+      names in sorted order.
 
     Returns a fresh float array (callers may mutate it) or ``None``.
     """
@@ -203,25 +195,26 @@ def normalize_bounds(
 ) -> list[tuple[float, float]] | None:
     """Normalize user bounds to a per-parameter ``[(lo, hi), ...]`` list.
 
-    Accepted forms (``n`` = number of parameters, laid out in the
-    alphabetically-sorted name order of :func:`model_params`):
+    Accepted forms, with ``n`` the number of parameters laid out in the
+    alphabetically-sorted name order of :func:`model_params`:
 
-    - ``None`` -- unbounded; returned unchanged;
-    - a ``{name: (lo, hi)}`` mapping -- may be **partial**: parameters not
+    - ``None``: unbounded, returned unchanged;
+    - a ``{name: (lo, hi)}`` mapping, which may be partial. Parameters not
       named get ``(-inf, inf)``; an unknown name raises :class:`ValueError`
       listing the valid names in sorted order;
     - a sequence of ``n`` ``(lo, hi)`` pairs in sorted-name order;
     - the scipy-style 2-tuple ``(lo, hi)`` with ``lo``/``hi`` scalars or
       length-``n`` arrays (:func:`scipy.optimize.least_squares`'s convention).
 
-    Ambiguity note: for ``n == 2`` a 2-tuple of two 2-sequences (e.g.
-    ``([0, 0], [10, 10])``) could be read either way; it is interpreted as
-    **per-parameter pairs** -- pass scalars or a dict for the scipy reading.
+    For ``n == 2`` a 2-tuple of two 2-sequences such as ``([0, 0], [10, 10])``
+    reads either way. It is taken as per-parameter pairs; pass scalars or a
+    dict for the scipy reading.
 
-    Each pair is validated ``lo < hi`` (strictly); a violation raises
+    Each pair is validated ``lo < hi`` strictly, and a violation raises
     :class:`ValueError` naming the offending parameter. To pin a parameter to
-    a constant, substitute the value into the model expression instead of
-    passing a degenerate ``lo == hi`` box (scipy's bounded solvers reject it).
+    a constant, substitute the value into the model expression rather than
+    passing a degenerate ``lo == hi`` box, which scipy's bounded solvers
+    reject.
     """
     names = [str(n) for n in param_names]
     n = len(names)
@@ -243,8 +236,8 @@ def normalize_bounds(
         return _check_bounds(out, names)
     seq = list(bounds)
     if len(seq) == n and all(_is_pair(v) for v in seq):
-        # n (lo, hi) pairs in sorted-name order. This branch also resolves the
-        # documented n == 2 ambiguity in favour of per-parameter pairs.
+        # n (lo, hi) pairs in sorted-name order; also resolves the documented
+        # n == 2 ambiguity in favour of per-parameter pairs.
         out = [(float(v[0]), float(v[1])) for v in seq]
         return _check_bounds(out, names)
     if len(seq) == 2:
@@ -271,12 +264,12 @@ def normalize_bounds(
 def _check_bounds(
     out: list[tuple[float, float]], names: list[str]
 ) -> list[tuple[float, float]]:
-    """Validate ``lo < hi`` (strictly) per parameter, naming the offender.
+    """Validate ``lo < hi`` strictly per parameter, naming the offender.
 
-    Strict, not ``<=``: scipy's trf solver rejects a degenerate ``lo == hi``
-    box with an error that names no parameter, and whether such a box even
-    reaches trf depends on the solver path taken -- validate it consistently
-    up front instead.
+    Strict rather than ``<=`` because scipy's trf rejects a degenerate
+    ``lo == hi`` box with an error that names no parameter, and whether such
+    a box reaches trf at all depends on which solver path is taken. Checking
+    here keeps the message the same either way.
     """
     for nm, (lo, hi) in zip(names, out):
         if not lo < hi:
@@ -298,16 +291,13 @@ def _resolve_sigma(
 ) -> np.ndarray | None:
     """Validate ``sigma`` and align it with the post-validation samples ``x``.
 
-    ``sigma`` is the per-sample measurement standard deviation of ``data_y``,
-    the **same length as the raw input** (matching :func:`scipy.optimize.curve_fit`).
-    Returns a float array aligned with the validated ``x`` -- with the same
-    non-finite ``(x, y)`` pairs dropped when ``nan_policy="omit"`` -- or ``None``
-    when no ``sigma`` was supplied. Raises :class:`ValueError` on a length
-    mismatch or a non-finite / non-positive entry among the retained samples.
-
-    Shared by :func:`dtfit.fit_lsi` and :func:`dtfit.fit_eac` so the two fitters
-    cannot drift on the sigma-length contract (they once disagreed under
-    ``nan_policy="omit"``).
+    ``sigma`` is the per-sample measurement standard deviation of ``data_y``
+    and carries the same length as the raw input, matching
+    :func:`scipy.optimize.curve_fit`. Returns a float array aligned with the
+    validated ``x``, with the same non-finite ``(x, y)`` pairs dropped under
+    ``nan_policy="omit"``, or ``None`` when no ``sigma`` was supplied. A
+    length mismatch, or a non-finite or non-positive entry among the retained
+    samples, raises :class:`ValueError`.
     """
     if sigma is None:
         return None
@@ -338,26 +328,27 @@ def _resolve_sigma(
 def _covariance(
     jac: np.ndarray, res: np.ndarray, n_params: int, *, absolute_sigma: bool = False
 ) -> np.ndarray | None:
-    """Gauss-Newton covariance ``sigma^2 (J^T J)^-1`` from the residual Jacobian.
+    """Gauss-Newton covariance ``sigma^2 (J^T J)^-1`` from the residual
+    Jacobian.
 
-    Computed from the SVD of ``J`` directly rather than inverting ``J^T J``:
-    forming ``J^T J`` squares the condition number, so ``inv(J^T J)`` is both
-    slower and far less accurate exactly when the parameters are near-degenerate
-    -- the case a covariance is most needed. With ``J = U S V^T``,
-    ``(J^T J)^-1 = V diag(1/s^2) V^T``; singular values below a relative
-    tolerance are treated as null directions (Moore-Penrose), matching
-    ``scipy.optimize.curve_fit``'s SVD-based covariance.
+    Taken from the SVD of ``J`` rather than by inverting ``J^T J``. Forming
+    ``J^T J`` squares the condition number, which makes ``inv(J^T J)`` both
+    slower and far less accurate exactly when the parameters are
+    near-degenerate, the case a covariance is most needed. With
+    ``J = U S V^T``, ``(J^T J)^-1 = V diag(1/s^2) V^T``; singular values
+    below a relative tolerance count as null directions (Moore-Penrose), as
+    in ``scipy.optimize.curve_fit``'s SVD-based covariance.
 
-    With ``absolute_sigma=False`` (the default) the raw ``(J^T J)^-1`` is scaled
-    by the reduced chi-square ``res @ res / (m - n_params)`` -- the residual
-    carries the (unknown) noise scale. With ``absolute_sigma=True`` no such
-    rescaling is applied (``sigma^2 = 1``): the residual is assumed already
-    scaled by ``1/sigma`` (absolute measurement errors), so the covariance
-    reflects those absolute values -- matching ``scipy.optimize.curve_fit``'s
+    With ``absolute_sigma=False`` (the default) the raw ``(J^T J)^-1`` is
+    scaled by the reduced chi-square ``res @ res / (m - n_params)``: the
+    residual carries the unknown noise scale. With ``absolute_sigma=True``
+    there is no such rescaling (``sigma^2 = 1``), the residual being assumed
+    already scaled by ``1/sigma``, so the covariance reflects those absolute
+    measurement errors. Same meaning as ``scipy.optimize.curve_fit``'s
     ``absolute_sigma`` flag.
 
-    Returns ``None`` for an exactly- or under-determined system (``m <=
-    n_params``) or when ``J`` is entirely singular.
+    Returns ``None`` for an exactly- or under-determined system
+    (``m <= n_params``) or when ``J`` is entirely singular.
     """
     m = res.size
     if m <= n_params:
@@ -379,9 +370,9 @@ def information_criteria(rss: float, n: int, k: int) -> tuple[float, float]:
     """Gaussian-likelihood ``(AIC, BIC)`` from a residual sum of squares.
 
     ``AIC = n*ln(rss/n) + 2k`` and ``BIC = n*ln(rss/n) + k*ln(n)`` for ``n``
-    samples and ``k`` parameters. A perfect fit (``rss <= 0``) returns ``-inf``.
-    The single source of truth for the criteria used by degree selection, the
-    LSI spectral-order pick and the diagnostics report.
+    samples and ``k`` parameters. A perfect fit (``rss <= 0``) returns
+    ``-inf``. Used by degree selection, the LSI spectral-order pick and the
+    diagnostics report.
     """
     if rss <= 0:
         return float("-inf"), float("-inf")
@@ -396,10 +387,8 @@ def find_degree(
     method: str = "bic",
     max_degree: int = 12,
 ) -> int:
-    """Select a polynomial degree for ``(data_x, data_y)`` by ``"bic"``/``"aic"``.
-
-    Returns the degree minimizing the chosen information criterion over
-    ``0..max_degree`` (a parsimonious fit-vs-complexity trade-off).
+    """Select a polynomial degree for ``(data_x, data_y)`` by ``"bic"`` or
+    ``"aic"``: the degree minimizing that criterion over ``0..max_degree``.
     """
     if method not in ("bic", "aic"):
         raise ValueError(

@@ -1,61 +1,53 @@
-"""dtfit -- differential-transformation fitting.
+"""dtfit: differential-transformation fitting.
 
 Methods for fitting models that are nonlinear in their parameters
 (exponential, transcendental, mixed) for nonlinear smoothing and forecasting,
-built in the scheme of differential / non-Taylor transformations. Developed as
+built in the scheme of differential / non-Taylor transformations. Written as
 part of the author's PhD dissertation.
 
-The public interface is layered -- pick the tier that matches how much you want
-to drive:
+The public interface is layered, from choosing the engine yourself to letting
+it choose.
 
-  1. Methods (you choose the engine):
-       fit_lsi() / fit_eac() / fit_dsb(): the batch fitters. ``fit_eac`` places
-           windows uniformly or curvature-adaptively (``window_mode=``) and has a
-           robust ``loss=`` for outlier-prone windows.
-       ensemble_fit(): overlapping-window robust ensemble -- the heavier-duty
-           complement to fit_eac's robust loss for densely contaminated data.
-       find_degree(): polynomial-degree selection (DSB support).
-  2. Estimator (sklearn-compatible):
-       NonlineRegressor: fit/predict/score over LSI/EAC/DSB; composes with
-           sklearn Pipeline and GridSearchCV.
-  3. High-level (it chooses for you):
-       auto_estimate() / auto_forecast(): shape-routed parameter estimation and
-           structured forecasting -- the function-style counterparts for callers
-           who do not want the model framework.
-       models / Model / suggest_models(): a catalog of self-seeding model
-           families and an AIC recommender (pick structure, not sympy strings).
+Batch fitters:
+    fit_lsi, fit_eac, fit_dsb. ``fit_eac`` places its windows uniformly or by
+    curvature (``window_mode=``) and takes a robust ``loss=``. ensemble_fit is
+    the overlapping-window ensemble for densely contaminated data, and
+    find_degree selects the polynomial degree for DSB.
 
-Streaming (online, partial_fit):
-    EACFilter / LSIFilter: real-time parameter trackers (streaming twins of
-        fit_eac / fit_lsi); start from the ``.tracking()`` / ``.robust()``
-        presets. FilterBank / FusedChiSquareDetector drive many streams at once.
+Estimator:
+    NonlineRegressor, an sklearn-compatible fit/predict/score over LSI, EAC
+    and DSB. It composes with Pipeline and GridSearchCV.
 
-Scale (same methods, run big):
-    PartitionedLSI / PartitionedEAC / PartitionedBatchLSI (one-pass / distributed
-        map-reduce), fit_lsi_batched (GEMM-batched multi-channel), fit_many
-        (process/thread fan-out). The low-level project_spectra primitive lives
-        under ``dtfit.scale``.
+High level:
+    auto_estimate and auto_forecast route by signal shape. models / Model /
+    suggest_models are a catalog of self-seeding model families and an AIC
+    recommender for picking structure rather than sympy strings.
 
-Stochastic series (genuinely random data -- economic / financial series):
-    fit_stochastic / StochasticModel / Stochastic: fit the deterministic
-        *functionals* of a random process (autocovariance, spectrum, trend/cycle)
-        to characterize, forecast and generate it (pick structure via the
-        ``Stochastic`` model, or call ``fit_stochastic`` directly).
-        StochasticFilter tracks that structure online. See ``dtfit.stochastic``.
+Streaming:
+    EACFilter and LSIFilter track parameters online through ``partial_fit``;
+    start from their ``.tracking()`` / ``.robust()`` presets. FilterBank and
+    FusedChiSquareDetector drive many streams at once.
 
-Result type:
-    FittingResult: the self-describing fitted-model result -- named parameters,
-        uncertainty, an optimizer ``converged`` flag, and extrapolation-aware
-        ``predict``. Batch and single fits (incl. fit_many) return this same type.
-    enable_logging() / logger: opt-in library logging.
+Scale:
+    PartitionedLSI, PartitionedEAC and PartitionedBatchLSI are the one-pass
+    and distributed map-reduce estimators. fit_lsi_batched is the GEMM-batched
+    multi-channel path, fit_many the process/thread fan-out. The
+    project_spectra primitive lives in ``dtfit.scale``.
 
-Submodules (imported explicitly, kept out of the top-level namespace, after
-the scikit-learn convention):
-    dtfit.diagnostics: fit-aware diagnostics (fit_report, residual tests) and
-        ``*Display`` visualization helpers.
+Stochastic series:
+    fit_stochastic, StochasticModel and Stochastic fit the deterministic
+    functionals of a random process (autocovariance, spectrum, trend/cycle) to
+    characterize, forecast and generate it. StochasticFilter tracks that
+    structure online. See ``dtfit.stochastic``.
+
+Every fit returns a FittingResult: named parameters, uncertainty, an optimizer
+``converged`` flag, and extrapolation-aware ``predict``. enable_logging and
+logger are the opt-in library logging. dtfit.diagnostics (fit_report, residual
+tests, the ``*Display`` helpers) is imported explicitly, after the
+scikit-learn convention.
 
 Core dependencies: numpy, scipy, sympy, scikit-learn.
-Optional extras: matplotlib (install with `pip install 'dtfit[viz]'`).
+Optional extras: matplotlib, via ``pip install 'dtfit[viz]'``.
 """
 
 from dtfit.__about__ import __version__
@@ -79,25 +71,11 @@ from dtfit.streaming import (
     FusedChiSquareDetector,
 )
 from dtfit.scale._parallel import fit_many, FittingProblem
-# Promoted after the experiment suite validated them across the big-data and
-# parallel workloads: the exact one-pass / distributed (map-reduce) estimators
-# and the GEMM-batched multi-channel projection. The remaining adaptations stay
-# experimental in the separate `dtfit-experimental` package.
 from dtfit.scale._partitioned import PartitionedLSI, PartitionedEAC, PartitionedBatchLSI
-# ``project_spectra`` is the low-level empirical-spectrum primitive behind
-# ``fit_lsi_batched``; it stays reachable as ``dtfit.scale.project_spectra`` but
-# is kept off the headline top-level namespace.
 from dtfit.scale._batched import fit_lsi_batched
-# High-level "just fit it" entry points distilled from the domain merged
-# pipelines (shape-routed estimation; structured fit-then-extrapolate forecast).
 from dtfit.auto import auto_estimate, auto_forecast, ForecastResult
-# Model framework: a catalog of self-seeding model families + a recommender,
-# so users pick structure (not sympy strings) and can infer the right model.
 from dtfit import models
 from dtfit.models import Model, Stochastic, suggest_models, register, unregister
-# Stochastic-series: fit the deterministic functionals of a random process to
-# characterize / forecast / generate it (fit_stochastic) and track it online
-# (StochasticFilter); the Stochastic model wraps it in the .fit() convention.
 from dtfit import stochastic
 from dtfit.stochastic import fit_stochastic, StochasticModel, StochasticFilter
 

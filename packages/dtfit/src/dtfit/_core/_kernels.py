@@ -1,16 +1,14 @@
 """Numeric kernels with an optional compiled (C) backend.
 
-The integral-based fitting methods repeat a few small numeric inner loops --
-composite-Simpson window integrals and Gauss-Legendre spectral projections --
-thousands of times inside the optimizers and the streaming filters. Those loops
-carry heavy per-call Python / SciPy overhead.
+The optimizers and the streaming filters run two small inner loops thousands
+of times: composite-Simpson window integrals and Gauss-Legendre spectral
+projections. Per-call Python and SciPy overhead dominates both.
 
-This module exposes them behind a thin API. When the compiled extension
-``dtfit._native`` (built by ``build_native.py`` with clang) is importable, the
-calls dispatch to it; otherwise they fall back to pure NumPy / SciPy. The two
-paths are numerically identical -- the C Simpson reproduces
-``scipy.integrate.simpson`` exactly -- so results do not depend on whether the
-extension is built. ``HAVE_NATIVE`` reports which backend is active.
+When the compiled extension ``dtfit._core._native`` (built by ``build_native.py``
+with clang) imports, these dispatch to it, otherwise to NumPy / SciPy. The two
+paths match bit for bit: the C Simpson reproduces ``scipy.integrate.simpson``
+exactly. A fit gives the same answer either way. ``HAVE_NATIVE`` says which
+one is live.
 """
 
 from __future__ import annotations
@@ -36,8 +34,8 @@ def simpson_windows(
 ) -> np.ndarray:
     """Composite-Simpson integral of ``y(x)`` over each index window.
 
-    Window ``k`` spans the half-open index range ``[starts[k], stops[k])`` of the
-    shared samples ``(x, y)``. Returns an array of ``len(starts)`` areas.
+    Window ``k`` spans the half-open index range ``[starts[k], stops[k])`` of
+    the shared samples ``(x, y)``. Returns ``len(starts)`` areas.
     """
     y = np.ascontiguousarray(y, dtype=np.float64)
     x = np.ascontiguousarray(x, dtype=np.float64)
@@ -56,8 +54,9 @@ def simpson_windows_rows(
 ) -> np.ndarray:
     """Per-row composite-Simpson integral of a 2-D ``Y`` over the windows.
 
-    ``Y`` has shape ``(nrows, len(x))``; returns ``(nrows, len(starts))`` areas.
-    Used to integrate a stack of parameter sensitivities (Jacobian rows) at once.
+    ``Y`` has shape ``(nrows, len(x))``; returns ``(nrows, len(starts))``
+    areas. Integrates a stack of parameter sensitivities (Jacobian rows) in
+    one call.
     """
     Y = np.ascontiguousarray(Y, dtype=np.float64)
     x = np.ascontiguousarray(x, dtype=np.float64)
@@ -79,9 +78,9 @@ def legendre_project(
 ) -> np.ndarray:
     """Fused Gauss-Legendre spectral projection.
 
-    Computes ``norm * ((qw * fv) @ legvander)`` -- the order-``k`` Legendre
-    coefficients of a function sampled at the quadrature nodes. ``legvander`` is
-    ``(nq, k)``; ``fv`` and ``qw`` are ``(nq,)``; ``norm`` is ``(k,)``.
+    Computes ``norm * ((qw * fv) @ legvander)``, the order-``k`` Legendre
+    coefficients of a function sampled at the quadrature nodes. ``legvander``
+    is ``(nq, k)``; ``fv`` and ``qw`` are ``(nq,)``; ``norm`` is ``(k,)``.
     """
     fv = np.ascontiguousarray(fv, dtype=np.float64)
     qw = np.ascontiguousarray(qw, dtype=np.float64)
