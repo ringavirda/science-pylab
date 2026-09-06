@@ -16,6 +16,8 @@ from numpy.polynomial import legendre as L
 
 def u_of(x: np.ndarray, x0: float, x1: float) -> np.ndarray:
     """Map positions on ``[x0, x1]`` to the basis variable on ``[-1, 1]``."""
+    if x1 == x0:
+        raise ValueError(f"degenerate domain: x0 == x1 == {x0}")
     return 2.0 * (np.asarray(x, dtype=float) - x0) / (x1 - x0) - 1.0
 
 

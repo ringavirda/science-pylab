@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Grid:
     """Sample positions of an :class:`Original`.
 
@@ -28,8 +28,14 @@ class Grid:
 
     @classmethod
     def of(cls, x: np.ndarray) -> "Grid":
+        """Positions must be non-decreasing.
+
+        :raises ValueError: if ``x`` is empty.
+        """
         x = np.asarray(x, dtype=float)
         n = int(x.size)
+        if n == 0:
+            raise ValueError("grid needs at least one position")
         if n >= 2:
             d = np.diff(x)
             if np.allclose(
@@ -42,7 +48,24 @@ class Grid:
         if self.kind == "uniform":
             return np.linspace(self.x0, self.x1, self.n)
         assert self.x is not None
-        return self.x
+        return self.x.copy()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Grid):
+            return NotImplemented
+        if (self.kind, self.n, self.x0, self.x1) != (
+            other.kind,
+            other.n,
+            other.x0,
+            other.x1,
+        ):
+            return False
+        if self.kind == "explicit":
+            return np.array_equal(self.positions(), other.positions())
+        return True
+
+    def __hash__(self) -> int:
+        return hash((self.kind, self.n, self.x0, self.x1))
 
     def merge(self, other: "Grid") -> "Grid":
         """Positions of ``self`` followed by those of ``other``.
@@ -65,9 +88,9 @@ class Grid:
             da = (self.x1 - self.x0) / (self.n - 1)
             db = (other.x1 - other.x0) / (other.n - 1)
             gap = other.x0 - self.x1
-            if np.isclose(da, db, rtol=1e-9) and np.isclose(
-                gap, da, rtol=1e-9
-            ):
+            if np.isclose(
+                da, db, rtol=1e-9, atol=1e-9 * abs(da)
+            ) and np.isclose(gap, da, rtol=1e-9, atol=1e-9 * abs(da)):
                 return Grid("uniform", self.n + other.n, self.x0, other.x1)
         return Grid.of(np.concatenate([self.positions(), other.positions()]))
 

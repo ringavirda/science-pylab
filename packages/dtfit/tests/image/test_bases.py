@@ -9,6 +9,11 @@ def test_u_maps_domain_to_unit_interval():
     assert np.allclose(u, [-1.0, 0.0, 1.0])
 
 
+def test_u_of_rejects_degenerate_domain():
+    with pytest.raises(ValueError):
+        u_of(np.array([1.0]), 1.0, 1.0)
+
+
 def test_legendre_evaluate_shape_and_orthogonality():
     b = LegendreBasis(6)
     u = np.linspace(-1, 1, 20001)
