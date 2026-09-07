@@ -9,8 +9,11 @@ does even though cuBLAS is missing, so an availability flag is not enough.
 Two memory numbers are reported per row, and they measure different
 things: ``peak_mib`` is ``tracemalloc`` (traced Python and numpy
 allocations of this process only, blind to a process pool's children) and
-``peak_rss_mib`` is the resident set of this process plus its exited
-children. The memory claim is stated against the second.
+``peak_rss_mib`` is this process's own resident set. Under the
+``forkserver`` and ``spawn`` start methods a pool's workers are children
+of the forkserver or spawn process, never of the caller, so
+``RUSAGE_CHILDREN`` stays at zero here and ``peak_rss_mib`` on a pooled
+row is the parent only, same as on an unpooled one.
 """
 
 from __future__ import annotations
@@ -51,8 +54,11 @@ GEMM_COLUMNS = [
 
 def machine_row() -> dict[str, Any]:
     """Who ran the measurement: host, architecture, cores, interpreter and
-    numpy version. Every table carries it so the PC and the Pi rows are
-    never confused."""
+    numpy version, for a caller to log alongside a measurement. Only
+    ``host`` currently flows into :data:`THROUGHPUT_COLUMNS` and
+    :data:`GEMM_COLUMNS`, so that field is what tells the PC and the Pi
+    rows apart in a table; the rest is for a caller that prints full
+    provenance directly."""
     return {
         "host": platform.node(),
         "machine": platform.machine(),
@@ -65,11 +71,15 @@ def machine_row() -> dict[str, Any]:
 def peak_rss_mib() -> float:
     """Peak resident set of this process plus its exited children, MiB.
 
-    ``ru_maxrss`` is kibibytes on Linux and bytes on macOS. A process
-    pool's children only appear here once they have exited, so a pooled
-    measurement reads this after the pool closes. Returns ``nan`` where
-    :mod:`resource` is unavailable (Windows), which the tables report as
-    an empty field rather than as a zero.
+    ``ru_maxrss`` is kibibytes on Linux and bytes on macOS. The children
+    term only counts a child of *this* process: with the ``forkserver``
+    or ``spawn`` start method a :class:`~concurrent.futures.
+    ProcessPoolExecutor`'s workers are children of the forkserver or
+    spawn process instead, so ``RUSAGE_CHILDREN`` stays zero and this
+    reports the caller alone; it needs an explicit ``fork`` context to
+    pick up a pool's workers. Returns ``nan`` where :mod:`resource` is
+    unavailable (Windows), which the tables report as an empty field
+    rather than as a zero.
     """
     if resource is None:
         return float("nan")
@@ -125,6 +135,7 @@ def disk_read_rate(
     I/O-bound. Measure it on files the reduction does not also read: the
     page cache would otherwise serve the second reader from memory.
     """
+    paths = list(paths)
     total = 0
     started = time.perf_counter()
     for path in paths:
@@ -136,8 +147,7 @@ def disk_read_rate(
                 total += len(chunk)
     seconds = time.perf_counter() - started
     return {
-        "n_files": len(list(paths)), "bytes": total,
-        "seconds": round(seconds, 4),
+        "n_files": len(paths), "bytes": total, "seconds": seconds,
         "mb_per_second": (
             round(total / seconds / 1e6, 2) if seconds > 0 else 0.0
         ),
@@ -147,14 +157,20 @@ def disk_read_rate(
 def float32_error(
     t: np.ndarray, y: np.ndarray, order: int, *, chunk: int = 10_000
 ) -> dict[str, Any]:
-    """What a float32 producer would cost on one series.
+    """The accumulation cost of a float32 ``S``, chunk by chunk, on one
+    series.
 
-    Accumulates ``S`` and ``G`` chunk by chunk in float32 and in float64
-    and compares both against the direct float64 image of the whole
-    series. Returns the maximum relative differences of ``S``
-    (``rel_S_float32``, ``rel_S_float64``) with ``n``, ``order`` and the
-    chunk size. ``ImageStream`` accumulates in float64 whatever its
-    backend, so the float32 arm is built here rather than asked of it.
+    Accumulates ``S`` chunk by chunk in float32 and in float64 and
+    compares both against the direct float64 image of the whole series.
+    The basis is evaluated once in float64 and cast to each
+    accumulator's dtype before the chunk sum, so this isolates the
+    accumulation error: it does not cover a producer that also evaluates
+    the basis in float32, nor ``G = Phi^T Phi``, whose conditioning at
+    high order is where float32 bites hardest. Returns the maximum
+    relative differences of ``S`` (``rel_S_float32``, ``rel_S_float64``)
+    with ``n``, ``order`` and the chunk size. ``ImageStream`` accumulates
+    in float64 whatever its backend, so the float32 arm is built here
+    rather than asked of it.
     """
     from dtfit.image import make_basis, u_of
 
@@ -233,11 +249,14 @@ def reduce_rate(
     ``dataset`` is ``"ngl"`` or ``"isd"``. Two peaks are reported:
     ``peak_mib`` is :func:`peak_memory`'s traced allocation high-water
     mark, which covers this process only and is blind to a pool's
-    children; ``peak_rss_mib`` is :func:`peak_rss_mib`, read after the
-    pool has closed so the children are included. Both are flat in the
-    file count because one file is held at a time, and the memory gate
-    compares the ``cpu-1`` ``peak_rss_mib`` of two runs of different
-    sizes.
+    children; ``peak_rss_mib`` is :func:`peak_rss_mib`, read once the
+    work returns, and (see its docstring) is the caller's own resident
+    set even with ``workers > 1``. ``peak_mib`` is flat in the file
+    count because one file is held at a time, but ``ru_maxrss`` is a
+    process lifetime high-water mark that never falls, so
+    ``peak_rss_mib`` from a second, larger :func:`reduce_rate` call in
+    the same interpreter carries over the first call's peak; the memory
+    gate must run each width's ``cpu-1`` row in its own process.
 
     Raises:
         ValueError: an unknown ``dataset``.
@@ -260,8 +279,8 @@ def reduce_rate(
     started = time.perf_counter()
     rows, peak = peak_memory(work)
     seconds = time.perf_counter() - started
-    # After peak_memory returns the pool has closed, so RUSAGE_CHILDREN
-    # now carries the workers' peaks.
+    # The caller's own resident set; see peak_rss_mib's docstring for why
+    # a pool's workers do not add to it under forkserver or spawn.
     rss = peak_rss_mib()
     good = [r for r in rows if not r["error"]]
     samples = sum(int(r["n"]) for r in good)
