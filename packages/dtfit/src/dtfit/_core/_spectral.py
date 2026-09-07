@@ -4,8 +4,7 @@ The LSI method (:func:`dtfit.fit_lsi`) fits a parameter-nonlinear model by
 matching the model's spectrum to the data's on an orthogonal basis, where the
 integral criterion ``∫(data-model)^2`` collapses to a diagonal sum of squared
 coefficient residuals. ``fit_lsi`` hard-codes the Legendre basis; this module
-generalizes it along two axes for ``PartitionedLSI`` and the
-``dtfit_experimental`` adaptations:
+generalizes it along two axes for the ``dtfit_experimental`` adaptations:
 
 * a pluggable basis: Legendre, Chebyshev, Fourier for periodic signals,
   Laguerre for decay;

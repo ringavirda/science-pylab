@@ -15,6 +15,12 @@ class DriftDetector:
     exponentially weighted baseline of previous energies, and a two-sided
     CUSUM on the first component standardized by its own baseline.
 
+    On white innovations at the default parameters the jump test alone
+    alarms at about 5e-5 per test, an order of magnitude below
+    ``alpha``; the CUSUM arms dominate the realised rate, about 2.8e-3
+    per test, so a long block stream sees a spurious ``flags_`` entry
+    roughly every 360 blocks.
+
     Args:
         dim: innovation length, at least 1.
         alpha: nominal significance of the jump test before the 1.6 safety

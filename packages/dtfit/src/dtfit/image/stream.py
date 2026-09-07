@@ -3,13 +3,15 @@ images with local domains, and channel batches over one shared Gram."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 from scipy.linalg import solve_triangular
 
+if TYPE_CHECKING:
+    from dtfit.streaming.detect import DriftDetector
+
 from dtfit._core._backend import Backend, resolve_backend
-from dtfit.streaming.detect import DriftDetector
 from .bases import Basis, make_basis, u_of
 from .grid import Grid
 from .image import Image, gram_whitener
@@ -185,8 +187,9 @@ class ImageStream:
             block instead); a ``float`` for blocks of that domain
             length, counted from the domain's start. A length block
             that closes with fewer than ``order + 2`` samples is
-            dropped: no image is emitted and the block index still
-            advances. Block mode needs ``channels == 1``.
+            dropped: no image is emitted, the block index still
+            advances, and ``dropped_`` counts the block. Block mode
+            needs ``channels == 1``.
         channels: number of signals sharing the sample positions; ``y``
             passed to :meth:`update` then has shape ``(n, channels)``.
         grid: ``"uniform"`` tracks the positions as endpoints and spacing
@@ -194,23 +197,33 @@ class ImageStream:
             each other; ``"explicit"`` keeps every position (and
             weights). Block mode always assumes sorted, increasing
             positions within a chunk, on both grids.
-        keep_fine, fold: block retention, each at least 1: at most
-            ``keep_fine`` fine blocks are kept; when there are more,
-            the oldest ``fold`` are folded into one coarse block at the
-            stream's order. The fold bounds the number of blocks kept,
+        keep_fine, fold: block retention, each at least 1: once there
+            are more than ``keep_fine`` fine blocks, the oldest
+            ``fold`` are folded into one coarse block at the stream's
+            order. When ``fold > keep_fine`` the fine blocks are not
+            folded until there are ``fold`` of them, so the peak
+            retained count is ``max(keep_fine, fold)``, not
+            ``keep_fine``. The fold bounds the number of blocks kept,
             not the grid: with ``grid="explicit"`` the coarse block's
             grid is the union of its fine blocks' positions, so an
             irregular sample set is not compacted by folding.
         backend: ``"numpy"``, ``"cupy"`` or ``"torch"`` for the ``S``
             projection; the Gram update stays host numpy either way, and
-            accumulation is float64 regardless of backend.
+            accumulation is float64 regardless of backend. A producer
+            that must emit float32 (an MCU) should keep chunks to at
+            most 10,000 samples: measured float32 error is 2.4e-3
+            sequential over 1e6 samples but only 1.8e-5 per 1e4-sample
+            chunk. Cost: measured 37 million samples/s at order 12 with
+            the Gram update, on one core.
         detect: block-level drift detection, block mode only: ``None``
             for none, ``"previous"`` to compare each finished block's
             coefficients to the one before it (no order limit: the
             comparison stays in each block's own basis, not an
             extrapolation onto the other block's positions), or
             ``(model, params)`` / ``(model, params, var)`` to compare
-            it to that model's image.
+            it to that model's image, ``var`` being the model's
+            variable name (forwarded to :meth:`Image.of_model`), not a
+            variance.
 
     Raises:
         ValueError: missing domain, ``domain`` with ``x1 <= x0``,
@@ -302,6 +315,7 @@ class ImageStream:
         self.fine_: list[Image] = []
         self.coarse_: list[Image] = []
         self.flags_: list[tuple[int, tuple[float, float]]] = []
+        self.dropped_ = 0
         self._prev: Image | None = None
 
     @property
@@ -328,6 +342,11 @@ class ImageStream:
     def _make_detector(self, detect: Any) -> DriftDetector | None:
         if detect is None:
             return None
+        # Imported here, not at module level: dtfit.streaming.detect is a
+        # leaf module, but importing the *module* still runs the package
+        # dtfit/streaming/__init__.py, which pulls in the old filters and
+        # would put a filter dependency on dtfit.image's import path.
+        from dtfit.streaming.detect import DriftDetector
         if detect == "previous":
             return DriftDetector(self.basis.n_coef)
         if isinstance(detect, tuple) and len(detect) in (2, 3):
@@ -368,9 +387,11 @@ class ImageStream:
     def _skip_block(self) -> None:
         """Drop a length block whose fixed domain closed with fewer than
         ``order + 2`` samples: the samples are discarded (too few to
-        image) and the stream moves on to the next block's domain."""
+        image), ``dropped_`` counts the block, and the stream moves on
+        to the next block's domain."""
         self._buf_x, self._buf_y, self._buf_w, self._buf_n = [], [], [], 0
         self._block_index += 1
+        self.dropped_ += 1
 
     def _check_drift(self, img: Image) -> None:
         if self._detector is None:
@@ -521,8 +542,10 @@ class ImageStream:
         their domains at ``order`` (default the stream's order).
 
         Raises:
-            ValueError: no whole block inside the range, or ``order`` above
-                the stream's order.
+            ValueError: no whole block inside the range; for
+                ``basis="legendre"``, ``order`` above the stream's
+                order (``basis="block"`` has no such limit, only the
+                union rule of :func:`block_transfer`).
         """
         found = self.blocks(t0, t1)
         if not found:
@@ -530,14 +553,21 @@ class ImageStream:
         return _assemble(found, order=self.order if order is None else order)
 
     def image(self, channel: int = 0) -> Image:
-        """The running image of one channel. Unlike :meth:`Image.of`,
-        this has no minimum-sample floor: with fewer than ``n_coef``
-        samples ``G`` is rank-deficient and the fit falls back to a
-        pseudoinverse.
+        """The running image of one channel, accumulator mode only.
+        Unlike :meth:`Image.of`, this has no minimum-sample floor: with
+        fewer than ``n_coef`` samples ``G`` is rank-deficient and the
+        fit falls back to a pseudoinverse.
 
         Raises:
-            ValueError: no samples yet, or ``channel`` out of range.
+            ValueError: block mode (use :meth:`blocks` or
+                :meth:`assemble` instead), no samples yet, or
+                ``channel`` out of range.
         """
+        if self.block is not None:
+            raise ValueError(
+                "image() applies to accumulator mode; use blocks() or "
+                "assemble() in block mode"
+            )
         if not 0 <= channel < self.channels:
             raise ValueError(f"channel {channel} out of range")
         return self._sums.image(self.basis, self.domain, channel)
@@ -618,6 +648,7 @@ class ImageStream:
                 "w": None if w is None else w.tolist(),
             }
             state["block_index"] = self._block_index
+            state["dropped"] = self.dropped_
             state["fine"] = [img.to_dict() for img in self.fine_]
             state["coarse"] = [img.to_dict() for img in self.coarse_]
             state["flags"] = [[i, list(dom)] for i, dom in self.flags_]
@@ -657,6 +688,7 @@ class ImageStream:
                 self._buf_w = [np.asarray(partial["w"], dtype=float)]
             self._buf_n = int(x.size)
             self._block_index = int(state["block_index"])
+            self.dropped_ = int(state.get("dropped", 0))
             self.fine_ = [Image.from_dict(d) for d in state["fine"]]
             self.coarse_ = [Image.from_dict(d) for d in state["coarse"]]
             self.flags_ = [

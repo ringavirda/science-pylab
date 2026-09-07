@@ -17,8 +17,8 @@ Two backends, both useful:
   callable on pickling and rebuilds it lazily on the caller side. Nothing
   unpicklable crosses the process boundary. That matters on Windows, where
   workers are spawned rather than forked.
-* ``backend="threading"`` keeps the workers in one process, sharing memory
-  and avoiding pickling, nothing more.
+* ``backend="threading"`` keeps the workers in one process, sharing
+  memory and avoiding pickling.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def fit_many(
         problems: Independent :class:`FittingProblem` specs.
         n_jobs: Worker count (``-1`` = all cores; ``1`` = serial, no pool).
         backend: ``"loky"`` (processes, default), ``"threading"`` (threads,
-            sharing memory and avoiding pickling, nothing more), or
+            sharing memory and avoiding pickling), or
             ``"multiprocessing"``.
         verbose: Forwarded to :class:`joblib.Parallel` for progress
             reporting.

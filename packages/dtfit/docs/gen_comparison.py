@@ -36,8 +36,7 @@ from accuracy.harness import (  # noqa: E402
 )
 from accuracy.scenarios import SCENARIOS_BY_NAME  # noqa: E402
 
-from dtfit import EACFilter  # noqa: E402
-from dtfit_experimental.scale import PartitionedLSI  # noqa: E402
+from dtfit import EACFilter, ImageStream, fit  # noqa: E402
 
 REPEATS = 7
 
@@ -117,14 +116,14 @@ def bigdata_point() -> str:
     chunk = 100_000
     x0, x1 = 0.0, 2.0
 
-    acc = PartitionedLSI("a*exp(b*t)", "t", domain=(x0, x1), order=6)
+    acc = ImageStream("legendre", 6, domain=(x0, x1))
     t0 = time.perf_counter()
     xs = np.linspace(x0, x1, n)
     for i in range(0, n, chunk):
         xc = xs[i : i + chunk]
         yc = a_true * np.exp(b_true * xc) + rng.normal(0.0, 0.05, xc.size)
         acc.update(xc, yc)
-    res = acc.fit(p0=[1.0, 1.0])
+    res = fit("a*exp(b*t)", acc.image(), "t", p0=[1.0, 1.0])
     dt = (time.perf_counter() - t0) * 1e3
 
     a_est, b_est = res.params["a"], res.params["b"]

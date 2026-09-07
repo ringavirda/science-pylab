@@ -152,9 +152,11 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 ### Scaling out
 
 - **`ImageStream`** accumulates a signal in fixed `O(order)` memory as it
-  arrives; its blocks are retained and `assemble` merges them into one
-  `Image`, and a channel axis batches many signals through the same
-  accumulator:
+  arrives (the default uniform accumulator; `grid="explicit"` retains
+  every position and weight, and block mode grows `coarse_` by one
+  block per `fold`); its blocks are retained and `assemble` merges them
+  into one `Image`, and a channel axis batches many signals through the
+  same accumulator:
 
   ```python
   s = dtfit.ImageStream("legendre", 6, domain=(0, 10), block=200)
@@ -164,7 +166,7 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
   ```
 - `dtfit.fit_many(problems, n_jobs=-1)` fans many independent fits across cores
   (process or threading backend); the threading backend shares memory and
-  avoids pickling, nothing more.
+  avoids pickling.
 - `dtfit.streaming.FilterBank` runs a bank of independent streaming filters
   (one per channel / satellite / axis) for multi-stream real-time tracking.
 

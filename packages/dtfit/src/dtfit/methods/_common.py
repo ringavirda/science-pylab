@@ -214,8 +214,9 @@ def _check_bounds(
 
 
 # numeric statistics
-# Serves scale/_partitioned.py and _core/_spectral.py; the image core has
-# its own, differently-parameterized _covariance in dtfit/image/fit.py.
+# Serves dtfit_experimental.scale._partitioned and _core/_spectral.py; the
+# image core has its own, differently-parameterized _covariance in
+# dtfit/image/fit.py.
 def _covariance(
     jac: np.ndarray, res: np.ndarray, n_params: int, *, absolute_sigma: bool = False
 ) -> np.ndarray | None:
