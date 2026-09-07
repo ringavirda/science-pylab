@@ -25,7 +25,9 @@ def _savgol_prefilter(y: np.ndarray) -> np.ndarray:
     if y.size >= 5:
         window = min(11, y.size if y.size % 2 == 1 else y.size - 1)
         if window > 3:
-            return np.asarray(savgol_filter(y, window, polyorder=3), dtype=float)
+            return np.asarray(
+                savgol_filter(y, window, polyorder=3), dtype=float
+            )
     return y
 
 

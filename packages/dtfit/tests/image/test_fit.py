@@ -206,6 +206,22 @@ def test_non_finite_model_at_p0_raises():
         )
 
 
+def test_nan_sensitivity_at_one_sample_does_not_zero_the_column():
+    """d/dn of x**n is x**n*log(x), NaN at x=0 with limit 0 there. That one
+    non-finite sensitivity must not poison the whole projected column for
+    n and stall it at p0."""
+    K, Vmax, n = 2.0, 3.0, 2.0
+    x = np.linspace(0, 10, 200)
+    y = Vmax * x**n / (K**n + x**n)
+    r = fit(
+        "Vmax*x**n/(K**n + x**n)", Original(x, y), "x", order=12,
+        p0=[1.5, 2.5, 1.5],
+    )
+    assert abs(r.params["K"] - K) < 1e-6 * K
+    assert abs(r.params["Vmax"] - Vmax) < 1e-6 * Vmax
+    assert abs(r.params["n"] - n) < 1e-6 * n
+
+
 def test_no_global_fallback_from_a_good_start():
     x = np.linspace(0, 10, 300)
     y = (

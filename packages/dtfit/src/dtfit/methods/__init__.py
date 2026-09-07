@@ -35,5 +35,8 @@ __all__ = [
 ]
 
 # The presets live in the image core and import this package's helpers, so
-# they are bound after everything above is defined.
+# they are bound after everything above is defined. dtfit.image.fit only
+# imports this package's submodules (._common, ._modelinput) directly, never
+# `from dtfit.methods import ...`, which would fail while this module is
+# still executing.
 from dtfit.image.fit import fit_lsi, fit_eac, fft_frequency_seed  # noqa: E402

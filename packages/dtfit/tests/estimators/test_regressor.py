@@ -186,8 +186,15 @@ def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
     assert "huber_c" not in captured
     assert "active_ratio" not in captured
 
+    captured.clear()
+    NonlineRegressor(
+        "a*atan(w*x)", "x", method="eac", p0=[1.0, 1.0],
+        robust=False, loss="soft_l1",
+    ).fit(x, y)
+    assert captured["robust"] is True
 
-def test_robust_loss_window_mode_forwarded(arctan_data):
+
+def test_robust_levers_rescue_outliers(arctan_data):
     """The robust levers rescue an outlier-contaminated fit end to end, on both
     the EAC and LSI routes. Per-kwarg forwarding is the spy test above."""
     x, y, truth = arctan_data

@@ -34,29 +34,25 @@ def _errs(name):
         p0, _ = m._seed_arrays(x, y)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # active_ratio=0.8 confines the fit to the leading transient. The
-            # default keeps every sample; this corpus was tuned for the
-            # transient recipe.
             pe = param_err(scn, names,
-                           dt.fit_eac(x, y, m.expr, m.var, p0=p0,
-                                      active_ratio=0.8).coeffs)
+                           dt.fit_eac(x, y, m.expr, m.var, p0=p0).coeffs)
             ee = param_err(scn, names,
-                           dt.ensemble_fit(x, y, m.expr, m.var, method="eac",
-                                           p0=p0, active_ratio=0.8).coeffs)
+                           dt.fit_eac(x, y, m.expr, m.var, p0=p0,
+                                      robust=True).coeffs)
         plain.append(pe)
         ens.append(ee)
     return np.array(plain), np.array(ens)
 
 
 @pytest.mark.parametrize("name", _OUTLIER_FAMILIES)
-def test_ensemble_beats_plain_under_outliers(name):
-    """Per family: under 4% spike contamination the ensemble's median recovery
-    error beats the plain fit and stays usable in absolute terms."""
-    plain, ens = _errs(name)
-    assert np.median(ens) < np.median(plain), (
-        f"{name}: ensemble median {np.median(ens):.3f} "
+def test_robust_image_beats_plain_under_outliers(name):
+    """Per family: under 4% spike contamination the robust image's median
+    recovery error beats the plain fit and stays usable in absolute terms."""
+    plain, rob = _errs(name)
+    assert np.median(rob) < np.median(plain), (
+        f"{name}: robust median {np.median(rob):.3f} "
         f"not better than plain {np.median(plain):.3f}")
-    assert np.median(ens) <= 0.15, f"{name}: ensemble median {np.median(ens):.3f}"
+    assert np.median(rob) <= 0.15, f"{name}: robust median {np.median(rob):.3f}"
 
 
 def test_ensemble_pooled_robustness():

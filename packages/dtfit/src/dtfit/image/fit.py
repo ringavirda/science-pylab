@@ -424,6 +424,12 @@ def fit(
         UserWarning: the image's coverage of the model's sensitivities at
             ``p0`` exceeds ``0.02`` (:func:`coverage`); the order is too
             low to identify the model from this image.
+
+    A model whose value is not finite at a sample raises ``ValueError`` at
+    ``p0`` and, once the solve is under way, is instead scored with an
+    overflow cost so the optimizer can step away from it; a sensitivity
+    that is not finite at isolated samples (an exponent's derivative at
+    ``x = 0``, say) is taken as zero there, its analytic limit.
     """
     spec: ModelSpec = resolve_model(model, var, param_names=param_names)
     names = list(spec.names)
@@ -640,7 +646,7 @@ def _drop_legacy(
             )
         warnings.warn(
             f"{preset}(): {key} is no longer used and is ignored; the "
-            "image core has no equivalent (see the changelog)",
+            "image core has no equivalent",
             DeprecationWarning, stacklevel=3,
         )
 

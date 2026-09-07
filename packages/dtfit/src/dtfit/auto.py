@@ -4,9 +4,9 @@ The structure of the model and the choice of estimator variant decide the
 answer here, not the solver. Both functions route on the signal's shape:
 
 * :func:`auto_estimate` recovers physical parameters. Oscillatory goes to the
-  LSI oscillatory recipe, transient or peaked to curvature-window EAC,
-  outlier-heavy to robust-loss EAC, anything else to whichever of LSI and EAC
-  fits better in sample.
+  LSI oscillatory recipe, transient or peaked to the block preset,
+  outlier-heavy to the robust image, anything else to whichever of LSI and
+  EAC fits better in sample.
 * :func:`auto_forecast` fits and extrapolates. Saturating growth goes to a
   logistic, a detected cycle to a joint linear+seasonal fit, anything else to
   a quadratic level, behind two guards: persist when the fit cannot beat a
@@ -73,8 +73,8 @@ def auto_estimate(
             :func:`dtfit.methods.resolve_model`); either form is forwarded as
             given to whichever base fitter the shape routes to.
         shape: ``"auto"`` (detect oscillation, else bulk), ``"oscillatory"``,
-            ``"transient"`` / ``"peak"`` (curvature-window EAC), ``"robust"``
-            (outlier-robust EAC via ``loss="soft_l1"``), or ``"bulk"``
+            ``"transient"`` / ``"peak"`` (the EAC block preset), ``"robust"``
+            (the robust image, ``fit_eac(robust=True)``), or ``"bulk"``
             (whichever of LSI and EAC fits better in sample).
         freq_param: Name of the angular-frequency parameter, forwarded to the
             LSI oscillatory recipe (:func:`fit_lsi`). Implies an oscillatory
@@ -115,7 +115,7 @@ def auto_estimate(
         return fit_eac(x, y, expr, var, p0=p0, bounds=bounds,
                        param_names=param_names)
     if shape == "robust":
-        return fit_eac(x, y, expr, var, p0=p0, bounds=bounds, loss="soft_l1",
+        return fit_eac(x, y, expr, var, p0=p0, bounds=bounds, robust=True,
                        param_names=param_names)
     if shape != "bulk":
         raise ValueError(
