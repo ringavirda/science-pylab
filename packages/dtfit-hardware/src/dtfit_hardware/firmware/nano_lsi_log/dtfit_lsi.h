@@ -7,18 +7,18 @@
 // path.
 //
 // Hot path per sample, once the window is full:
-//   beta_data = PROJ * y_window
-//   H[:,k]    = legendre_project(t_quad^k)            (model Jacobian)
-//   e         = beta_data - H*p                       (spectral innovation)
-//   A         = H^T R^-1 H                            (information matrix, N x N)
-//   Ppost     = (P^-1 + A)^-1                         (a-posteriori covariance)
-//   p        += Ppost * (H^T R^-1 e) ;  P = Ppost + Q
+//   z      = B^T y_window                  (whitened window image, M)
+//   H[:,k] = B^T t_window^k                (whitened model Jacobian, M x N)
+//   e      = z - H p                       (whitened innovation)
+//   A      = H^T H / s2 ;  b = H^T e / s2  (information form, N x N)
+//   Ppost  = (P^-1 + A)^-1 ;  p += Ppost b ;  P = Ppost + Q
 //
-// The measurement noise R is diagonal and the state is tiny (N << M), so this
+// The measurement noise is s2 I and the state is tiny (N << M), so this
 // information (Woodbury) form is used instead of forming/inverting the M x M
-// innovation covariance S = H P H^T + R: the only inverses are N x N, which
-// removes the dominant M x M inverse from the hot path. It is algebraically
-// identical to the covariance form (matches the float64 golden to rounding).
+// innovation covariance S = H P H^T + s2 I: the only inverses are N x N,
+// which removes the dominant M x M inverse from the hot path. It is
+// algebraically identical to the covariance form (matches the float64
+// golden to rounding).
 //
 // Pure C++; include lsi_tables.h first (or just include this).
 #pragma once
@@ -94,55 +94,46 @@ struct LsiFilter {
     }
     if (count < LSI_W) return false;
 
-    // beta_data = PROJ * y_window
-    float beta_data[LSI_M];
+    // z = B^T y_window
+    float z[LSI_M];
     for (int j = 0; j < LSI_M; j++) {
       float s = 0.0f;
-      for (int w = 0; w < LSI_W; w++) s += LSI_PROJ[j][w] * ybuf[w];
-      beta_data[j] = s;
+      for (int w = 0; w < LSI_W; w++) s += LSI_B[w][j] * ybuf[w];
+      z[j] = s;
     }
 
-    // model Jacobian H[j][k] = NORM[j] * sum_i QW[i] * t_quad[i]^k * LEGV[i][j]
-    const float t0 = tbuf[0], tn = tbuf[LSI_W - 1];
+    // H[j][k] = sum_w B[w][j] * t_w^k
     float H[LSI_M][LSI_N];
     for (int j = 0; j < LSI_M; j++)
       for (int k = 0; k < LSI_N; k++) H[j][k] = 0.0f;
-    for (int i = 0; i < LSI_QN; i++) {
-      float tq = t0 + (tn - t0) * (LSI_QNODES[i] + 1.0f) * 0.5f;
-      float wq = LSI_QW[i];
-      float bk = 1.0f;  // t_quad^k
+    for (int w = 0; w < LSI_W; w++) {
+      float tk = 1.0f;
       for (int k = 0; k < LSI_N; k++) {
-        float wb = wq * bk;
-        for (int j = 0; j < LSI_M; j++) H[j][k] += wb * LSI_LEGV[i][j];
-        bk *= tq;
+        for (int j = 0; j < LSI_M; j++) H[j][k] += LSI_B[w][j] * tk;
+        tk *= tbuf[w];
       }
     }
-    for (int j = 0; j < LSI_M; j++)
-      for (int k = 0; k < LSI_N; k++) H[j][k] *= LSI_NORM[j];
 
-    // innovation e = beta_data - H*p
+    // innovation e = z - H*p
     float e[LSI_M];
     for (int j = 0; j < LSI_M; j++) {
       float bm = 0.0f;
       for (int k = 0; k < LSI_N; k++) bm += H[j][k] * p[k];
-      e[j] = beta_data[j] - bm;
+      e[j] = z[j] - bm;
     }
 
-    // Information-form measurement update, R diagonal and N << M, so every
-    // inverse below is N x N:
-    //   A = H^T R^-1 H  (N x N) ,  b = H^T R^-1 e  (N)
-    float Rinv[LSI_M];
-    for (int a = 0; a < LSI_M; a++) Rinv[a] = 1.0f / LSI_RDIAG[a];
+    // A = H^T H / s2 (N x N), b = H^T e / s2 (N)
+    const float inv_s2 = 1.0f / LSI_S2;
     float A[LSI_N][LSI_N];
     float b[LSI_N];
     for (int i = 0; i < LSI_N; i++) {
       float bi = 0.0f;
-      for (int a = 0; a < LSI_M; a++) bi += H[a][i] * Rinv[a] * e[a];
-      b[i] = bi;
+      for (int a = 0; a < LSI_M; a++) bi += H[a][i] * e[a];
+      b[i] = bi * inv_s2;
       for (int j = 0; j < LSI_N; j++) {
         float s = 0.0f;
-        for (int a = 0; a < LSI_M; a++) s += H[a][i] * Rinv[a] * H[a][j];
-        A[i][j] = s;
+        for (int a = 0; a < LSI_M; a++) s += H[a][i] * H[a][j];
+        A[i][j] = s * inv_s2;
       }
     }
 

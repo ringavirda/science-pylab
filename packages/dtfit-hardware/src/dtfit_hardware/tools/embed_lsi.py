@@ -6,8 +6,8 @@ The on-MCU filter is a fixed-size specialization of
 This module bridges the Python method and the C firmware.
 
 * :func:`tables` precomputes every constant the hot path needs, being the
-  Legendre projection matrix, the Gauss-Legendre quadrature and the noise
-  diagonals. On the MCU these live in read-only flash.
+  whitened basis matrix B, the noise variance and the process-noise
+  diagonal. On the MCU these live in read-only flash.
 * :func:`golden_run` reimplements the C hot path in float64, operation for
   operation. It is the host reference the embedded float32 filter is checked
   against.
@@ -40,7 +40,6 @@ F_CPU_HZ = 64_000_000   # nRF52840 core clock, for cycles -> microseconds
 
 M = ORDER + 1
 N = DEGREE + 1
-N_QUAD = max(2 * (ORDER + 1), 16)
 HERE = Path(__file__).resolve().parent
 FIRMWARE = HERE.parent / "firmware"
 # Every sketch dir that #includes the generated tables. Arduino demands a
@@ -51,25 +50,20 @@ FIRMWARE_TARGETS = ("nano_lsi_onboard", "nano_lsi_log")
 
 
 def tables() -> dict:
-    """Every constant the on-MCU hot path needs; these become flash tables."""
+    """Every constant the on-MCU hot path needs; these become flash tables.
+
+    ``B = Phi L^-T`` with ``Phi`` the Legendre basis on the uniform window
+    mapped to ``[-1, 1]`` and ``L`` the Cholesky factor of ``Phi^T Phi``:
+    ``B^T y`` is the whitened window image of ``y``.
+    """
     tau = np.linspace(-1.0, 1.0, W)
-    proj = np.linalg.pinv(L.legvander(tau, ORDER))          # (M, W)
-    nodes, qw = L.leggauss(N_QUAD)                           # (N_QUAD,)
-    legv_q = L.legvander(nodes, ORDER)                       # (N_QUAD, M)
-    j = np.arange(M)
-    norm = (2.0 * j + 1.0) / 2.0                             # (M,)
-    r_diag = R0 * (2.0 * j + 1.0)                            # (M,)
+    phi = L.legvander(tau, ORDER)                            # (W, M)
+    chol = np.linalg.cholesky(phi.T @ phi)                   # (M, M)
+    b = np.linalg.solve(chol, phi.T).T                       # (W, M)
     return {
-        "proj": proj, "nodes": nodes, "qw": qw, "legv_q": legv_q,
-        "norm": norm, "r_diag": r_diag,
-        "q_diag": np.asarray(Q_DIAG, float), "p0_diag": P0_DIAG,
+        "B": b, "s2": R0, "q_diag": np.asarray(Q_DIAG, float),
+        "p0_diag": P0_DIAG,
     }
-
-
-def _project(fv: np.ndarray, qw: np.ndarray, legv: np.ndarray,
-             norm: np.ndarray) -> np.ndarray:
-    """Mirror of dtfit's legendre_project: norm * ((qw*fv) @ legvander)."""
-    return norm * ((qw * fv) @ legv)
 
 
 def golden_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
@@ -77,12 +71,10 @@ def golden_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
 
     Returns:
         The per-sample parameter estimate ``p`` (N,), shape ``(len(t), N)``.
-        Rows before the window fills hold the initial ``p0``, the filter being
-        idle until then.
+        Rows before the window fills hold the initial ``p0``.
     """
     tb = tables()
-    proj, nodes, qw, legv_q = tb["proj"], tb["nodes"], tb["qw"], tb["legv_q"]
-    norm, r_diag, q_diag = tb["norm"], tb["r_diag"], tb["q_diag"]
+    B, s2, q_diag = tb["B"], tb["s2"], tb["q_diag"]
     p = np.array(p0, float)
     P = np.eye(N) * tb["p0_diag"]
     Q = np.diag(q_diag)
@@ -98,26 +90,15 @@ def golden_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
         if len(tw) == W:
             ta = np.asarray(tw)
             ya = np.asarray(yw)
-            beta_data = proj @ ya
-            t0, tn = ta[0], ta[-1]
-            tq = t0 + (tn - t0) * (nodes + 1.0) / 2.0
-            H = np.empty((M, N))
-            for k in range(N):
-                H[:, k] = _project(tq ** k, qw, legv_q, norm)
-            beta_model = H @ p
-            e = beta_data - beta_model
-            # Information-form update. R is diagonal and the state is tiny
-            # (N << M), so rather than form and invert the M x M innovation
-            # covariance S = H P H^T + R, this takes the algebraically
-            # identical Woodbury form, whose only inverses are N x N:
-            #   P_post = (P^-1 + H^T R^-1 H)^-1        (a-posteriori covariance)
-            #   p     += P_post H^T R^-1 e
-            #   P      = P_post + Q
-            # Same result to float rounding, and the MCU never inverts M x M.
-            HtRinv = H.T / r_diag                  # (N, M) == H^T diag(1/R)
-            A = HtRinv @ H                          # (N, N)
+            z = B.T @ ya                             # whitened window image
+            H = np.column_stack(
+                [B.T @ ta ** k for k in range(N)]
+            )                                         # (M, N)
+            e = z - H @ p
+            A = H.T @ H / s2
+            bvec = H.T @ e / s2
             P_post = np.linalg.inv(np.linalg.inv(P) + A)
-            p = p + P_post @ (HtRinv @ e)
+            p = p + P_post @ bvec
             P = P_post + Q
         out[s] = p
     return out
@@ -131,10 +112,9 @@ def dtfit_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
                                  for k in range(1, N)])
     f = LSIFilter(
         expr, "t", window_size=W, order=ORDER, min_window=W,
-        r=R0, q_diag=list(Q_DIAG), p0=list(p0),
-        cusum_k=float("inf"), alpha=1e-15,           # disable drift detector
-        robust=False, adaptive_window=False,
-        adapt_noise=False, adapt_r=False,
+        noise_var=R0, q_diag=list(Q_DIAG), p0=list(p0),
+        adaptive_window=False, robust=False,
+        cusum_k=float("inf"), alpha=1e-15,
     )
     out = np.empty((len(t), N))
     for s in range(len(t)):
@@ -193,17 +173,12 @@ def render_header() -> str:
         f"#define LSI_ORDER {ORDER}",
         f"#define LSI_M {M}        // ORDER + 1 Legendre coefficients",
         f"#define LSI_N {N}        // model parameters (degree {DEGREE})",
-        f"#define LSI_QN {N_QUAD}       // Gauss-Legendre quadrature nodes",
         f"#define LSI_DEGREE {DEGREE}",
         f"#define LSI_P0_DIAG {P0_DIAG}f",
+        f"#define LSI_S2 {_fc(R0)}",
         f"#define LSI_F_CPU_HZ {F_CPU_HZ}u",
         "",
-        _carr("LSI_PROJ", tb["proj"], "[LSI_M][LSI_W]"),
-        _carr("LSI_QNODES", tb["nodes"], "[LSI_QN]"),
-        _carr("LSI_QW", tb["qw"], "[LSI_QN]"),
-        _carr("LSI_LEGV", tb["legv_q"], "[LSI_QN][LSI_M]"),
-        _carr("LSI_NORM", tb["norm"], "[LSI_M]"),
-        _carr("LSI_RDIAG", tb["r_diag"], "[LSI_M]"),
+        _carr("LSI_B", tb["B"], "[LSI_W][LSI_M]"),
         _carr("LSI_QDIAG", tb["q_diag"], "[LSI_N]"),
         "",
     ]
@@ -283,5 +258,5 @@ if __name__ == "__main__":
     tv = emit_testvec(t, y)
     print("wrote", tv, f"({len(t)} samples)")
     g = golden_run(t, y, p0)
-    print(f"config: W={W} order={ORDER} M={M} N={N} n_quad={N_QUAD} degree={DEGREE}")
+    print(f"config: W={W} order={ORDER} M={M} N={N} degree={DEGREE}")
     print(f"golden final estimate p = {g[-1]}")
