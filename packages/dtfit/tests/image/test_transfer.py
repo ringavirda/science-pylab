@@ -28,14 +28,27 @@ def test_legendre_transfer_maps_coarse_basis_onto_local():
     _close(phi_l @ A, phi_c, 1e-12)
 
 
+def test_legendre_transfer_holds_at_epoch_second_offset():
+    from dtfit.image import LegendreBasis, u_of
+
+    t0 = 1.7e9
+    local = (t0 + 2.0, t0 + 5.0)
+    coarse = (t0, t0 + 10.0)
+    A = legendre_transfer(local, coarse, 12, 8)
+    x = np.linspace(local[0], local[1], 40)
+    phi_l = LegendreBasis(12).evaluate(u_of(x, *local))
+    phi_c = LegendreBasis(8).evaluate(u_of(x, *coarse))
+    _close(phi_l @ A, phi_c, 1e-11)
+
+
 def test_legendre_assembly_matches_whole_interval_image():
     x, y = _series()
     blocks = []
     for k in range(3):
         sl = slice(200 * k, 200 * (k + 1))
-        blocks.append(Image.of(Original(x[sl], y[sl]), "legendre", 12))
-    whole = Image.of(Original(x, y, domain=(x[0], x[-1])), "legendre", 8)
-    got = assemble(blocks, order=8)
+        blocks.append(Image.of(Original(x[sl], y[sl]), "legendre", 24))
+    whole = Image.of(Original(x, y, domain=(x[0], x[-1])), "legendre", 20)
+    got = assemble(blocks, order=20)
     assert got.domain == whole.domain and got.n == whole.n
     _close(got.S, whole.S, 1e-10)
     _close(got.G, whole.G, 1e-10)
@@ -52,6 +65,23 @@ def test_transfer_to_same_domain_and_order_is_identity():
     _close(back.S, img.S, 1e-13)
     _close(back.G, img.G, 1e-13)
     assert back.grid == img.grid
+
+
+def test_transfer_keeps_weights_and_matches_direct_coarse_image():
+    x, y = _series(200)
+    rng = np.random.default_rng(1)
+    w = rng.uniform(0.5, 2.0, x.size)
+    img = Image.of(Original(x, y, w), "legendre", 10)
+    coarse_domain = (x[0] - 1.0, x[-1] + 1.0)
+    got = img.transfer(coarse_domain, 6)
+    direct = Image.of(
+        Original(x, y, w, domain=coarse_domain), "legendre", 6
+    )
+    _close(got.S, direct.S, 1e-13)
+    _close(got.G, direct.G, 1e-13)
+    assert got.weighted and np.array_equal(got.w, img.w)
+    assert got.robust == img.robust
+    assert got.sumy == img.sumy and got.wsum == img.wsum
 
 
 def test_transfer_rejects_coarse_order_above_local_and_domain_outside():
@@ -86,6 +116,11 @@ def test_block_transfer_matrix_is_zero_one_aggregation():
     assert A.shape == (4, 3)
     assert np.array_equal(A.sum(axis=1), np.ones(4))
     assert np.array_equal(A[:, 0], np.ones(4))
+
+
+def test_block_transfer_rejects_orders_below_one():
+    with pytest.raises(ValueError, match="at least 1"):
+        block_transfer((0.0, 2.0), (0.0, 6.0), 4, 0)
 
 
 def test_assemble_rejects_mixed_bases_and_empty():

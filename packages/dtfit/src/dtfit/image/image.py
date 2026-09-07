@@ -18,7 +18,18 @@ def gram_whitener(G: np.ndarray) -> np.ndarray:
     """Lower Cholesky factor of ``G`` with a relative jitter of ``1e-14``
     times the mean diagonal, so a Gram that is singular to rounding still
     factors. ``G`` is a square symmetric matrix; the factor ``L`` satisfies
-    ``L @ L.T = G + jitter * I``."""
+    ``L @ L.T = G + jitter * I``.
+
+    Args:
+        G: square symmetric matrix, shape ``(k, k)``.
+
+    Returns:
+        Lower-triangular ``L`` of the same shape.
+
+    Raises:
+        scipy.linalg.LinAlgError: ``G`` is not positive definite even
+            after the jitter.
+    """
     k = G.shape[0]
     jitter = 1e-14 * float(np.trace(G)) / k
     return cholesky(G + jitter * np.eye(k), lower=True)
@@ -253,14 +264,20 @@ class Image:
         Exact for the Legendre basis when ``order`` is at most this order
         (``S_c = A^T S``, ``G_c = A^T G A`` with the change-of-basis matrix
         of :func:`~dtfit.image.transfer.legendre_transfer`); for the block
-        basis every fine window must lie inside one coarse window. The
-        sample grid, weights, counts and sums are unchanged.
+        basis every fine window must lie inside one coarse window, and a
+        sample at this image's right edge belongs to the coarse window
+        that starts there, not the one before it (see
+        :func:`~dtfit.image.transfer.block_transfer`). The sample grid,
+        weights, counts and sums are unchanged. Domain containment is
+        checked with an absolute tolerance of ``1e-9 * (domain[1] -
+        domain[0])``.
 
         Raises:
             ValueError: ``domain`` does not contain this domain; for the
                 Legendre basis ``order`` above this order; for the block
                 basis a coarse window that is not a union of fine windows
-                (window counts are not compared, the domains differ).
+                (window counts are not compared, the domains differ); an
+                unknown basis name.
         """
         from .transfer import block_transfer, legendre_transfer
 
@@ -281,8 +298,12 @@ class Image:
             A = legendre_transfer(
                 self.domain, (d0, d1), self.order, order
             )
-        else:
+        elif self.basis.name == "block":
             A = block_transfer(self.domain, (d0, d1), self.order, order)
+        else:
+            raise ValueError(
+                f"transfer is not defined for the {self.basis.name} basis"
+            )
         return Image(
             basis=make_basis(self.basis.name, order),
             domain=(d0, d1),

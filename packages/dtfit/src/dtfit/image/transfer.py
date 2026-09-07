@@ -50,7 +50,7 @@ def legendre_transfer(
         raise ValueError("domains must be non-degenerate intervals")
     nodes, _ = leg.leggauss(local_order + 1)
     x = a0 + (a1 - a0) * (nodes + 1.0) / 2.0
-    phi_l = LegendreBasis(local_order).evaluate(nodes)
+    phi_l = LegendreBasis(local_order).evaluate(u_of(x, a0, a1))
     phi_c = LegendreBasis(coarse_order).evaluate(
         u_of(x, float(coarse_domain[0]), float(coarse_domain[1]))
     )
@@ -67,21 +67,41 @@ def block_transfer(
     ``Phi_coarse(x) = Phi_local(x) @ A`` for the block basis: fine window
     ``i`` maps to the coarse window that contains it.
 
+    Callers must treat block membership as half-open on the right,
+    ``[x0, x1)``, except for the last block of the coarse domain: this
+    matrix always assigns a shared edge to the window it opens, but
+    :class:`~dtfit.image.bases.BlockBasis` clamps a sample exactly at
+    the local domain's right endpoint into its last (closed) window, so
+    the two disagree there when that endpoint is an interior coarse
+    edge. A caller cutting fine blocks (as in :func:`assemble`) must
+    keep each block's samples inside ``[x0, x1)`` to avoid the seam.
+
+    Domain and window containment are checked with an absolute
+    tolerance of ``1e-9 * (coarse_domain[1] - coarse_domain[0])``, so a
+    local domain or fine-window edge within that distance of a coarse
+    edge is silently snapped to it.
+
     Args:
         local_domain: ``(x0, x1)`` of the fine windows.
         coarse_domain: ``(x0, x1)`` of the coarse windows, containing the
             local domain.
-        local_order: number of fine windows.
-        coarse_order: number of coarse windows.
+        local_order: number of fine windows, at least 1.
+        coarse_order: number of coarse windows, at least 1.
 
     Returns:
         Array of shape ``(local_order, coarse_order)``.
 
     Raises:
-        ValueError: a fine window that is not inside one coarse window
-            (the coarse window is then not a union of fine blocks), or a
-            local domain outside the coarse one.
+        ValueError: ``local_order`` or ``coarse_order`` below 1; a local
+            domain outside the coarse one; or a fine window that is not
+            inside one coarse window (the coarse window is then not a
+            union of fine blocks).
     """
+    if local_order < 1 or coarse_order < 1:
+        raise ValueError(
+            f"local_order and coarse_order must be at least 1, got "
+            f"{local_order} and {coarse_order}"
+        )
     a0, a1 = float(local_domain[0]), float(local_domain[1])
     c0, c1 = float(coarse_domain[0]), float(coarse_domain[1])
     tol = 1e-9 * (c1 - c0)
@@ -112,15 +132,21 @@ def assemble(
     domain: tuple[float, float] | None = None,
     order: int | None = None,
 ) -> Image:
-    """The image of the union of the given block images on one coarse
-    domain: every block is transferred with :meth:`Image.transfer` and the
-    results are merged.
+    """The image of the union of the given images on one coarse domain:
+    every image is transferred with :meth:`Image.transfer` and the
+    results are merged. ``images`` are the pieces (windows or blocks) of
+    one series, in any of the image bases; the coarse basis matches
+    theirs.
 
     Args:
-        images: block images with the same basis name; their sample sets
-            are disjoint or not, merging adds them either way.
-        domain: coarse domain; default the hull of the block domains.
-        order: coarse order; default the smallest block order.
+        images: images with the same basis name; their sample sets are
+            disjoint or not, merging adds them either way.
+        domain: coarse domain; default the hull of the image domains.
+        order: coarse order; default the smallest image order. For the
+            block basis this coarsens by the number of images (three
+            order-4 blocks default to order 4 over their hull, windows
+            three times as wide as the fine ones); pass ``order``
+            explicitly to keep the fine window width.
 
     Returns:
         One :class:`Image` on ``domain`` at ``order``.
