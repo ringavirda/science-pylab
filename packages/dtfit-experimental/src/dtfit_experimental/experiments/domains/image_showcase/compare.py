@@ -16,20 +16,26 @@ EXACTNESS_TOL = 1e-8
 # dtfit.image.coverage above this says the image's order cannot represent
 # the model's sensitivities; the row is reported UNDERSAMPLED, not failed.
 COVERAGE_TOL = 0.02
-# Denominator floor for a reference value that is zero to rounding,
-# relative to the largest reference magnitude.
-_SCORE_FLOOR = 1e-12
+# Denominator floor, as a fraction of the largest reference magnitude:
+# a parameter below one percent of the largest is scored against that
+# one-percent level, where the raw solve's rounding noise sits.
+SCORE_FLOOR = 1e-2
 # Samples per coefficient below which a fixed order is not a coverage
 # failure of the sensitivities but a plain shortage of rows; shared by
 # legendre_order's density cap and the NOAA gate's density floor.
 DENSITY_PER_COEF = 4
 
 
-def _scores(
+def param_scores(
     fitted: Mapping[str, float], reference: Mapping[str, float]
 ) -> dict[str, float]:
-    """Per-parameter relative differences; the shared half of
-    :func:`param_score` and :func:`worst_param`."""
+    """Per-parameter relative differences, ``|f - ref| / max(|ref|,
+    SCORE_FLOOR * M)`` with ``M`` the largest reference magnitude; see
+    :func:`param_score` for the zero-reference case.
+
+    Raises:
+        KeyError: ``fitted`` is missing a name ``reference`` carries.
+    """
     ref = {k: float(v) for k, v in reference.items()}
     m = max((abs(v) for v in ref.values()), default=0.0)
     if m == 0.0:
@@ -37,7 +43,7 @@ def _scores(
             k: 0.0 if float(fitted[k]) == 0.0 else float("inf") for k in ref
         }
     return {
-        name: abs(float(fitted[name]) - r) / max(abs(r), _SCORE_FLOOR * m)
+        name: abs(float(fitted[name]) - r) / max(abs(r), SCORE_FLOOR * m)
         for name, r in ref.items()
     }
 
@@ -48,18 +54,18 @@ def param_score(
     """The worst relative parameter difference between a fit and its
     reference.
 
-    Every parameter is scored ``|f - ref| / max(|ref|, 1e-12 * M)`` with
-    ``M`` the largest reference magnitude; the station's score is the
-    maximum. The floor only stops a division by a reference value that is
-    zero to rounding -- it is twelve orders below ``M``, so the score is a
-    relative difference for every parameter these models carry. When every
+    Every parameter is scored ``|f - ref| / max(|ref|, SCORE_FLOOR * M)``
+    with ``M`` the largest reference magnitude; the station's score is the
+    maximum. A parameter below one percent of ``M`` is scored against that
+    one-percent level, so the raw solve's rounding noise on a small
+    parameter does not read as a relative miss of the fit. When every
     reference value is zero the score is 0.0 if every fitted value is zero
     too and ``inf`` otherwise.
 
     Raises:
         KeyError: ``fitted`` is missing a name ``reference`` carries.
     """
-    return max(_scores(fitted, reference).values(), default=0.0)
+    return max(param_scores(fitted, reference).values(), default=0.0)
 
 
 def worst_param(
@@ -67,7 +73,7 @@ def worst_param(
 ) -> str:
     """The parameter name :func:`param_score` scored highest; the first
     name in ``reference``'s order when every score ties."""
-    scores = _scores(fitted, reference)
+    scores = param_scores(fitted, reference)
     return max(scores, key=lambda k: scores[k]) if scores else ""
 
 

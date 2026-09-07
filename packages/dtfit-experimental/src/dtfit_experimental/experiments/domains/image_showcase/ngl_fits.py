@@ -21,7 +21,7 @@ from dtfit.image import Image, coverage
 from . import ngl
 from .compare import (
     COVERAGE_TOL, EXACTNESS_TOL, fit_from_image, gram_rebuild_error,
-    raw_bic, raw_lstsq,
+    param_scores, raw_bic, raw_lstsq,
 )
 from .ngl_reduce import NGL_EXPR, NGL_NAMES, ngl_design
 from .store import load_images
@@ -203,30 +203,6 @@ def station_rows(
     return rows
 
 
-# Below this fraction of the largest raw-fit parameter, a component's
-# reference is floored to that scale before scoring: the raw
-# least-squares solve carries its own absolute floating-point noise
-# (measured ~2e-12 against an intercept near 1 on real NGL stations),
-# which swamps the true relative signal in NGL's much smaller
-# coefficients. 00NA's 'up' a2 is ~1.8e-4 of its intercept and misses
-# EXACTNESS_TOL on that noise alone, with every parameter agreeing to
-# ~1e-13 absolute; the floor is an order above the largest such ratio
-# seen, with room to spare.
-_NOISE_FLOOR = 1e-2
-
-
-def _exactness_scores(
-    got: Mapping[str, float], ref: Mapping[str, float]
-) -> dict[str, float]:
-    """Per-parameter relative differences against a reference floored at
-    :data:`_NOISE_FLOOR` of its largest magnitude."""
-    m = max((abs(v) for v in ref.values()), default=0.0)
-    return {
-        name: abs(float(got[name]) - float(r)) / max(abs(r), _NOISE_FLOOR * m)
-        for name, r in ref.items()
-    }
-
-
 def exactness_rows(
     tenv3_path: Any, npz_path: Any, chunk: int = ngl.TENV3_CHUNK
 ) -> list[dict[str, Any]]:
@@ -237,8 +213,8 @@ def exactness_rows(
     samples, never on the Pi). Each row carries three verdicts' worth of
     evidence:
 
-    - ``score``, the worst relative parameter difference (each floored
-      per :func:`_exactness_scores`), against :data:`compare.EXACTNESS_TOL`;
+    - ``score``, the worst relative parameter difference
+      (:func:`compare.param_scores`), against :data:`compare.EXACTNESS_TOL`;
     - ``coverage``, :func:`dtfit.image.coverage` of the fitted model on
       this image, against :data:`compare.COVERAGE_TOL`;
     - ``gram_rebuild_err``, how far ``G`` rebuilt from the grid is from
@@ -268,7 +244,7 @@ def exactness_rows(
         ref = raw_lstsq(design, y, NGL_NAMES)
         res = fit_from_image(NGL_EXPR, image, NGL_NAMES)
         got = res.params
-        scores = _exactness_scores(got, ref)
+        scores = param_scores(got, ref)
         score = max(scores.values(), default=0.0)
         cover = float(coverage(
             NGL_EXPR, [float(got[k]) for k in NGL_NAMES], image, var="t"

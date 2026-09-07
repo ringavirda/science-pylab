@@ -107,18 +107,15 @@ def test_station_rows_average_the_segments_by_epoch_count(tmp_path):
 
 
 def test_exactness_scores_floor_a_near_zero_parameter_against_the_intercept():
-    # 00NA 'up': every parameter agrees to ~1e-13 absolute, but a2 is
-    # ~1.8e-4 of the intercept, so scoring it against itself rather than
-    # the intercept turns the raw solve's own ~2e-12 absolute noise into
-    # a 1.4e-8 relative miss that has nothing to do with the fit.
+    # a2 at 1.8e-4 of the intercept agrees to the raw solve's rounding
+    # noise (2e-12 absolute) and must not read as a 1.4e-8 relative miss
     ref = {"a2": 1.5e-4, "c": 0.85}
     got = {"a2": 1.5e-4 + 2.07e-12, "c": 0.85}
-    scores = ngl_fits._exactness_scores(got, ref)
+    scores = compare.param_scores(got, ref)
     assert scores["a2"] <= compare.EXACTNESS_TOL
-    # a real miss of the same relative size against the intercept itself
-    # still trips the gate.
+    # a real miss of the same relative size on the intercept trips the gate
     off = {"a2": 1.5e-4, "c": 0.85 * (1 + 10 * compare.EXACTNESS_TOL)}
-    assert ngl_fits._exactness_scores(off, ref)["c"] > compare.EXACTNESS_TOL
+    assert compare.param_scores(off, ref)["c"] > compare.EXACTNESS_TOL
 
 
 def test_exactness_rows_meet_the_gate_on_every_component(tmp_path):

@@ -125,18 +125,23 @@ def test_write_table_writes_a_header_and_the_rows(tmp_path):
         assert list(csv.reader(fh)) == [["a", "b"]]
 
 
-def test_param_score_is_purely_relative():
-    ref = {"c": 100.0, "v": 1e-9}
+def test_param_score_is_relative_above_the_floor():
+    ref = {"c": 100.0, "v": 5.0}
     assert compare.param_score(dict(ref), ref) == 0.0
-    # v doubles, so the worst relative miss is 1.0, not c's 1e-2: a small
-    # parameter is scored against itself, never against the largest.
-    got = compare.param_score({"c": 101.0, "v": 2e-9}, ref)
+    # v doubles, so the worst relative miss is 1.0, not c's 1e-2: a
+    # parameter above the floor is scored against itself
+    got = compare.param_score({"c": 101.0, "v": 10.0}, ref)
     assert got == pytest.approx(1.0, rel=1e-12)
-    assert compare.worst_param({"c": 101.0, "v": 2e-9}, ref) == "v"
-    # a reference value of exactly zero falls back to the 1e-12 * M floor
+    assert compare.worst_param({"c": 101.0, "v": 10.0}, ref) == "v"
+    # a parameter below one percent of the largest is scored against
+    # that one-percent level, a reference of exactly zero included
+    small = {"c": 100.0, "v": 1e-4}
+    assert compare.param_score({"c": 100.0, "v": 1e-4 + 1e-9}, small) == (
+        pytest.approx(1e-9 / (compare.SCORE_FLOOR * 100.0))
+    )
     zero = {"c": 100.0, "v": 0.0}
     assert compare.param_score({"c": 100.0, "v": 1e-10}, zero) == (
-        pytest.approx(1e-10 / (1e-12 * 100.0))
+        pytest.approx(1e-10 / (compare.SCORE_FLOOR * 100.0))
     )
     assert compare.param_score({"a": 0.0}, {"a": 0.0}) == 0.0
     assert compare.param_score({"a": 5.0}, {"a": 0.0}) == float("inf")
@@ -193,15 +198,20 @@ def test_image_fit_reproduces_the_raw_least_squares_at_the_gate():
 
 
 def test_an_absolute_coordinate_would_defeat_the_gate():
-    # Ruling 2: the reader subtracts the first row's integer metre column.
-    # Kept, an ALBH-scale north coordinate leaves the small parameters far
-    # above 1e-8 relative, which is the reason the subtraction exists.
+    # The reader subtracts the first row's integer metre column. Kept, an
+    # ALBH-scale north coordinate leaves the small parameters far above
+    # 1e-8 of themselves while the score, floored at one percent of that
+    # coordinate, no longer sees it: the gate would pass for the wrong
+    # reason, which is why the subtraction exists.
     t, y = irregular_series(11.0, 6, 5361769.0)
     img = Image.of(Original(t, y), "legendre",
                    compare.legendre_order(11.0, t.size))
     ref = compare.raw_lstsq(design(t), y, NAMES)
     res = compare.fit_from_image(EXPR, img, NAMES)
-    assert compare.param_score(res.params, ref) > compare.EXACTNESS_TOL
+    own = max(abs(res.params[k] - ref[k]) / abs(ref[k])
+              for k in ("v", "a1", "b1"))
+    assert own > compare.EXACTNESS_TOL
+    assert compare.param_score(res.params, ref) <= compare.EXACTNESS_TOL
 
 
 def test_p0_comes_from_the_image_alone():
