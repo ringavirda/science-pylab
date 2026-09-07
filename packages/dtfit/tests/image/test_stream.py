@@ -38,7 +38,7 @@ def test_uniform_accumulator_equals_batch_image():
     assert got.sumsq == pytest.approx(ref.sumsq, rel=1e-13)
     a = fit("a*exp(-b*x) + c", got, "x", p0=[3.0, 0.2, 0.5])
     b = fit("a*exp(-b*x) + c", ref, "x", p0=[3.0, 0.2, 0.5])
-    assert np.allclose(a.coeffs, b.coeffs, atol=1e-9)
+    assert np.allclose(a.coeffs, b.coeffs, rtol=0, atol=1e-9)
 
 
 def test_explicit_grid_with_weights_equals_batch_image():
@@ -118,6 +118,29 @@ def test_merge_of_contiguous_uniform_streams_equals_whole():
     c.update(x[500:], y[500:])
     with pytest.raises(ValueError, match="contiguous"):
         a.merge(c)
+
+
+def test_merge_rejects_uniform_streams_with_different_spacing():
+    xa = np.arange(21) * 0.1
+    xb = 2.1 + np.arange(38) * 0.05
+    ya = np.zeros(xa.size)
+    yb = np.zeros(xb.size)
+    a = ImageStream("legendre", 3, domain=(0.0, 4.0))
+    a.update(xa, ya)
+    b = ImageStream("legendre", 3, domain=(0.0, 4.0))
+    b.update(xb, yb)
+    with pytest.raises(ValueError, match="contiguous"):
+        a.merge(b)
+
+
+def test_merge_of_two_single_sample_uniform_streams():
+    a = ImageStream("legendre", 2, domain=(0.0, 1.0))
+    a.update(np.array([0.2]), np.array([1.0]))
+    b = ImageStream("legendre", 2, domain=(0.0, 1.0))
+    b.update(np.array([0.5]), np.array([2.0]))
+    got = a.merge(b).image()
+    assert got.n == 2 and got.grid.kind == "uniform"
+    assert np.allclose(got.grid.positions(), [0.2, 0.5])
 
 
 def test_input_errors():

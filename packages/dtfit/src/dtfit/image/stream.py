@@ -41,36 +41,40 @@ class _Sums:
 
     def _track_uniform(self, x: np.ndarray) -> None:
         m = x.size
+        dx = self.dx
         if m > 1:
             d = np.diff(x)
-            dx = float(d[0])
-            if dx <= 0.0 or not np.allclose(
-                d, dx, rtol=1e-9, atol=1e-9 * abs(dx)
+            chunk_dx = float(d[0])
+            if chunk_dx <= 0.0 or not np.allclose(
+                d, chunk_dx, rtol=1e-9, atol=1e-9 * abs(chunk_dx)
             ):
                 raise ValueError(
                     "a uniform stream needs increasing, evenly spaced "
                     "positions; use grid='explicit' for other grids"
                 )
-            if self.dx is None:
-                self.dx = dx
-            elif not np.isclose(dx, self.dx, rtol=1e-9, atol=0.0):
+            if dx is None:
+                dx = chunk_dx
+            elif not np.isclose(chunk_dx, dx, rtol=1e-9, atol=0.0):
                 raise ValueError(
-                    f"chunk spacing {dx:g} differs from the stream's "
-                    f"uniform spacing {self.dx:g}"
+                    f"chunk spacing {chunk_dx:g} differs from the "
+                    f"stream's uniform spacing {dx:g}"
                 )
         if self.n == 0:
-            self.x0 = float(x[0])
+            x0 = float(x[0])
         else:
-            if self.dx is None:
-                self.dx = float(x[0]) - self.x1
-                if self.dx <= 0.0:
+            x0 = self.x0
+            if dx is None:
+                dx = float(x[0]) - self.x1
+                if dx <= 0.0:
                     raise ValueError("positions must increase")
-            expected = self.x1 + self.dx
-            if abs(float(x[0]) - expected) > 1e-9 * abs(self.dx):
+            expected = self.x1 + dx
+            if abs(float(x[0]) - expected) > 1e-9 * abs(dx):
                 raise ValueError(
                     f"chunk starts at {float(x[0]):g}, the uniform grid "
                     f"expects {expected:g}"
                 )
+        self.dx = dx
+        self.x0 = x0
         self.x1 = float(x[-1])
 
     def add(
@@ -186,19 +190,20 @@ class ImageStream:
         keep_fine, fold: block retention: at most ``keep_fine`` fine
             blocks are kept; when there are more, the oldest ``fold`` are
             folded into one coarse block at the stream's order.
-        backend: ``"numpy"``, ``"cupy"`` or ``"torch"`` for the projection
-            GEMM; accumulation is float64 on the host either way.
+        backend: ``"numpy"``, ``"cupy"`` or ``"torch"`` for the ``S``
+            projection; the Gram update stays host numpy either way, and
+            accumulation is float64 regardless of backend.
         detect: block-level drift detection, block mode only: ``None``
             for none, ``"previous"`` to compare each finished block to
             the one before it, or ``(model, params)`` / ``(model,
             params, var)`` to compare it to that model's image.
 
     Raises:
-        ValueError: missing domain, ``order < 1``, ``channels < 1``, an
-            unknown grid kind or backend; in block mode, ``channels !=
-            1``, a ``block`` below ``order + 2`` samples or non-positive
-            length, or an unrecognised ``detect``; ``detect`` given
-            without ``block``.
+        ValueError: missing domain, ``domain`` with ``x1 <= x0``,
+            ``order < 1``, ``channels < 1``, an unknown grid, basis or
+            backend name; in block mode, ``channels != 1``, a ``block``
+            below ``order + 2`` samples or non-positive length, or an
+            unrecognised ``detect``; ``detect`` given without ``block``.
     """
 
     def __init__(
@@ -481,7 +486,10 @@ class ImageStream:
         return _assemble(found, order=self.order if order is None else order)
 
     def image(self, channel: int = 0) -> Image:
-        """The running image of one channel.
+        """The running image of one channel. Unlike :meth:`Image.of`,
+        this has no minimum-sample floor: with fewer than ``n_coef``
+        samples ``G`` is rank-deficient and the fit falls back to a
+        pseudoinverse.
 
         Raises:
             ValueError: no samples yet, or ``channel`` out of range.
@@ -518,7 +526,12 @@ class ImageStream:
         if not a.explicit:
             first, second = (a, b) if a.x0 <= b.x0 else (b, a)
             dx = first.dx if first.dx is not None else second.dx
-            if dx is None or abs(second.x0 - (first.x1 + dx)) > 1e-9 * dx:
+            if dx is None:
+                dx = second.x0 - first.x0
+            n = a.n + b.n
+            if dx <= 0.0 or abs(
+                (second.x1 - first.x0) - (n - 1) * dx
+            ) > 1e-9 * abs(dx):
                 raise ValueError(
                     "uniform streams merge only when contiguous; use "
                     "grid='explicit' for other sample sets"
@@ -571,7 +584,9 @@ class ImageStream:
         return state
 
     def resume(self, state: dict[str, Any]) -> "ImageStream":
-        """Load a checkpoint into this stream and return it.
+        """Load a checkpoint into this stream and return it, discarding
+        whatever samples this stream already held; call it only on a
+        freshly constructed stream.
 
         Raises:
             ValueError: the checkpoint was taken from a stream with a
