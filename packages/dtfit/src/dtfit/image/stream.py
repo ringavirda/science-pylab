@@ -357,10 +357,13 @@ class ImageStream:
         )
 
     def _current_domain(self) -> tuple[float, float]:
+        # The last block of a domain that is not a whole number of block
+        # lengths ends at the domain's end, where its samples end.
         k = self._block_index
         L = self._block_len
         assert L is not None
-        return (self.domain[0] + k * L, self.domain[0] + (k + 1) * L)
+        lo = self.domain[0] + k * L
+        return (lo, min(lo + L, self.domain[1]))
 
     def _finish_block(self) -> Image:
         x = np.concatenate(self._buf_x)
@@ -513,7 +516,8 @@ class ImageStream:
         """Finish the partial block if it holds at least ``order + 2``
         samples and return it in a list, else return an empty list and
         leave the partial block untouched. A length block closed early
-        keeps its fixed domain. Once a block is finished the stream
+        keeps its fixed domain; the stream's last block ends at the
+        domain's end. Once a block is finished the stream
         starts the next one; a further ``update`` cannot add samples
         from the finished block's domain.
 

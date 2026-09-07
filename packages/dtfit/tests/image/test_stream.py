@@ -302,6 +302,31 @@ def test_close_on_accumulator_raises():
         s.close()
 
 
+@pytest.mark.parametrize("basis,order,block,coarse", [
+    ("legendre", 8, 1.0, 8),   # yearly blocks
+    ("block", 2, 1.0, 1),      # yearly blocks into one coarse window
+])
+def test_partial_last_block_assembles_to_the_domain_end(basis, order, block, coarse):
+    """A domain that is not a whole number of block lengths ends inside its
+    last block: close() finishes that block on the cut domain, and the
+    assembly over the whole domain carries every sample and matches the
+    direct image to rounding."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 10.5, 3832, endpoint=False)
+    y = 0.5 * t + 0.3 * np.cos(2 * np.pi * t) + rng.normal(0, 0.01, t.size)
+    dom = (0.0, 10.5)
+    stream = ImageStream(basis, order, domain=dom, block=block, grid="explicit")
+    for _ in stream.update(t, y):
+        pass
+    last = stream.close()
+    assert len(last) == 1 and last[0].domain == (10.0, 10.5)
+    whole = stream.assemble(*dom, order=coarse)
+    direct = Image.of(Original(t, y, domain=dom), basis, coarse)
+    assert whole.n == direct.n == t.size
+    np.testing.assert_allclose(whole.S, direct.S, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(whole.G, direct.G, rtol=1e-12, atol=1e-12)
+
+
 def test_sparse_length_block_is_dropped_not_raised():
     x, y = _blocks_series(8, 25)
     gap = (x >= 2.0) & (x < 4.0)
