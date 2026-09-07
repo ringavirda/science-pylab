@@ -127,7 +127,7 @@ def reduce_station(
         step_years: Step dates in decimal years (absolute, as
             :func:`ngl.decimal_year` returns them); converted to the
             station's own origin here.
-        chunk: Rows per read block, at most 100,000.
+        chunk: Rows per read block.
         block_order: Legendre order of the yearly block images.
         block_len: Block length in years.
         with_segments: Build the between-steps segment images as well.

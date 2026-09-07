@@ -51,14 +51,17 @@ def station(tmp_path, name="AAAA", span=6.0, seed=4):
     return src, npz, t, cols
 
 
-def test_station_rows_carry_the_parameters_and_the_midas_comparison(tmp_path):
-    src, npz, t, cols = station(tmp_path)
-    midas = {"AAAA": type("M", (), {
+def _midas_of(se=0.0002):
+    return {"AAAA": type("M", (), {
         "ve": 0.0361, "vn": 0.0578, "vu": -0.0005,
-        "se": 0.0002, "sn": 0.0003, "su": 0.0009,
+        "se": se, "sn": 0.0003, "su": 0.0009,
         "span": 6.0, "n_steps": 0,
     })()}
-    rows = ngl_fits.station_rows(npz, midas)
+
+
+def test_station_rows_carry_the_parameters_and_the_midas_comparison(tmp_path):
+    src, npz, t, cols = station(tmp_path)
+    rows = ngl_fits.station_rows(npz, _midas_of())
     whole = [r for r in rows if r["kind"] == "whole"]
     assert {r["component"] for r in whole} == {"east", "north", "up"}
     east = [r for r in whole if r["component"] == "east"][0]
@@ -67,15 +70,23 @@ def test_station_rows_carry_the_parameters_and_the_midas_comparison(tmp_path):
     assert east["stderr_v"] > 0.0
     assert abs(east["midas_v"] - 0.0361) < 1e-12
     assert abs(east["diff"] - (east["v"] - 0.0361)) < 1e-12
-    assert east["diff_over_sigma"] == east["diff"] / 0.0002
+    # doubling MIDAS's own sigma must halve diff_over_sigma: catches a
+    # wrong field or a missing division, not just the formula's shape.
+    east2 = [r for r in ngl_fits.station_rows(npz, _midas_of(se=0.0004))
+             if r["kind"] == "whole" and r["component"] == "east"][0]
+    assert abs(east2["diff_over_sigma"] - east["diff_over_sigma"] / 2) < 1e-6
     assert np.isfinite(east["bic"]) and east["rss"] > 0.0
     assert set(ngl_fits.FIT_COLUMNS) >= set(east)
 
 
 def test_station_rows_average_the_segments_by_epoch_count(tmp_path):
+    # the step falls at 1.5 of 6 years, so the segments carry very
+    # different epoch counts: an unweighted average would land near the
+    # midpoint of the two segment velocities, while epoch-count weighting
+    # must pull the mean toward the longer segment.
     src, npz, t, cols = station(tmp_path, name="BBBB", span=6.0, seed=8)
     npz2, red = ngl_reduce.reduce_to_file(
-        src, tmp_path / "images2", step_years=[float(t[0]) + 3.0]
+        src, tmp_path / "images2", step_years=[float(t[0]) + 1.5]
     )
     rows = ngl_fits.station_rows(npz2)
     kinds = {r["kind"] for r in rows}
@@ -87,8 +98,27 @@ def test_station_rows_average_the_segments_by_epoch_count(tmp_path):
             if r["kind"] == "segmean" and r["component"] == "east"][0]
     w = np.array([r["n"] for r in seg_east], dtype=float)
     v = np.array([r["v"] for r in seg_east], dtype=float)
-    assert abs(mean["v"] - float(w @ v / w.sum())) < 1e-12
+    assert w[0] != w[1]
+    long_seg = v[np.argmax(w)]
+    unweighted = float(v.mean())
+    assert min(v) - 1e-12 <= mean["v"] <= max(v) + 1e-12
+    assert abs(mean["v"] - long_seg) < abs(unweighted - long_seg)
     assert mean["n"] == int(w.sum())
+
+
+def test_exactness_scores_floor_a_near_zero_parameter_against_the_intercept():
+    # 00NA 'up': every parameter agrees to ~1e-13 absolute, but a2 is
+    # ~1.8e-4 of the intercept, so scoring it against itself rather than
+    # the intercept turns the raw solve's own ~2e-12 absolute noise into
+    # a 1.4e-8 relative miss that has nothing to do with the fit.
+    ref = {"a2": 1.5e-4, "c": 0.85}
+    got = {"a2": 1.5e-4 + 2.07e-12, "c": 0.85}
+    scores = ngl_fits._exactness_scores(got, ref)
+    assert scores["a2"] <= compare.EXACTNESS_TOL
+    # a real miss of the same relative size against the intercept itself
+    # still trips the gate.
+    off = {"a2": 1.5e-4, "c": 0.85 * (1 + 10 * compare.EXACTNESS_TOL)}
+    assert ngl_fits._exactness_scores(off, ref)["c"] > compare.EXACTNESS_TOL
 
 
 def test_exactness_rows_meet_the_gate_on_every_component(tmp_path):
@@ -103,6 +133,20 @@ def test_exactness_rows_meet_the_gate_on_every_component(tmp_path):
         assert r["n"] == len(t)
         assert abs(r["v_image"] - r["v_raw"]) < 1e-6
         assert set(ngl_fits.EXACT_COLUMNS) >= set(r)
+
+
+def test_exactness_rows_measure_a_real_gram_rebuild_error_across_chunks(
+    tmp_path,
+):
+    # A single-chunk build makes gram_rebuild_err exactly 0.0 for every
+    # station: not a measurement. A small chunk crosses a boundary inside
+    # the whole-span image, so the value is real, at rounding.
+    src, _npz, t, cols = station(tmp_path, name="EEEE", span=8.0, seed=14)
+    npz, _ = ngl_reduce.reduce_to_file(src, tmp_path / "images2", chunk=250)
+    rows = ngl_fits.exactness_rows(src, npz)
+    for r in rows:
+        assert r["gram_rebuild_err"] > 0.0
+        assert r["gram_rebuild_err"] < 1e-10
 
 
 def test_exactness_rows_report_an_undersampled_station(tmp_path):

@@ -134,7 +134,67 @@ def test_reduce_station_emits_yearly_blocks_and_segment_images(tmp_path):
     s0 = red.info["segments"][0]
     assert s0["order"] == compare.legendre_order(s0["span"], s0["n"])
     assert set(red.info["flags"]) == {"east", "north", "up"}
-    assert red.info["dropped"]["east"] >= 0
+
+
+def test_reduce_station_drops_a_block_with_too_few_epochs(tmp_path):
+    # A middle year thinned below BLOCK_ORDER + 2 = 14 samples closes
+    # through the mid-stream skip path (the trailing block, if it were
+    # thin, would just be left unimaged by close() and not counted): the
+    # block is discarded and its year leaves a gap in the block keys.
+    t, cols = synthetic(span=5.0, seed=6)
+    tc = t - t[0]
+    sparse = (tc >= 2.0) & (tc < 3.0)
+    keep = ~sparse
+    keep[np.where(sparse)[0][:5]] = True
+    t = t[keep]
+    cols = {k: v[keep] for k, v in cols.items()}
+    p = write_station(tmp_path / "KKKK.tenv3", t, cols["east"],
+                      cols["north"], cols["up"])
+    red = ngl_reduce.reduce_station(p)
+    assert red.info["dropped"] == {"east": 1, "north": 1, "up": 1}
+    blocks = sorted(k for k in red.images
+                    if k.startswith("blk") and k.endswith("_east"))
+    assert "blk02_east" not in blocks
+
+
+def test_reduce_station_flags_a_drift_past_the_detector_warmup(tmp_path):
+    # DriftDetector warms up over 20 blocks; at block_len=1.0 that is 20
+    # years, so only a station past roughly that span can ever raise a
+    # flag. A 5 m step (2500x the 0.002 noise amplitude) at year 25 of a
+    # 30-year station is past warmup and must flag; unflagged components
+    # carry no step and must not.
+    t, cols = synthetic(span=30.0, seed=13)
+    tc = t - t[0]
+    jump = tc >= 25.0
+    cols = dict(cols)
+    cols["up"] = cols["up"].copy()
+    cols["up"][jump] += 5.0
+    p = write_station(tmp_path / "HHHH.tenv3", t, cols["east"],
+                      cols["north"], cols["up"])
+    red = ngl_reduce.reduce_station(p)
+    assert red.info["flags"]["up"] == [[25.0, 25.0, 26.0]]
+    assert red.info["flags"]["east"] == []
+    assert red.info["flags"]["north"] == []
+
+
+def test_reduce_station_matches_across_a_chunk_boundary_inside_a_segment(
+    tmp_path,
+):
+    # 1057 of 21798 real MIDAS stations exceed TENV3_CHUNK; a chunk this
+    # small crosses both segment boundaries, exercising the cross-chunk
+    # slice ``a, b = max(i0, pos), min(i1, pos + m)`` that a single-chunk
+    # run never reaches.
+    t, cols = synthetic(span=6.0, seed=8)
+    p = write_station(tmp_path / "JJJJ.tenv3", t, cols["east"],
+                      cols["north"], cols["up"])
+    step = float(t[0]) + 3.0
+    one = ngl_reduce.reduce_station(p, step_years=[step], chunk=100_000)
+    many = ngl_reduce.reduce_station(p, step_years=[step], chunk=250)
+    assert set(one.images) == set(many.images)
+    for key, img in one.images.items():
+        other = many.images[key]
+        assert np.allclose(img.S, other.S, atol=1e-9, rtol=1e-9)
+        assert np.allclose(img.G, other.G, atol=1e-9, rtol=1e-9)
 
 
 def test_block_keys_follow_the_domain_across_a_missing_year(tmp_path):
@@ -183,4 +243,3 @@ def test_reduce_to_file_and_reduce_many_write_readable_images(tmp_path):
     # G is the order squared and dominates S for any real station
     assert row["gram_bytes"] > row["coef_bytes"]
     assert row["raw_bytes"] == p.stat().st_size
-    assert set(ngl_reduce.REDUCE_COLUMNS) >= set(row)

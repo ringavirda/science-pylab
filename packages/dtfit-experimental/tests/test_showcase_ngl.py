@@ -108,7 +108,12 @@ def test_read_tenv3_chunks_and_dedupes_across_the_boundary(tmp_path):
     np.testing.assert_allclose(t, ngl.read_epochs(p, chunk=3))
 
 
-def test_read_tenv3_rejects_a_row_with_the_wrong_column_count(tmp_path):
+def test_read_tenv3_rejects_a_block_whose_token_count_is_not_a_multiple_of_23(
+    tmp_path,
+):
+    # the check is on the whole block's token count, not each row's: two
+    # malformed rows whose counts happen to sum to a multiple of 23 would
+    # pass it and reshape silently misaligned.
     p = tmp_path / "BAD.tenv3"
     p.write_text(HEADER + "00NA 08MAR27 2008.2355 54552\n")
     with pytest.raises(ValueError, match="23 columns"):
