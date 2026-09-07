@@ -975,3 +975,16 @@ def test_window_image_uses_the_actual_positions_not_a_uniform_grid():
     Phi_actual, _, _ = flt._window_ops(t)
     Phi_uniform = flt.basis.evaluate(np.linspace(-1.0, 1.0, n))
     assert not np.allclose(Phi_actual, Phi_uniform, atol=1e-6)
+
+
+def test_stream_rejection_leaves_the_window_untouched():
+    """A sample outside the attached stream's domain must not enter the
+    filter's own window either: the stream is fed before the window is
+    mutated, so its rejection leaves both untouched."""
+    from dtfit import ImageStream
+
+    flt = LSIFilter("a*t", "t", window_size=10,
+                    stream=ImageStream("legendre", 4, domain=(0.0, 5.0)))
+    with pytest.raises(ValueError, match="domain"):
+        flt.partial_fit(10.0, 1.0)
+    assert flt._t == [] and flt._y == []
