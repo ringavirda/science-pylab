@@ -271,10 +271,12 @@ def dropped_times(
     :data:`GOOD_QUALITY` and the rows carrying the missing sentinel. The
     reader itself only counts these; the filter leg needs their times to
     ask whether a drift flag has an explanation. Every failing row is
-    reported, including one whose timestamp repeats an earlier row, so
-    these counts can exceed :func:`read_isd`'s by the number of repeats
-    (measured on one real station-year: 349 here against 348 there, with
-    4 repeats).
+    reported, including one whose timestamp repeats an earlier row and
+    so gets charged to :func:`read_isd`'s dropped_repeat before it ever
+    reaches its quality filter: these counts can exceed
+    :func:`read_isd`'s by the number of repeats that also fail the
+    quality filter (measured on one real station-year: 349 here against
+    348 there, with 4 repeats, 1 of which also fails quality).
     """
     missing = ISD_FIELDS[field][0]
     bad: list[float] = []

@@ -23,11 +23,15 @@ from dtfit.streaming import LSIFilter
 from . import isd, ngl
 
 DAYS_PER_YEAR = 365.25
-# ImageFilter builds its DriftDetector with warmup=3 and tests it once
-# per window_size full-window samples, so after a detection no test can
-# fire for another warmup * window samples. The reachability rule below
-# mirrors that; changing one without the other makes the recall
-# denominator wrong.
+# ImageFilter builds its DriftDetector with warmup=3 and, by its default
+# drift_reset="inflate", keeps the window buffer full across a
+# detection. The buffer needs window samples to fill from an empty
+# start but is already full on the sample right after a flag, so the
+# first test able to fire is (WARMUP + 2) * window - 2 samples from the
+# series start, and (WARMUP + 1) * window samples after a flag. The
+# reachability rule below mirrors that; changing WARMUP here without
+# matching the detector's own warmup makes the recall denominator
+# wrong.
 WARMUP = 3
 
 
@@ -204,24 +208,26 @@ def reachable_events(
     event_indices: Sequence[int],
     flag_indices: Sequence[int],
     *,
-    min_window: int,
     window: int,
     warmup: int = WARMUP,
 ) -> list[bool]:
     """Which events the detector could have reported at all.
 
     An event is unreachable when it falls inside the detector's blind
-    start (``min_window + warmup * window`` samples from the series
-    start) or within ``warmup * window`` samples after the last flag
-    raised before it: no test can fire there whatever the data does.
+    start (``(warmup + 2) * window - 2`` samples from the series start,
+    the buffer's fill time plus the tests the detector's own warmup
+    forces to return False) or within ``(warmup + 1) * window`` samples
+    after the last flag raised before it, where the buffer is already
+    full: no test can fire there whatever the data does. ``min_window``
+    plays no part, since it never delays the buffer past ``window``.
     Both lists are sample indices into the same series, sorted
     increasing. Returns one boolean per event, in order. Measured over
     60 real stations, 63.8 percent of consecutive step pairs sit closer
     than one blind period, so the raw step count is not a recall
     denominator.
     """
-    blind_start = int(min_window) + int(warmup) * int(window)
-    stride = int(warmup) * int(window)
+    blind_start = (int(warmup) + 2) * int(window) - 2
+    stride = (int(warmup) + 1) * int(window)
     flags = sorted(int(f) for f in flag_indices)
     out: list[bool] = []
     for raw in event_indices:
@@ -386,8 +392,7 @@ def ngl_filter_station(
             out = run_filter(tc, y, config)
             matched = match_flags(out["flags"], events, horizon=horizon)
             reach = reachable_events(
-                event_indices, out["flag_indices"],
-                min_window=out["min_window"], window=config.window,
+                event_indices, out["flag_indices"], window=config.window,
             )
             n_reachable = sum(1 for r in reach if r)
             hit_reachable = sum(
