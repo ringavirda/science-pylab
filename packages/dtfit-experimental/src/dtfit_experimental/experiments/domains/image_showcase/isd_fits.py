@@ -19,8 +19,8 @@ from dtfit.image import coverage
 
 from . import isd
 from .compare import (
-    COVERAGE_TOL, EXACTNESS_TOL, fit_from_image, param_score, raw_lstsq,
-    worst_param,
+    COVERAGE_TOL, DENSITY_PER_COEF, EXACTNESS_TOL, fit_from_image,
+    param_score, raw_lstsq, worst_param,
 )
 from .isd_reduce import (
     ANNUAL_EXPR, ANNUAL_NAMES, ANNUAL_OMEGA, DAY_POSITIONS, DIURNAL_EXPR,
@@ -135,11 +135,11 @@ def day_rows(npz_path: Any, field: str = "TMP") -> list[dict[str, Any]]:
     the range of the day image's reconstruction at its own sample
     positions, the peak hour and the day's mean. The range is the
     statistic the published normals' own diurnal range is compared
-    against: a real day is not a pure sinusoid and its range exceeds
-    twice the first harmonic by 10 to 25 percent, so comparing
-    ``2 * amplitude`` against a max-minus-min would be biased low by
-    construction. Returns an empty list for a station reduced without
-    ``with_days``.
+    against: a real day is not a pure sinusoid, so its range can exceed
+    twice the first harmonic, and comparing ``2 * amplitude`` against a
+    max-minus-min would be biased low by construction for any station
+    that carries a second harmonic. Returns an empty list for a station
+    reduced without ``with_days``.
     """
     images, info = load_images(npz_path)
     station = str(info.get("station", Path(npz_path).stem))
@@ -337,14 +337,18 @@ def exactness_year(
     squares on the same rows, plus a sample of the day images against
     theirs. Reads the CSV again, so it runs where the samples are.
 
-    ``gate`` is ``"UNDERSAMPLED"`` when :func:`dtfit.image.coverage` on
-    the station-year image exceeds :data:`compare.COVERAGE_TOL` (a
-    station-year that kept too few rows for order 24: reported and
-    counted, never a failure of the run), ``"FAIL"`` when either the
-    annual score or the worst day score misses
-    :data:`compare.EXACTNESS_TOL`, and ``"ok"`` otherwise.
-    ``day_score`` is empty and ``n_days_checked`` zero when no sampled
-    day filled its 24 hour bins.
+    ``gate`` is ``"UNDERSAMPLED"`` when either :func:`dtfit.image.coverage`
+    on the station-year image exceeds :data:`compare.COVERAGE_TOL`, or the
+    image carries fewer than ``order * compare.DENSITY_PER_COEF`` samples.
+    ``coverage`` measures the fixed order's truncation error for the
+    model's sensitivities, which does not move with the sample count at
+    ``ANNUAL_ORDER`` (a 30-row and an 8784-row station-year measure the
+    same coverage), so the density check is what actually catches a
+    station-year that kept too few rows: reported and counted, never a
+    failure of the run. ``"FAIL"`` is either score missing
+    :data:`compare.EXACTNESS_TOL` while the density and coverage checks
+    both pass; ``"ok"`` otherwise. ``day_score`` is empty and
+    ``n_days_checked`` zero when no sampled day filled its 24 hour bins.
     """
     t, y, info = isd.station_year(csv_path, field)
     images, meta = load_images(npz_path)
@@ -363,7 +367,8 @@ def exactness_year(
     missed = score > EXACTNESS_TOL or (
         day_score is not None and day_score > EXACTNESS_TOL
     )
-    if cover > COVERAGE_TOL:
+    sparse = int(image.n) < int(image.order) * DENSITY_PER_COEF
+    if cover > COVERAGE_TOL or sparse:
         gate = "UNDERSAMPLED"
     elif missed:
         gate = "FAIL"
@@ -416,7 +421,14 @@ def run_year_fits(
     npz_paths: Sequence[Any], *, fields: Sequence[str] = ("TMP",),
     workers: int = 1,
 ) -> list[dict[str, Any]]:
-    """:func:`year_rows` over many stations, in input order."""
+    """:func:`year_rows` over many stations, in input order.
+
+    ``workers > 1`` forks a :class:`~concurrent.futures.ProcessPoolExecutor`
+    and needs an ``if __name__ == "__main__":`` guard at the call site on
+    platforms using the ``spawn`` start method (macOS, Windows, and Linux
+    when configured for it); calling it unguarded at import time raises
+    ``RuntimeError``.
+    """
     return _fan_out(
         _year_one, [(str(p), list(fields)) for p in npz_paths], workers
     )
@@ -425,7 +437,10 @@ def run_year_fits(
 def run_normals(
     pairs: Sequence[tuple[Any, Any]], *, workers: int = 1
 ) -> list[dict[str, Any]]:
-    """:func:`normals_rows` over many ``(npz, normals csv)`` pairs."""
+    """:func:`normals_rows` over many ``(npz, normals csv)`` pairs.
+
+    ``workers > 1`` has the same ``__main__``-guard requirement as
+    :func:`run_year_fits`."""
     return _fan_out(
         _normals_one, [(str(a), str(b)) for a, b in pairs], workers
     )
@@ -435,8 +450,10 @@ def run_exactness_isd(
     pairs: Sequence[tuple[Any, Any]], *, workers: int = 1
 ) -> list[dict[str, Any]]:
     """:func:`exactness_year` over many ``(csv, npz)`` pairs; a station
-    that raises contributes a row whose ``gate`` starts with
-    ``ERROR``."""
+    that raises contributes a row whose ``gate`` starts with ``ERROR``.
+
+    ``workers > 1`` has the same ``__main__``-guard requirement as
+    :func:`run_year_fits`."""
     return _fan_out(
         _exact_isd_one, [(str(a), str(b)) for a, b in pairs], workers
     )

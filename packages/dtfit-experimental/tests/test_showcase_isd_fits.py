@@ -60,22 +60,76 @@ def write_year(path, sta="72278023183", year=2024, seed=3, skew=0.0):
     return path
 
 
-def write_normals(path, sta="USW00023183", seed=4):
-    """A reduced normals file for a 365-day climatology with the same
-    annual and diurnal shape, in degrees Fahrenheit."""
+def write_year_missing_an_hour(path, sta="72278023183", year=2024, seed=16,
+                                skip_hour=12):
+    """A full hourly station-year that never reports ``skip_hour``, so no
+    day's 24-bin grid ever fills."""
+    rng = np.random.default_rng(seed)
+    days = isd.days_in_year(year)
+    t = np.arange(0.0, days, 1.0 / 24.0) + 53.0 / 1440.0
+    y = (isd_reduce.annual_design(t) @ np.array(TRUTH)
+         + DIURNAL * np.cos(2.0 * np.pi * t)
+         + 0.5 * rng.standard_normal(t.size))
+    with open(path, "w") as fh:
+        fh.write(HEAD)
+        for k in range(t.size):
+            day = int(t[k])
+            hour = int(round((t[k] - day) * 24.0 - 53.0 / 60.0))
+            hour = min(max(hour, 0), 23)
+            if hour == skip_hour:
+                continue
+            fh.write(ROW.format(
+                sta=sta, date=date_of(year, day, hour),
+                tmp=f"{int(round(y[k] * 10)):+05d}",
+            ))
+    return path
+
+
+def write_sparse_year(path, sta="72278023183", year=2024, seed=14, n=40):
+    """A station-year with too few rows for the density floor: enough
+    to build an image (above ``ANNUAL_ORDER + 2``), not enough for
+    ``ANNUAL_ORDER * compare.DENSITY_PER_COEF``."""
+    rng = np.random.default_rng(seed)
+    days = isd.days_in_year(year)
+    full = np.arange(0.0, days, 1.0 / 24.0) + 53.0 / 1440.0
+    t = full[np.linspace(0, full.size - 1, n).astype(int)]
+    y = (isd_reduce.annual_design(t) @ np.array(TRUTH)
+         + DIURNAL * np.cos(2.0 * np.pi * t)
+         + 0.5 * rng.standard_normal(t.size))
+    with open(path, "w") as fh:
+        fh.write(HEAD)
+        for k in range(t.size):
+            day = int(t[k])
+            hour = int(round((t[k] - day) * 24.0 - 53.0 / 60.0))
+            fh.write(ROW.format(
+                sta=sta, date=date_of(year, day, min(max(hour, 0), 23)),
+                tmp=f"{int(round(y[k] * 10)):+05d}",
+            ))
+    return path
+
+
+def write_normals(path, sta="USW00023183", seed=4, year=2024):
+    """A reduced normals file for a 365-day climatology (no 29 February)
+    with the same annual and diurnal shape, in degrees Fahrenheit.
+
+    Each (month, day) is placed at its ``year``-calendar day index, the
+    same map :func:`isd_fits.normals_annual` uses to compare against a
+    station-year of ``year``: building the fixture on that map, rather
+    than a fixed 365-day count, is what lets the phase-offset test below
+    check the map itself instead of canceling its own mismatch.
+    """
     rng = np.random.default_rng(seed)
     months, doms, hours, when = [], [], [], []
-    day = 0
     for month, length in enumerate(
         (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31), start=1
     ):
         for dom in range(1, length + 1):
+            day = isd_fits._day_number(month, dom, year)
             for hour in range(24):
                 months.append(month)
                 doms.append(dom)
                 hours.append(hour)
                 when.append(day + hour / 24.0)
-            day += 1
     t = np.array(when)
     c = (isd_reduce.annual_design(t) @ np.array(TRUTH)
          + DIURNAL * np.cos(2.0 * np.pi * t)
@@ -165,14 +219,49 @@ def test_exactness_year_meets_the_gate_on_the_year_and_the_days(tmp_path):
     assert set(isd_fits.EXACT_ISD_COLUMNS) >= set(row)
 
 
-def test_exactness_year_leaves_the_day_arm_empty_without_full_days(
-    tmp_path,
-):
+def test_exactness_year_day_sample_zero_disables_the_day_arm(tmp_path):
     src = write_year(tmp_path / "72278023183.csv", seed=12)
     npz, _ = isd_reduce.reduce_year_to_file(src, tmp_path / "images")
     row = isd_fits.exactness_year(src, npz, day_sample=0)
     assert row["day_score"] is None and row["n_days_checked"] == 0
     assert row["gate"] == "ok"
+
+
+def test_exactness_year_leaves_the_day_arm_empty_without_full_days(
+    tmp_path,
+):
+    # no day ever reports skip_hour, so isd.day_grids fills no day's 24
+    # bins and _day_gate's usable list stays empty
+    src = write_year_missing_an_hour(tmp_path / "72278023183.csv")
+    npz, _ = isd_reduce.reduce_year_to_file(src, tmp_path / "images")
+    row = isd_fits.exactness_year(src, npz)
+    assert row["day_score"] is None and row["n_days_checked"] == 0
+    assert row["gate"] == "ok"
+
+
+def test_exactness_year_gates_undersampled_below_the_density_floor(
+    tmp_path,
+):
+    src = write_sparse_year(tmp_path / "72278023183.csv")
+    npz, _ = isd_reduce.reduce_year_to_file(src, tmp_path / "images")
+    row = isd_fits.exactness_year(src, npz, day_sample=0)
+    assert row["gate"] == "UNDERSAMPLED"
+
+
+def test_exactness_year_fails_when_the_image_disagrees_with_the_csv(
+    tmp_path,
+):
+    # the npz is built from a truncated copy of the station-year, so the
+    # stored image and the full csv exactness_year re-reads disagree
+    full = write_year(tmp_path / "72278023183.csv", seed=15)
+    with open(full) as fh:
+        lines = fh.readlines()
+    truncated = tmp_path / "truncated.csv"
+    with open(truncated, "w") as fh:
+        fh.writelines(lines[:3001])
+    npz, _ = isd_reduce.reduce_year_to_file(truncated, tmp_path / "images")
+    row = isd_fits.exactness_year(full, npz, day_sample=0)
+    assert row["gate"] == "FAIL"
 
 
 def test_normals_rows_compare_amplitude_phase_and_diurnal_range(tmp_path):
@@ -185,9 +274,11 @@ def test_normals_rows_compare_amplitude_phase_and_diurnal_range(tmp_path):
     annual = [r for r in rows if r["kind"] == "annual"][0]
     assert annual["amp_image"] == pytest.approx(annual["amp_normals"],
                                                 abs=0.5)
-    # the normals are a 365-day climatology and the station-year is 2024;
-    # mapping them through 2024's calendar removes the one-day offset
-    assert abs(annual["phase_diff_days"]) < 2.0
+    # the fixture places each (month, day) on 2024's own calendar day, the
+    # same map normals_annual applies, so the two phases should agree to
+    # noise rather than to the leap-day offset a fixed 365-day count would
+    # carry
+    assert abs(annual["phase_diff_days"]) < 0.1
     monthly = [r for r in rows if r["kind"] == "diurnal"]
     assert len(monthly) == 12
     for r in monthly:

@@ -124,7 +124,10 @@ def read_isd(
     (``dropped_quality``) or carrying the missing sentinel
     (``dropped_missing``) is dropped without advancing the timestamp. A
     block whose rows are all dropped is skipped rather than yielded
-    empty.
+    empty, and its counts carry into the next block that keeps a row; if
+    the file ends on such a run with no later block to carry them, a
+    final zero-length chunk yields the residual counts instead, so a
+    station-year's drop counts are never lost.
 
     Raises:
         ValueError: ``field`` is not in :data:`ISD_FIELDS`, or the file's
@@ -159,8 +162,9 @@ def read_isd(
 
         def flush() -> IsdChunk | None:
             """The buffered rows as a chunk, or None when this block kept
-            nothing; the drop counts of a wholly dropped block carry into
-            the next chunk that is yielded."""
+            nothing; a None result leaves ``counts`` untouched so a later
+            call's chunk carries them, and the caller covers the case
+            where no later call ever yields."""
             if not t:
                 return None
             out = IsdChunk(
@@ -205,6 +209,11 @@ def read_isd(
         out = flush()
         if out is not None:
             yield out
+        elif any(counts):
+            yield IsdChunk(
+                np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0),
+                np.zeros(0), *counts,
+            )
 
 
 def station_header(path: Any) -> tuple[str, int]:
@@ -357,7 +366,11 @@ def normals_index(
     opener: Callable[..., Any] | None = None,
     timeout: int = 60,
 ) -> list[str]:
-    """The station ids the hourly-normals directory offers, sorted.
+    """The WBAN-pattern station ids the hourly-normals directory offers,
+    sorted: only ids matching ``[A-Z]{2}W[0-9]{8}`` are read from the
+    listing, so a non-WBAN normals station present there is silently
+    absent from the result. Harmless for :func:`match_normals`, which is
+    WBAN-keyed on the ISD side too.
 
     ``opener(url, timeout=...)`` returns a binary file object; the default
     is :func:`urllib.request.urlopen`, so a test injects its own and makes

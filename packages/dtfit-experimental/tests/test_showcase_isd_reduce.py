@@ -51,6 +51,46 @@ def synthetic_year(path, sta="72278023183", year=2024, seed=2,
     return t, y
 
 
+def synthetic_year_with_thin_day(path, sta="72278023183", year=2024,
+                                 seed=17, thin_day=100, thin_keep=5):
+    """A full hourly station-year except ``thin_day``, which keeps only
+    ``thin_keep`` rows -- fewer than ``DIURNAL_ORDER + 2`` -- so it is the
+    one day :func:`~isd_reduce.reduce_station_year` should drop."""
+    rng = np.random.default_rng(seed)
+    days = isd.days_in_year(year)
+    t = np.arange(0.0, days, 1.0 / 24.0) + 53.0 / 1440.0
+    day_of = t.astype(int)
+    thin_idx = np.flatnonzero(day_of == thin_day)
+    drop = rng.choice(thin_idx, size=thin_idx.size - thin_keep,
+                      replace=False)
+    keep = np.ones(t.size, dtype=bool)
+    keep[drop] = False
+    t = t[keep]
+    y = (isd_reduce.annual_design(t) @ np.array(TRUTH)
+         + 8.0 * np.cos(2.0 * np.pi * t - 1.0)
+         + 2.0 * rng.standard_normal(t.size))
+    with open(path, "w") as fh:
+        fh.write(HEAD)
+        for k in range(t.size):
+            day = int(t[k])
+            hour = int(round((t[k] - day) * 24.0 - 53.0 / 60.0))
+            hour = min(max(hour, 0), 23)
+            month, dom = 1, day + 1
+            for m, length in enumerate(
+                (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31), start=1
+            ):
+                if dom <= length:
+                    month = m
+                    break
+                dom -= length
+            date = f"{year}-{month:02d}-{dom:02d}T{hour:02d}:53:00"
+            fh.write(ROW.format(
+                sta=sta, date=date, tmp=f"{int(round(y[k] * 10)):+05d}",
+                slp=f"{int(round((1013.0 + 0.1 * y[k]) * 10)):05d}",
+            ))
+    return t, y
+
+
 def test_reduce_station_year_meets_the_gate_on_the_annual_model(tmp_path):
     p = tmp_path / "72278023183.csv"
     synthetic_year(p)
@@ -79,6 +119,14 @@ def test_reduce_station_year_can_add_the_daily_blocks(tmp_path):
     assert first.order == isd_reduce.DIURNAL_ORDER
     assert red.info["dropped_days"] >= 0
     assert red.info["n_days"] == len(days)
+
+
+def test_reduce_station_year_drops_a_day_with_too_few_samples(tmp_path):
+    p = tmp_path / "72278023183.csv"
+    synthetic_year_with_thin_day(p, thin_day=100, thin_keep=5)
+    red = isd_reduce.reduce_station_year(p, ("TMP",), with_days=True)
+    assert red.info["dropped_days"] == 1
+    assert "day100_TMP" not in red.images
 
 
 def test_reduce_year_to_file_round_trips(tmp_path):

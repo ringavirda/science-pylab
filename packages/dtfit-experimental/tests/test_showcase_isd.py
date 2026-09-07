@@ -79,6 +79,54 @@ def test_read_isd_chunks_and_carries_the_dedup_across_blocks(tmp_path):
     assert sum(c.dropped_repeat for c in chunks) == 1
 
 
+def test_read_isd_carries_drop_counts_past_the_last_chunk(tmp_path):
+    good = [
+        (f"2024-01-01T{h:02d}:00:00", f"-00{40 + h:02d},1", "10208,1",
+         "70.9", "-8.6", "9.0")
+        for h in range(4)
+    ]
+    bad = [
+        (f"2024-01-01T{h:02d}:00:00", "+9999,9", "10208,1",
+         "70.9", "-8.6", "9.0")
+        for h in range(4, 9)
+    ]
+    p = write_isd(tmp_path / "e.csv", good + bad)
+    chunks = list(isd.read_isd(p, "TMP", chunk=4))
+    assert sum(c.t.size for c in chunks) == 4
+    assert sum(c.dropped_missing for c in chunks) == 5
+    assert chunks[-1].t.size == 0                # the residual-count chunk
+
+
+def test_read_isd_all_rows_dropped_reports_no_chunk_and_no_counts_lost(
+    tmp_path,
+):
+    p = write_isd(tmp_path / "f.csv", [
+        ("2024-01-01T00:00:00", "+9999,9", "10208,1", "70.9", "-8.6", "9.0"),
+        ("2024-01-01T01:00:00", "-0070,3", "10208,1", "70.9", "-8.6", "9.0"),
+    ])
+    chunks = list(isd.read_isd(p, "TMP"))
+    assert len(chunks) == 1
+    c = chunks[0]
+    assert c.t.size == 0
+    assert c.dropped_missing == 1 and c.dropped_quality == 1
+
+
+def test_station_files_filters_and_truncates(tmp_path):
+    for sta in ("72278023183", "72278023184", "72278023185"):
+        (tmp_path / f"{sta}.csv").write_text(HEAD)
+    got = isd.station_files(tmp_path)
+    assert [p.name for p in got] == [
+        "72278023183.csv", "72278023184.csv", "72278023185.csv",
+    ]
+    filtered = isd.station_files(
+        tmp_path, stations=["72278023185", "72278023183", "missing"]
+    )
+    assert [p.name for p in filtered] == [
+        "72278023183.csv", "72278023185.csv",
+    ]
+    assert len(isd.station_files(tmp_path, limit=2)) == 2
+
+
 def test_station_year_returns_the_series_and_its_counts(tmp_path):
     rows = [
         (f"2024-01-{1 + d:02d}T12:00:00", f"-00{50 + d:02d},1", "10208,1",

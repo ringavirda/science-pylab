@@ -96,7 +96,8 @@ def reduce_station_year(
         fields: ``"TMP"``, ``"SLP"`` or both. Each field is a separate
             pass over the file: the two have different quality and
             missing rows, so they cannot share a sample set.
-        chunk: Rows per read block, at most 100,000.
+        chunk: Rows per read block, passed straight to
+            :func:`~.isd.read_isd`.
         with_days: Also build the one-day block images of the first
             field. They cost about 2.6 kB a day, so the full run enables
             them only for the stations that have published normals.
@@ -232,7 +233,14 @@ def reduce_many_years(
     """Reduce many station-years, optionally across processes; one row per
     station in input order, with the columns of
     :data:`ISD_REDUCE_COLUMNS` and a message in ``error`` for a station
-    that failed."""
+    that failed.
+
+    ``workers > 1`` forks a :class:`~concurrent.futures.ProcessPoolExecutor`
+    and needs an ``if __name__ == "__main__":`` guard at the call site on
+    platforms using the ``spawn`` start method (macOS, Windows, and Linux
+    when configured for it); calling it unguarded at import time raises
+    ``RuntimeError``.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     jobs = [
@@ -262,7 +270,14 @@ def project_day_grids(
 
     Returns:
         ``(images, seconds)`` -- one image per column, in order, and the
-        projection's wall time. Empty ``columns`` gives ``([], 0.0)``.
+        wall time of the single :meth:`~dtfit.image.ImageStream.update`
+        call, not the ``S`` GEMM alone: that call also builds ``Phi``,
+        copies the explicit grid and accumulates ``G`` on the host with
+        numpy regardless of ``backend``, and only ``S`` reaches
+        ``cupy``/``torch``. Measured on this box the GEMM itself is under
+        1 percent of the reported time, so a GPU-versus-numpy row built on
+        this number compares host bookkeeping, not the matrix multiply.
+        Empty ``columns`` gives ``([], 0.0)``.
     """
     if not columns:
         return [], 0.0
@@ -297,8 +312,11 @@ def day_batch(
     Returns:
         ``(station_ids, images, info)``; ``info`` carries ``day``,
         ``n_read`` (files opened), ``n_stations`` (files that qualified),
-        ``backend``, ``seconds_read`` and ``seconds_project``. With no
-        qualifying station the lists are empty and ``images`` is ``[]``.
+        ``backend``, ``seconds_read`` and ``seconds_project``.
+        ``seconds_project`` is :func:`project_day_grids`'s wall time,
+        dominated by host bookkeeping rather than the GEMM (see its
+        docstring). With no qualifying station the lists are empty and
+        ``images`` is ``[]``.
     """
     files = [Path(p) for p in paths]
     ids: list[str] = []

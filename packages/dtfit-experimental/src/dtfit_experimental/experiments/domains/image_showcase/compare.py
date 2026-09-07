@@ -19,6 +19,10 @@ COVERAGE_TOL = 0.02
 # Denominator floor for a reference value that is zero to rounding,
 # relative to the largest reference magnitude.
 _SCORE_FLOOR = 1e-12
+# Samples per coefficient below which a fixed order is not a coverage
+# failure of the sensitivities but a plain shortage of rows; shared by
+# legendre_order's density cap and the NOAA gate's density floor.
+DENSITY_PER_COEF = 4
 
 
 def _scores(
@@ -106,7 +110,7 @@ def legendre_order(
     per_unit: float = 8.0,
     margin: int = 16,
     floor: int = 16,
-    per_coef: int = 4,
+    per_coef: int = DENSITY_PER_COEF,
 ) -> int:
     """The Legendre order an image needs to reproduce the raw fit.
 
