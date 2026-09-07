@@ -142,7 +142,7 @@ obvious in acceleration but buried in position.
 
 The streaming filter is the only embeddable part of dtfit, and Experiment 9 sizes
 it for the microcontroller you would attach to a GPS module. The deployable state
-is a **fixed-size, no-malloc C struct** -- `2W + n² + 2n + 8` words -- that does
+is a **fixed-size, no-malloc C struct** -- `2W + n^2 + 2n + 8` words -- that does
 *not* grow with stream length: a 3-axis tracker is **~= 636 B (float32)**, fitting
 comfortably on a Cortex-M0+/M4/ESP32 and feasible even on a 2 KB AVR. At a few
 thousand FLOPs per epoch against a 1-10 Hz GPS rate, **compute is never the
@@ -156,8 +156,8 @@ usually decides feasibility, is exact.
 
 The earlier matched-model version of this experiment surfaced a real
 streaming-filter bug worth keeping on record. Its climb axis used
-`z0 + c.(1 - e^(-t/τ))`, which has a **singularity at tau -> 0**; the online estimate
-wandered toward it, `exp(-t/τ)` overflowed, and the non-finite innovation was
+`z0 + c.(1 - e^(-t/tau))`, which has a **singularity at tau -> 0**; the online estimate
+wandered toward it, `exp(-t/tau)` overflowed, and the non-finite innovation was
 committed straight into the EKF state -- after which **every** later `predict()`
 returned `nan` (one bad sample permanently poisoned the filter).
 
@@ -167,7 +167,7 @@ innovation/Jacobian or the candidate `(p, P)` is not finite, the sample is skipp
 and the last good estimate kept. A streaming EKF should never be able to
 NaN-poison itself, regardless of which model it is fitting. (The matched-model
 version that triggered it has since been replaced wholesale by the realistic
-generic-model design above, so the singular `exp(-t/τ)` form is no longer used
+generic-model design above, so the singular `exp(-t/tau)` form is no longer used
 here at all.)
 
 ## When to use
