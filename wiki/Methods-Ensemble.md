@@ -50,16 +50,11 @@ restricted to a sub-interval is still a valid (if higher-variance) estimate of t
 ## When to use it
 
 **Use the ensemble for outlier-contaminated data.** It is the recommended tool
-when a fraction of samples are spikes / dropouts / sensor glitches, for two
-reasons:
-
-- it needs **no tuning** -- unlike [`fit_eac(loss="soft_l1", f_scale=...)`](Methods-EAC),
-  whose robust loss acts on *window-area* residuals and only bites when `f_scale`
-  is matched to the (small) residual scale, the median aggregation is
-  parameter-free;
-- it **stays stable** where the robust loss can diverge (a poorly-scaled robust
-  loss returned a 1000%+ error on a logistic in the validation runs; the ensemble
-  did not).
+when a fraction of samples are spikes / dropouts / sensor glitches: it needs
+**no tuning** -- unlike the [robust image](Methods-EAC#robustness-to-outliers----the-robust-image)
+(`fit_eac(robust=True)`), which reweights individual samples before the fit,
+the ensemble rejects whole windows after it, and the median aggregation is
+parameter-free.
 
 **Do not** reach for it on clean (Gaussian-noise) data: a whole-record fit (or the
 shape-routed [`auto_estimate`](Methods-Auto)) is more accurate there. The ensemble

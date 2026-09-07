@@ -1,12 +1,15 @@
 # #6 -- Adaptive / multi-resolution EAC windows
 
-**Verdict: PROMOTED as `dtfit.fit_eac(window_mode="curvature")`.** Recovers
-localized-transient parameters that equal-span windows smear; folded into the
-stable `fit_eac` as its `window_mode="curvature"` path (there is **no** separate
-`fit_eac_adaptive` symbol), domain-validated on transients/peaks.
+> **Status (2026-09):** retired. Window placement by curvature left with
+> the image core: `fit_eac` places `n_windows` equal windows and the
+> estimate is the projection on them. The sections below describe the
+> adaptation as it was run.
 
-Source: [`methods/_eac.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_eac.py) (the `window_mode="curvature"` path of `fit_eac`).
-Tested in: [Noise & robustness (3)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/03_noise_robustness/03_noise_robustness.ipynb) (transient class).
+**Verdict.** Promoted at the time for localized transients that equal-span
+windows smear; retired because the placement moved with the noise and gave
+no statistical benefit over equal windows at the same count.
+
+Source: [Noise & robustness (3)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/03_noise_robustness/03_noise_robustness.ipynb) (transient class).
 
 ## What it is
 
@@ -48,14 +51,10 @@ rate is concentrated in the **high-curvature region** -- the fast initial bend o
 In effect it aligns the **measurement grid with the Fisher information** of the
 problem -- the windows that most constrain the parameters get the most resolution.
 
-## What promotion rests on (and what remains)
+## Outcome
 
-It is now the `window_mode="curvature"` path of the stable `fit_eac`, domain-validated
-on localized transients/peaks -- the mechanism is sound and the result is clean. The
-honest remaining gap: most of the demonstrated evidence is the saturating-exponential
-class, so the case would be hardened further by sweeping several transient/multi-scale
-families (step+settle, multi-rate decay, a localized bump on a slow background) and
-comparing adaptive vs equal-span EAC *and* vs LSI across them.
+The placement never settled on a stable per-signal layout -- it moved with
+the noise realization from run to run.
 
 ## When it would help / when it wouldn't
 
