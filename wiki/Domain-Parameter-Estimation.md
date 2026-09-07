@@ -1,5 +1,9 @@
 # Domain -- Model parameter estimation (comprehensive)
 
+> **Status (2026-09):** The adaptive-window EAC (#6) is retired; `fit_eac` places
+> equal windows. The table's method labels below name the variant that was run.
+> The sections below describe the study as it was run.
+
 *Compute in `parameter_estimation/backend.py`; report is the `parameter_estimation.ipynb` notebook.*
 
 ## Intent
@@ -182,6 +186,6 @@ Recovered growth rate `b` of `a.exp(b.t)` and the implied **doubling time** ln2/
 - **A fixed bug, not a boundary.** The previous report's headline 'honest exception: Michaelis-Menten' (151% error) was a **parameter-ordering bug** -- the LSI spectral coefficients (returned in name-sorted order) were zipped to an unsorted name list, silently swapping Vmax and Km. With the order fixed, the rational saturation is recovered to ~0.3% by EAC/adaptive-EAC. The estimators carry no intrinsic weakness on rational shapes.
 - **Variant selection follows shape.** Oscillatory -> LSI with the *oscillatory recipe* (smoothing off, high order, FFT seed: a sinusoid is 50% error without it, <1% with it -- the forecasting lesson); peaks and overlapping peaks -> EAC / adaptive-EAC (the spectrum blurs overlapping peaks, so LSI alone is the wrong choice for the double-Gaussian); rational / peaked rises -> adaptive-EAC, whose curvature windows sit on the informative bend.
 - **Robustness.** Across the noise sweep EAC's area-averaging and LSI's spectral smoothing degrade gracefully and often beat NLLS as noise rises. Under gross **evenly-scattered** outliers plain EAC is already far more robust than a pointwise fit, but the dedicated **robust NLLS (soft-L1) wins** -- scattered point outliers want a robust loss. The #3 window ensemble (`ensemble_fit`, **promoted to stable `dtfit`**) is the specialized complement -- whole-window rejection (median over per-window fits) for burst / segment corruption, not a general default -- so on this evenly-scattered sweep it does not separate from `fit_eac`'s robust loss, by design; it earns its keep when whole windows, not isolated points, are wiped out.
-- **Regime routing.** Adaptive-window EAC (#6) wins the concentrated transient; the joint fit (#4) pools weak multi-channel evidence into one consistent shared omega where independent fits scatter -- what the merged selector routes to.
+- **Regime routing.** Adaptive-window EAC (#6) won the concentrated transient at the time; the joint fit (#4) pools weak multi-channel evidence into one consistent shared omega where independent fits scatter -- what the merged selector routes to.
 - **Real data & interpretability.** On the COVID take-off and the UAH depreciation the dtfit methods and NLLS agree on the recovered rate and fit well, so the doubling time / depreciation rate is trustworthy -- the interpretable output the MLP and Gaussian-process learners cannot provide despite matching the curve.
 - **Honest ceiling.** dtfit matches but does not *beat* a well-initialised NLLS on clean, well-excited, bulk-shape data; its advantages are generality over functional form, the integral robustness to noise/outliers, the regime-specific variants, and (in the streaming/embedded domain) doing this online.

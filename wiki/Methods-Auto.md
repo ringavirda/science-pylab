@@ -22,8 +22,8 @@ it selects the variant whose criterion suits the signal's shape:
 | detected/[requested] shape | routes to | why |
 |---|---|---|
 | **oscillatory** (`freq_param` given, or FFT power share > 0.10) | [`fit_lsi`](Methods-LSI) oscillatory recipe | the spectrum (not an area) observes a cycle |
-| **transient / peak** | [`fit_eac(..., window_mode="curvature")`](Methods-EAC) (curvature windows) | windows concentrate on the bend |
-| **robust** (outliers) | [`fit_eac`](Methods-EAC) with `loss="soft_l1"` | area integration + window down-weighting |
+| **transient / peak** | [`fit_eac`](Methods-EAC) (the block image) | each window is a local area, so a localized feature is not averaged into a global expansion |
+| **robust** (outliers) | [`fit_eac`](Methods-EAC) with `robust=True` | the robust image down-weights outliers by Huber IRLS on the basis regression |
 | **bulk** (default) | the better of `fit_lsi` / `fit_eac` by in-sample RMSE | smooth shapes; pick the lower-residual fit |
 
 **Shape detection** (`shape="auto"`) is an FFT test: a linearly-detrended series is
@@ -92,7 +92,7 @@ The return is the length-`horizon` forecast on the extrapolated grid.
 
 `auto_estimate` / `auto_forecast` are where the per-method math is *operationalized*
 into a usable default. They compose only stable pieces ([`fit_lsi`](Methods-LSI),
-[`fit_eac`](Methods-EAC) (including `window_mode="curvature"`),
+[`fit_eac`](Methods-EAC) (the block image),
 [`fft_frequency_seed`](API-Fitting#fft_frequency_seed)) -- the conservative
 merges the domain studies validated -- and they preserve the honest negatives those
 studies reported:

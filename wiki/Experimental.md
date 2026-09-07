@@ -36,17 +36,19 @@ An adaptation graduates only after the experiment suite shows it helps across a
 **physically moved** into `dtfit` and imported from there -- there is no
 re-export shim, so the dependency only ever points one way.
 
-**Already promoted** (now in stable `dtfit`, listed here so you know where they
-went):
+**Promoted** (now in stable `dtfit`):
 
 | was experimental | now in `dtfit` as |
 |---|---|
-| #1 one-pass / distributed map-reduce | `PartitionedLSI`, `PartitionedEAC` |
-| GEMM-batched multi-channel projection | `fit_lsi_batched`, `PartitionedBatchLSI` (low-level `dtfit.scale.project_spectra`) |
-| #6 curvature-adaptive windows | folded into `dtfit.fit_eac` as `window_mode="curvature"` |
 | the LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` |
 | fused multi-axis fault detection | `FusedChiSquareDetector` |
 | #3 overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` |
+
+The map-reduce estimators (`PartitionedLSI`, `PartitionedEAC`) and the
+GEMM-batched projection (`fit_lsi_batched`, `project_spectra`,
+`PartitionedBatchLSI`) live in `dtfit_experimental.scale`, covered by
+`ImageStream` and its channel axis; the curvature-adaptive windows are
+retired, `fit_eac` places equal windows.
 
 **Still experimental** (the three adaptations below): `fit_lsi_basis`,
 `fit_joint`, `boosted_fit`. The inverse-covariance **`InformationFilter`** (an

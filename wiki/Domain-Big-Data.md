@@ -1,5 +1,9 @@
 # Domain -- Big-data processing (batch, streaming, distributed)
 
+> **Status (2026-09):** The estimators of the study live in
+> `dtfit_experimental.scale`; `ImageStream` covers the accumulator, merge and
+> channel forms. The sections below describe the study as it was run.
+
 *Compute in `big_data/backend.py`; report is the `big_data.ipynb` notebook.*
 
 ## Intent
@@ -8,7 +12,7 @@ Test dtfit's map-reduce estimators (resident GEMM, fused streaming, distributed 
 
 ## Methods under test (dtfit)
 
-- **whole-array GEMM** (`fit_lsi_batched` / `project_spectra`) -- all B channels' empirical spectra in one BLAS matmul `S = Dᵀ.(w⊙Y)`; maximal throughput, O(N*B) memory.
+- **whole-array GEMM** (`fit_lsi_batched` / `project_spectra`) -- all B channels' empirical spectra in one BLAS matmul `S = D^T (w * Y)`; maximal throughput, O(N*B) memory.
 - **fused streaming map-reduce** (`PartitionedBatchLSI`) -- folds each chunk's partial integrals into a `(B, n_coef)` accumulator: one pass, **flat O(B*order) memory**, exact, handles streams larger than RAM.
 - **distributed reduce** (`PartitionedBatchLSI.merge`, on the promoted `PartitionedLSI` #1) -- per-partition accumulators combined by an associative, order-independent `merge`.
 - **streaming filter** (`EACFilter`) -- the online twin: an O(1)/sample recursive update tracking a model's parameters in bounded memory.
@@ -100,7 +104,7 @@ The surrogates match in-window but their **extrapolation R^2 collapses** (a degr
 
 ## 4. Numerical stability of the streaming reduction
 
-A streaming reduce sums billions of partial integrals; floating-point accumulation error is the concern that bites at scale. We accumulate the projection integral `∫ y.φ` of a high-dynamic-range signal in a growing number of chunks, comparing a naive **float32** sum, the dtfit **float64** additive reduce, and a compensated **Kahan** sum, against an exact (`math.fsum`) reference. Reported as max relative error vs exact.
+A streaming reduce sums billions of partial integrals; floating-point accumulation error is the concern that bites at scale. We accumulate the projection integral `integral y.phi` of a high-dynamic-range signal in a growing number of chunks, comparing a naive **float32** sum, the dtfit **float64** additive reduce, and a compensated **Kahan** sum, against an exact (`math.fsum`) reference. Reported as max relative error vs exact.
 
 | # chunks (over 8000000 samples) | naive float32 | dtfit float64 | Kahan (compensated) |
 |---|---|---|---|
@@ -168,3 +172,4 @@ On real sensor data the batched route is ~43x the per-channel loop and bit-ident
 - **Mergeable the way distributed pipelines need.** The reduce is order-independent and shard-size-independent (associative `merge`), and degrades gracefully when a partition is lost -- because each partition adds an additive share of the same integral, not an irreplaceable slice of a global solve.
 - **Online, with interpretable output.** The streaming filter tracks a physical parameter (the frequency) through a regime change at O(1)/sample and bounded memory; the established RLS / SGD online predictors are competitive at black-box one-step prediction but recover no parameters. A batch re-fit would be O(N^2) -- only a recursive update is feasible.
 - **Honest limits.** Streaming trades throughput for bounded memory (per-chunk overhead); it needs a **shared sampling grid** and the global domain fixed up front (heterogeneous grids fall back to independent fits); thread scaling is sub-linear (bandwidth-bound); and -- per case Experiment 8 -- a GPU helps only the *resident* route, a single streamed pass being PCIe-bound ~= CPU.
+- **Current home.** The estimators above now live in `dtfit_experimental.scale`; `ImageStream` covers the accumulator, merge and channel forms.

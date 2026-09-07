@@ -8,25 +8,25 @@ prototyped and evaluated here.
 
 ## What lives here
 
-- **`dtfit_experimental`** — the experimental adaptations that remain in trial
+- **`dtfit_experimental`** -- the experimental adaptations that remain in trial
   (`fit_lsi_basis`, `fit_joint`, `boosted_fit`). These build directly on `dtfit`'s
   internals (`dtfit.methods`, `dtfit._spectral`, `dtfit._backend`). (The
   overlapping-window ensemble `ensemble_fit` has been **promoted** into stable
   `dtfit`.)
-- **`dtfit_experimental.experiments`** — the experiment suite: `cases/` (each
+- **`dtfit_experimental.experiments`** -- the experiment suite: `cases/` (each
   adaptation in isolation), `domains/` (per-application-domain validation against
   the established baselines), shared `common/` framework, and `data/`.
 
 When an adaptation proves effective across enough domains it is **promoted into
 stable `dtfit`** and physically moved there; it is then imported from `dtfit`,
-not from here. Already promoted: adaptive-window EAC (#6,
-`dtfit.fit_eac(window_mode="curvature")`), the LSI **oscillatory recipe**
+not from here. Already promoted: the LSI **oscillatory recipe**
 (`dtfit.fit_lsi(oscillatory=..., freq_param=...)` +
 `dtfit.fft_frequency_seed`), and the multi-axis `FusedChiSquareDetector`.
-The map-reduce estimators (`PartitionedLSI` / `PartitionedEAC`, #1) and the
-GEMM-batched `fit_lsi_batched` / `project_spectra` / `PartitionedBatchLSI`
-were promoted and later parked back here, in `dtfit_experimental.scale`,
-until they rerun on `ImageStream`.
+Adaptive-window EAC (#6, curvature-placed windows) is retired; `fit_eac`
+places equal windows. The map-reduce estimators (`PartitionedLSI` /
+`PartitionedEAC`, #1) and the GEMM-batched `fit_lsi_batched` /
+`project_spectra` / `PartitionedBatchLSI` live here in
+`dtfit_experimental.scale` until the notebooks rerun on `ImageStream`.
 
 ## Install
 
@@ -40,7 +40,7 @@ pip install -e "packages/dtfit-experimental[bench]"  # + matplotlib/torch/statsm
 
 ## Run the suites
 
-The experiments are self-contained **Jupyter notebooks** — `cases/` (per-adaptation
+The experiments are self-contained **Jupyter notebooks** -- `cases/` (per-adaptation
 studies) and `domains/` (per-application-domain studies). Each experiment folder
 holds a `backend.py` (the compute) and the notebook (the report: tables, figures,
 narrative). Fetch the datasets once, then open or execute any notebook:

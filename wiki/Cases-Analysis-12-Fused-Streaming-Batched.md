@@ -1,5 +1,9 @@
 # Fused streaming + GEMM-batched LSI (`PartitionedBatchLSI`)
 
+> **Status (2026-09):** `PartitionedBatchLSI` lives in `dtfit_experimental.scale`
+> for the notebooks; the use is `ImageStream` with `channels`. The sections below
+> describe the study as it was run.
+
 **Verdict: WORKS -- the streaming multi-channel estimator.** It fuses the two
 big-data levers that were separate before -- the *volume* partition of
 `PartitionedLSI` (flat O(channels*order) memory, exact one-pass reduce) and the
@@ -9,7 +13,7 @@ per-channel partitioned loop at the same flat memory**, and **backend-pluggable*
 It trails the whole-array single GEMM (the price of bounded memory) and the GPU
 does *not* help its streaming path -- both honest, both expected.
 
-Source: [`scale/_partitioned.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/scale/_partitioned.py)
+Source: [`scale/_partitioned.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/scale/_partitioned.py)
 (`PartitionedBatchLSI`), built on the
 [`_core/_spectral.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/_core/_spectral.py) primitive
 `Basis.project_integral_batched` (raw additive integrals).
@@ -27,7 +31,7 @@ Before, the two big-data axes were handled by *separate* tools:
   **whole volume in RAM** (O(N)).
 
 `PartitionedBatchLSI` does both in one pass: each chunk's `B`-channel partial
-integrals are a single backend GEMM `S = (w⊙D)ᵀ.Y_chunk`, folded into a
+integrals are a single backend GEMM `S = (w*D)^T Y_chunk`, folded into a
 `(B, n_coef)` accumulator; `merge` reduces accumulators across workers; `fit`
 solves each channel's small spectral match. The fusion is **exact** because the
 projection is *linear across channels* and *additive over the domain* -- the same
@@ -102,7 +106,7 @@ accuracy. So:
    `Y` makes the per-chunk projection a single matrix product, handing the work to
    BLAS/cuBLAS instead of a Python loop. This is the ~19x over the loop.
 2. **Additivity over the domain -> exact streaming reduce.** The raw integrals
-   `s_{c,j} = ∫ y_c.φ_j` sum over a partition, so chunk-wise accumulation (and
+   `s_{c,j} = integral y_c.phi_j` sum over a partition, so chunk-wise accumulation (and
    cross-worker `merge`) equals a single whole-domain projection -- bit-for-bit.
    The new `project_integral_batched` returns the *un-normalized* integrals
    precisely so they remain additive (the per-coefficient norm is applied once, at
@@ -130,10 +134,11 @@ accuracy. So:
   independent fits.
 - A 109-element reduction may want a compensated (Kahan) accumulator; the bounded
   per-chunk GEMM is fine at fp32.
-- A **single-domain** result so far, but the estimator itself is re-exported from
-  stable `dtfit` as `dtfit.PartitionedBatchLSI` (implementation in
-  `scale/_partitioned.py`) -- a specialized streaming multi-channel tool alongside
-  its parent `PartitionedLSI`, not a general-purpose default.
+- A **single-domain** result so far; the estimator lives in
+  `dtfit_experimental.scale` as `PartitionedBatchLSI` (implementation in
+  `dtfit_experimental/scale/_partitioned.py`), covered by `ImageStream` with
+  `channels` -- a specialized streaming multi-channel tool alongside its
+  parent `PartitionedLSI`, not a general-purpose default.
 
 ## Related
 

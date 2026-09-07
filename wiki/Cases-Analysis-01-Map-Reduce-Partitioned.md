@@ -1,11 +1,15 @@
 # #1 -- Map-reduce / partitioned LSI & EAC
 
-**Verdict: WORKS. Promoted to the stable `dtfit` API** (`PartitionedLSI`,
-`PartitionedEAC`). The only adaptation that cleared the >=2-domain gate, and the
+> **Status (2026-09):** The map-reduce estimators of the study, `PartitionedLSI`
+> and `PartitionedEAC`, live in `dtfit_experimental.scale` for the notebooks; the
+> use is covered by `ImageStream` (accumulator, `merge`). The sections below
+> describe the study as it was run.
+
+**Verdict: WORKS.** The only adaptation that cleared the >=2-domain gate, and the
 deepest result in the suite -- it is not a heuristic but the linearity of
 integration turned into an architecture.
 
-Source: [`scale/_partitioned.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/scale/_partitioned.py).
+Source: [`scale/_partitioned.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/scale/_partitioned.py).
 Tested in: [Big-data (2)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/02_big_data_streaming/02_big_data_streaming.ipynb),
 [Parallel (7)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/07_parallel_scaling/07_parallel_scaling.ipynb),
 [GPU (8)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/08_gpu_batched_projection/08_gpu_batched_projection.ipynb),
@@ -23,8 +27,8 @@ channel axis. **Full treatment, benchmarks and the surrogate-trap comparison:
 
 ## What it is
 
-LSI's empirical spectrum coefficient is an integral `β_j = ∫ y.φ_j dx`, and an
-EAC window area is `∫ y dx`. Both are accumulated chunk-by-chunk into an
+LSI's empirical spectrum coefficient is an integral `beta_j = integral y.phi_j dx`, and an
+EAC window area is `integral y dx`. Both are accumulated chunk-by-chunk into an
 `O(order)` state vector and reduced by **plain addition**:
 
 ```
@@ -64,10 +68,10 @@ limited by memory bandwidth, not the algorithm.
 ## Why it works (the mechanism, in depth)
 
 The reduce is **exact, not approximate**, and that is the whole point. Integration
-is a linear functional, so over a partition `D = ⋃ Dₖ`:
+is a linear functional, so over a partition `D = union D_k`:
 
 ```
-∫_D y.φ_j dx  =  Σₖ ∫_{Dₖ} y.φ_j dx
+integral_D y.phi_j dx  =  sum_k integral_{D_k} y.phi_j dx
 ```
 
 The right-hand side is a sum of per-partition partial integrals. Three properties
