@@ -6,11 +6,15 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from scipy.linalg import solve_triangular
 
 from dtfit._core._backend import Backend, resolve_backend
+from dtfit.streaming.detect import DriftDetector
 from .bases import Basis, make_basis, u_of
 from .grid import Grid
-from .image import Image
+from .image import Image, gram_whitener
+from .original import Original
+from .transfer import assemble as _assemble
 
 _STATE_VERSION = 1
 
@@ -171,22 +175,30 @@ class ImageStream:
         domain: ``(x0, x1)`` the images are taken over; required unless
             ``block`` gives a domain length.
         block: ``None`` for the accumulator; an ``int`` for blocks of that
-            many samples; a ``float`` for blocks of that domain length
-            (Task 4).
+            many samples, at least ``order + 2``; a ``float`` for blocks
+            of that domain length, counted from the domain's start.
+            Block mode needs ``channels == 1``.
         channels: number of signals sharing the sample positions; ``y``
             passed to :meth:`update` then has shape ``(n, channels)``.
         grid: ``"uniform"`` tracks the positions as endpoints and spacing
             and requires evenly spaced, increasing chunks that continue
             each other; ``"explicit"`` keeps every position (and weights).
-        keep_fine, fold: block retention (Task 4).
+        keep_fine, fold: block retention: at most ``keep_fine`` fine
+            blocks are kept; when there are more, the oldest ``fold`` are
+            folded into one coarse block at the stream's order.
         backend: ``"numpy"``, ``"cupy"`` or ``"torch"`` for the projection
             GEMM; accumulation is float64 on the host either way.
-        detect: block-level drift detection (Task 4).
+        detect: block-level drift detection, block mode only: ``None``
+            for none, ``"previous"`` to compare each finished block to
+            the one before it, or ``(model, params)`` / ``(model,
+            params, var)`` to compare it to that model's image.
 
     Raises:
         ValueError: missing domain, ``order < 1``, ``channels < 1``, an
-            unknown grid kind or backend.
-        NotImplementedError: ``block`` is not None (until Task 4).
+            unknown grid kind or backend; in block mode, ``channels !=
+            1``, a ``block`` below ``order + 2`` samples or non-positive
+            length, or an unrecognised ``detect``; ``detect`` given
+            without ``block``.
     """
 
     def __init__(
@@ -226,11 +238,39 @@ class ImageStream:
         self._backend = resolve_backend(backend)
         self.block = block
         self.detect = detect
+        self._block_count: int | None = None
+        self._block_len: float | None = None
         if block is not None:
-            raise NotImplementedError("block mode is added in Task 4")
+            if self.channels != 1:
+                raise ValueError("block mode needs channels == 1")
+            if isinstance(block, (bool, np.bool_)):
+                raise ValueError("block must be an int or a float")
+            if isinstance(block, (int, np.integer)):
+                if int(block) < self.order + 2:
+                    raise ValueError(
+                        f"a block needs at least order + 2 = "
+                        f"{self.order + 2} samples, got {block}"
+                    )
+                self._block_count = int(block)
+            else:
+                if float(block) <= 0.0:
+                    raise ValueError("a block length must be positive")
+                self._block_len = float(block)
+            self._detector = self._make_detector(detect)
+        elif detect is not None:
+            raise ValueError("detect needs block mode")
         self._sums = _Sums(
             self.basis.n_coef, self.channels, grid == "explicit"
         )
+        self._buf_x: list[np.ndarray] = []
+        self._buf_y: list[np.ndarray] = []
+        self._buf_w: list[np.ndarray] = []
+        self._buf_n = 0
+        self._block_index = 0
+        self.fine_: list[Image] = []
+        self.coarse_: list[Image] = []
+        self.flags_: list[tuple[int, tuple[float, float]]] = []
+        self._prev: Image | None = None
 
     @property
     def n(self) -> int:
@@ -246,7 +286,78 @@ class ImageStream:
             "grid": self.grid_kind,
             "keep_fine": self.keep_fine,
             "fold": self.fold,
+            "detect": (
+                "previous" if self.detect == "previous"
+                else ("model" if self.detect is not None else None)
+            ),
         }
+
+    def _make_detector(self, detect: Any) -> DriftDetector | None:
+        if detect is None:
+            return None
+        if detect == "previous":
+            return DriftDetector(self.basis.n_coef)
+        if isinstance(detect, tuple) and len(detect) in (2, 3):
+            return DriftDetector(self.basis.n_coef)
+        raise ValueError(
+            "detect must be None, 'previous', (model, params) or "
+            "(model, params, var)"
+        )
+
+    def _current_domain(self) -> tuple[float, float]:
+        k = self._block_index
+        L = self._block_len
+        assert L is not None
+        return (self.domain[0] + k * L, self.domain[0] + (k + 1) * L)
+
+    def _finish_block(self) -> Image:
+        x = np.concatenate(self._buf_x)
+        y = np.concatenate(self._buf_y)
+        w = np.concatenate(self._buf_w) if self._buf_w else None
+        if self._block_len is not None:
+            dom = self._current_domain()
+        else:
+            dom = None
+        img = Image.of(
+            Original(x, y, w, domain=dom), self.basis, self.order
+        )
+        self._buf_x, self._buf_y, self._buf_w, self._buf_n = [], [], [], 0
+        self._check_drift(img)
+        self._block_index += 1
+        self.fine_.append(img)
+        while (
+            len(self.fine_) > self.keep_fine and len(self.fine_) >= self.fold
+        ):
+            old, self.fine_ = self.fine_[:self.fold], self.fine_[self.fold:]
+            self.coarse_.append(_assemble(old, order=self.order))
+        return img
+
+    def _check_drift(self, img: Image) -> None:
+        if self._detector is None:
+            return
+        xg = img.grid.positions()
+        if self.detect == "previous":
+            if self._prev is None:
+                self._prev = img
+                return
+            f = self._prev.reconstruct(xg)
+        else:
+            model, params = self.detect[0], self.detect[1]
+            var = self.detect[2] if len(self.detect) == 3 else None
+            f = Image.of_model(
+                model, params, img.grid, self.basis, self.order, var=var,
+                domain=img.domain, w=img.w,
+            ).S
+        if self.detect == "previous":
+            w = img.w if img.w is not None else np.ones(img.n)
+            S_f = img.phi().T @ (w * f)
+        else:
+            S_f = f
+        e = solve_triangular(gram_whitener(img.G), img.S - S_f, lower=True)
+        flagged = self._detector.update(e)
+        self._prev = img
+        if flagged:
+            self.flags_.append((self._block_index, img.domain))
 
     def _validate(
         self, x: Any, y: Any, w: Any
@@ -291,9 +402,83 @@ class ImageStream:
                 breaks the uniform grid.
         """
         xa, Y, wa = self._validate(x, y, w)
-        Phi = self.basis.evaluate(u_of(xa, *self.domain))
-        self._sums.add(xa, Y, wa, Phi, self._backend)
-        return []
+        if self.block is None:
+            Phi = self.basis.evaluate(u_of(xa, *self.domain))
+            self._sums.add(xa, Y, wa, Phi, self._backend)
+            return []
+        finished: list[Image] = []
+        y1 = Y[:, 0]
+        start = 0
+        while start < xa.size:
+            if self._block_count is not None:
+                take = min(self._block_count - self._buf_n, xa.size - start)
+            else:
+                _, hi = self._current_domain()
+                last = hi >= self.domain[1] - 1e-9 * (
+                    self.domain[1] - self.domain[0]
+                )
+                take = int(np.searchsorted(
+                    xa[start:], hi, side="right" if last else "left"
+                ))
+                if take == 0:
+                    if self._buf_n == 0:
+                        self._block_index += 1
+                        continue
+                    finished.append(self._finish_block())
+                    continue
+            sl = slice(start, start + take)
+            self._buf_x.append(xa[sl])
+            self._buf_y.append(y1[sl])
+            if wa is not None:
+                self._buf_w.append(wa[sl])
+            self._buf_n += take
+            start += take
+            if (
+                self._block_count is not None
+                and self._buf_n == self._block_count
+            ):
+                finished.append(self._finish_block())
+            elif self._block_len is not None and start < xa.size:
+                finished.append(self._finish_block())
+        return finished
+
+    def close(self) -> list[Image]:
+        """Finish the partial block if it holds at least ``order + 2``
+        samples and return it in a list, else return an empty list. A
+        length block closed early keeps its fixed domain.
+
+        Raises:
+            ValueError: the stream is not in block mode.
+        """
+        if self.block is None:
+            raise ValueError("close applies to block mode")
+        if self._buf_n < self.order + 2:
+            return []
+        return [self._finish_block()]
+
+    def blocks(self, t0: float, t1: float) -> list[Image]:
+        """Stored block images whose domain lies inside ``[t0, t1]``,
+        coarse blocks first, each list in time order."""
+        tol = 1e-9 * (self.domain[1] - self.domain[0])
+        return [
+            b for b in [*self.coarse_, *self.fine_]
+            if b.domain[0] >= t0 - tol and b.domain[1] <= t1 + tol
+        ]
+
+    def assemble(
+        self, t0: float, t1: float, order: int | None = None
+    ) -> Image:
+        """The image of the whole blocks inside ``[t0, t1]`` on the hull of
+        their domains at ``order`` (default the stream's order).
+
+        Raises:
+            ValueError: no whole block inside the range, or ``order`` above
+                the stream's order.
+        """
+        found = self.blocks(t0, t1)
+        if not found:
+            raise ValueError(f"no blocks lie inside [{t0:g}, {t1:g}]")
+        return _assemble(found, order=self.order if order is None else order)
 
     def image(self, channel: int = 0) -> Image:
         """The running image of one channel.
@@ -355,12 +540,35 @@ class ImageStream:
 
     def checkpoint(self) -> dict[str, Any]:
         """The complete state as JSON-serializable data; ``resume`` on a
-        stream built with the same arguments continues from it."""
-        return {
+        stream built with the same arguments continues from it. In block
+        mode a checkpoint from ``detect=(model, params[, var])`` needs the
+        same ``detect`` argument again on resume; only the accumulated
+        detector state travels with the checkpoint."""
+        state: dict[str, Any] = {
             "version": _STATE_VERSION,
             "config": self._config(),
             "sums": self._sums.state(),
         }
+        if self.block is not None:
+            x = np.concatenate(self._buf_x) if self._buf_x else np.zeros(0)
+            y = np.concatenate(self._buf_y) if self._buf_y else np.zeros(0)
+            w = np.concatenate(self._buf_w) if self._buf_w else None
+            state["partial"] = {
+                "x": x.tolist(),
+                "y": y.tolist(),
+                "w": None if w is None else w.tolist(),
+            }
+            state["block_index"] = self._block_index
+            state["fine"] = [img.to_dict() for img in self.fine_]
+            state["coarse"] = [img.to_dict() for img in self.coarse_]
+            state["flags"] = [[i, list(dom)] for i, dom in self.flags_]
+            state["prev"] = (
+                None if self._prev is None else self._prev.to_dict()
+            )
+            state["detector"] = (
+                None if self._detector is None else self._detector.state()
+            )
+        return state
 
     def resume(self, state: dict[str, Any]) -> "ImageStream":
         """Load a checkpoint into this stream and return it.
@@ -376,4 +584,28 @@ class ImageStream:
                 "checkpoint configuration differs from this stream's"
             )
         self._sums.restore(state["sums"])
+        if self.block is not None:
+            partial = state["partial"]
+            x = np.asarray(partial["x"], dtype=float)
+            self._buf_x = [x] if x.size else []
+            y = np.asarray(partial["y"], dtype=float)
+            self._buf_y = [y] if y.size else []
+            if partial["w"] is None:
+                self._buf_w = []
+            else:
+                self._buf_w = [np.asarray(partial["w"], dtype=float)]
+            self._buf_n = int(x.size)
+            self._block_index = int(state["block_index"])
+            self.fine_ = [Image.from_dict(d) for d in state["fine"]]
+            self.coarse_ = [Image.from_dict(d) for d in state["coarse"]]
+            self.flags_ = [
+                (int(i), (float(dom[0]), float(dom[1])))
+                for i, dom in state["flags"]
+            ]
+            self._prev = (
+                None if state["prev"] is None
+                else Image.from_dict(state["prev"])
+            )
+            if self._detector is not None and state["detector"] is not None:
+                self._detector.restore(state["detector"])
         return self

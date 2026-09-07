@@ -135,8 +135,6 @@ def test_input_errors():
         s.image()
     with pytest.raises(ValueError, match="domain"):
         ImageStream("legendre", 6)
-    with pytest.raises(NotImplementedError):
-        ImageStream("legendre", 6, domain=(0.0, 1.0), block=10)
 
 
 def test_backend_keyword_accepts_numpy_and_rejects_unknown():
@@ -146,3 +144,109 @@ def test_backend_keyword_accepts_numpy_and_rejects_unknown():
     assert s.n == 100
     with pytest.raises(ValueError):
         ImageStream("legendre", 4, domain=(0.0, 20.0), backend="nope")
+
+
+def _blocks_series(n_blocks=100, per=20, seed=5):
+    n = n_blocks * per
+    x = np.linspace(0.0, float(n_blocks), n)
+    rng = np.random.default_rng(seed)
+    y = 1.0 + 0.5 * np.sin(0.3 * x) + 0.02 * rng.standard_normal(n)
+    return x, y
+
+
+def test_count_blocks_equal_batch_images_and_assemble():
+    x, y = _blocks_series(10, 50)
+    s = ImageStream("legendre", 6, domain=(0.0, 10.0), block=50)
+    out = []
+    for c in range(0, 500, 37):
+        out.extend(s.update(x[c:c + 37], y[c:c + 37]))
+    assert len(out) == 10 and len(s.fine_) == 10
+    for k, img in enumerate(out):
+        sl = slice(50 * k, 50 * (k + 1))
+        ref = Image.of(Original(x[sl], y[sl]), "legendre", 6)
+        assert img == ref
+    whole = Image.of(Original(x, y, domain=(x[0], x[-1])), "legendre", 4)
+    got = s.assemble(0.0, 10.0, order=4)
+    _close(got.S, whole.S, 1e-10)
+    _close(got.G, whole.G, 1e-10)
+    assert got.n == 500
+
+
+def test_length_blocks_have_fixed_domains():
+    x, y = _blocks_series(8, 25)
+    s = ImageStream("legendre", 4, domain=(0.0, 8.0), block=2.0)
+    out = s.update(x, y)
+    out += s.close()
+    assert s.close() == []
+    assert [img.domain for img in out] == [
+        (0.0, 2.0), (2.0, 4.0), (4.0, 6.0), (6.0, 8.0)]
+    assert sum(img.n for img in out) == 200
+
+
+def test_retention_folds_old_blocks_and_keeps_assembly_exact():
+    x, y = _blocks_series(100, 20)
+    s = ImageStream("legendre", 4, domain=(0.0, 100.0), block=20,
+                    keep_fine=8, fold=4)
+    s.update(x, y)
+    assert len(s.fine_) == 8 and len(s.coarse_) == 23
+    assert all(img.n == 80 for img in s.coarse_)
+    whole = Image.of(Original(x, y, domain=(x[0], x[-1])), "legendre", 4)
+    got = s.assemble(0.0, 100.0)
+    _close(got.S, whole.S, 1e-10)
+    _close(got.G, whole.G, 1e-10)
+    inside = s.blocks(50.0, 60.0)
+    assert inside and all(
+        b.domain[0] >= 50.0 - 1e-9 and b.domain[1] <= 60.0 + 1e-9
+        for b in inside)
+
+
+def test_block_checkpoint_resume_mid_block_matches():
+    x, y = _blocks_series(6, 30)
+    whole = ImageStream("legendre", 5, domain=(0.0, 6.0), block=30)
+    ref = whole.update(x, y)
+    s = ImageStream("legendre", 5, domain=(0.0, 6.0), block=30)
+    got = s.update(x[:100], y[:100])
+    state = s.checkpoint()
+    import json
+    state = json.loads(json.dumps(state))
+    t = ImageStream("legendre", 5, domain=(0.0, 6.0), block=30).resume(state)
+    got.extend(t.update(x[100:], y[100:]))
+    assert len(got) == len(ref) == 6
+    assert all(a == b for a, b in zip(got, ref))
+
+
+def test_detect_previous_flags_a_level_shift():
+    per, nb = 50, 80
+    x = np.linspace(0.0, float(nb), per * nb)
+    rng = np.random.default_rng(6)
+    y = 2.0 + 0.05 * rng.standard_normal(x.size)
+    y[per * 40:] += 3.0
+    s = ImageStream("legendre", 3, domain=(0.0, float(nb)), block=per,
+                    detect="previous")
+    s.update(x, y)
+    assert [f[0] for f in s.flags_][:1] == [40]
+    assert len(s.flags_) <= 2
+
+
+def test_detect_model_flags_departure_from_the_model():
+    per, nb = 50, 60
+    x = np.linspace(0.0, float(nb), per * nb)
+    rng = np.random.default_rng(7)
+    y = 2.0 + 0.05 * rng.standard_normal(x.size)
+    y[per * 30:] += 3.0
+    s = ImageStream("legendre", 3, domain=(0.0, float(nb)), block=per,
+                    detect=("c + 0*x", [2.0], "x"))
+    s.update(x, y)
+    assert s.flags_ and s.flags_[0][0] == 30
+
+
+def test_block_mode_errors():
+    with pytest.raises(ValueError, match="channels"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), block=10, channels=2)
+    with pytest.raises(ValueError, match="order \\+ 2"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), block=5)
+    s = ImageStream("legendre", 4, domain=(0.0, 1.0), block=10)
+    with pytest.raises(ValueError, match="no blocks"):
+        s.assemble(0.0, 1.0)
+    with pytest.raises(ValueError, match="detect"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), block=10, detect=3)
