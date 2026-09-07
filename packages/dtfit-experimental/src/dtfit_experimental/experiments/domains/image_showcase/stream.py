@@ -38,9 +38,10 @@ import hashlib
 import json
 import socket
 import struct
+import threading
 import time
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any, Callable, Iterable, Iterator, Sequence
 
 import numpy as np
 
@@ -446,7 +447,12 @@ def _listen(
     listener.settimeout(timeout)
     bound = listener.getsockname()[1]
     if port_file is not None:
-        Path(port_file).write_text(f"{bound}\n")
+        # Written via a temp path and renamed so a poller that only checks
+        # existence never observes a half-written file.
+        port_file = Path(port_file)
+        tmp = port_file.with_name(port_file.name + ".tmp")
+        tmp.write_text(f"{bound}\n")
+        tmp.replace(port_file)
     try:
         conn, _peer = listener.accept()
     except socket.timeout as exc:
@@ -586,26 +592,37 @@ def replay(
     *,
     rate: float | None = None,
     timeout: float = 30.0,
+    back_sink: Callable[[dict[str, Any], bytes], None] | None = None,
 ) -> dict[str, Any]:
     """Send ``(station, field, t, y)`` chunks as ``samples`` frames.
 
     ``rate`` is the nominal sample rate in samples per second (``None``
     sends as fast as the link allows). Pacing keeps a deadline that
-    advances by ``n / rate`` per chunk; when the socket's backpressure
-    puts the replayer more than one chunk behind
-    (:func:`chunk_is_late`), the chunk is skipped rather than sent and
-    ``n_dropped`` counts it, which is what makes the sustained rate a
-    measurement rather than a wish. ``seq`` increments on every chunk
-    including the skipped ones, so the receiver sees the gap and counts
-    the drops independently.
+    advances by ``n / rate`` per chunk; when the replayer falls more than
+    one chunk behind (:func:`chunk_is_late`), the chunk is skipped rather
+    than sent and ``n_dropped`` counts it. Two such misses in a row mean
+    the source cannot sustain the requested rate at all -- pacing then
+    stops for the rest of the run and every later chunk is sent at
+    whatever pace the source allows, so the achieved rate is what gets
+    measured instead of every remaining chunk dropping to zero. ``seq``
+    increments on every chunk including the skipped ones, so the receiver
+    sees the gap and counts the drops independently.
 
-    After the last chunk the write side is shut down and the socket is
-    read to end of stream, so the tracker's final block images arrive and
-    are counted in ``n_frames_back``.
+    A background thread drains the tracker's return traffic concurrently
+    with sending, so a busy back channel (block images) can never fill
+    this socket's receive buffer and deadlock both ends in ``sendall``.
+    ``back_sink``, when given, is called with every returned
+    ``(header, payload)`` frame; otherwise the frames are only counted.
+    After the last chunk the write side is shut down; the socket is
+    still read to end of stream, so the tracker's final block images
+    arrive and are counted in ``n_frames_back``.
 
     Returns:
         ``{"n_frames", "n_samples", "n_dropped", "bytes_sent", "seconds",
         "samples_per_second", "n_frames_back", "rate_requested"}``.
+
+    Raises:
+        ConnectionError: the return channel closed mid-frame.
     """
     n_frames = 0
     n_samples = 0
@@ -613,20 +630,44 @@ def replay(
     n_back = 0
     total = 0
     seq = 0
+    back_errors: list[BaseException] = []
     started = time.perf_counter()
     with socket.create_connection((host, port), timeout=timeout) as sock:
         sock.settimeout(timeout)
+
+        def drain() -> None:
+            nonlocal n_back
+            try:
+                while True:
+                    frame = recv_frame(sock)
+                    if frame is None:
+                        return
+                    n_back += 1
+                    if back_sink is not None:
+                        back_sink(*frame)
+            except OSError as exc:
+                back_errors.append(exc)
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         deadline = time.perf_counter()
+        consecutive_drops = 0
+        paced = True
         for station, field, t, y in chunks:
             n = int(np.asarray(t).size)
-            if rate:
+            if paced and rate:
                 span = n / float(rate)
                 deadline += span
                 now = time.perf_counter()
                 if chunk_is_late(now, deadline, span):
                     n_dropped += 1
                     seq += 1
+                    consecutive_drops += 1
+                    deadline = now
+                    if consecutive_drops >= 2:
+                        paced = False
                     continue
+                consecutive_drops = 0
                 if now < deadline:
                     time.sleep(deadline - now)
             total += send_samples(sock, station, field, t, y, seq=seq)
@@ -634,11 +675,9 @@ def replay(
             n_frames += 1
             n_samples += n
         sock.shutdown(socket.SHUT_WR)
-        while True:
-            frame = recv_frame(sock)
-            if frame is None:
-                break
-            n_back += 1
+        reader.join(timeout=timeout)
+    if back_errors:
+        raise back_errors[0]
     seconds = time.perf_counter() - started
     return {
         "n_frames": n_frames, "n_samples": n_samples,
@@ -675,12 +714,15 @@ def track(
     ``back``, including the blocks its ``close()`` yields after the peer
     has shut down its write side.
 
-    ``n_dropped`` is the number of missing ``seq`` values, the
-    receiver-side check on the sender's own count. ``us_per_update``
-    times the filter loop alone, not the socket.
+    ``n_dropped`` counts a gap between ``seq`` values this end actually
+    received, an interior-drop check against the sender's own count. A
+    run of drops right at the end of the stream, with nothing arriving
+    after them, is invisible here -- use the sender's own ``n_dropped``
+    for the true total. ``us_per_update`` times the filter loop alone,
+    not the socket.
 
     Returns:
-        ``{"n_frames", "n_samples", "n_dropped", "seconds",
+        ``{"n_frames", "n_samples", "n_dropped", "n_other", "seconds",
         "samples_per_second", "us_per_update", "n_flags", "flags",
         "n_blocks", "bytes_back", "params"}``.
 
@@ -692,6 +734,7 @@ def track(
     n_frames = 0
     n_samples = 0
     n_dropped = 0
+    n_other = 0
     n_blocks = 0
     bytes_back = 0
     update_seconds = 0.0
@@ -723,6 +766,7 @@ def track(
                     break
                 header, payload = frame
                 if header.get("kind") != SAMPLE_KIND:
+                    n_other += 1
                     continue
                 seq = int(header.get("seq", expected))
                 if seq > expected:
@@ -754,7 +798,8 @@ def track(
     seconds = time.perf_counter() - started
     return {
         "n_frames": n_frames, "n_samples": n_samples,
-        "n_dropped": n_dropped, "seconds": round(seconds, 4),
+        "n_dropped": n_dropped, "n_other": n_other,
+        "seconds": round(seconds, 4),
         "samples_per_second": (
             round(n_samples / seconds, 1) if seconds else 0.0
         ),

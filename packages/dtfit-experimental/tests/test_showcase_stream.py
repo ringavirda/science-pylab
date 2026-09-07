@@ -216,6 +216,7 @@ def test_replay_feeds_the_tracker_and_gets_block_images_back(tmp_path):
 
     thread = threading.Thread(target=run_tracker)
     thread.start()
+    received: list = []
     try:
         deadline = time.time() + 20.0
         while not port_file.exists() and time.time() < deadline:
@@ -226,18 +227,83 @@ def test_replay_feeds_the_tracker_and_gets_block_images_back(tmp_path):
         y = 3.0 + 0.5 * x
         chunks = [("AAAA", "east", x[i:i + 20], y[i:i + 20])
                   for i in range(0, x.size, 20)]
-        sent = stream.replay("127.0.0.1", port, chunks, rate=None)
+        sent = stream.replay(
+            "127.0.0.1", port, chunks, rate=None,
+            back_sink=lambda h, p: received.append((h, p)),
+        )
     finally:
         thread.join(timeout=30.0)
     got = result["out"]
     assert sent["n_frames"] == 15 and sent["n_dropped"] == 0
     assert sent["n_samples"] == 300
     assert got["n_samples"] == 300 and got["n_dropped"] == 0
+    assert got["n_other"] == 0
     assert got["n_flags"] == 6                # every 50th of 300 samples
     assert got["us_per_update"] > 0.0
     assert got["n_blocks"] == 3 and got["bytes_back"] > 0
-    assert sent["n_frames_back"] == got["n_blocks"]
+    assert sent["n_frames_back"] == got["n_blocks"] == len(received)
     assert got["params"]["c"] == pytest.approx(float(y[-1]))
+    # ship() derives block from the image's own domain start and reuses
+    # n_blocks as seq for every image of one batch: check both, and that
+    # the image itself survives the wire.
+    for k, (header, payload) in enumerate(received):
+        assert header["station"] == "AAAA" and header["field"] == "east"
+        assert header["block"] == k
+        assert header["seq"] == k + 1
+        img = stream.image_from_frame(header, payload)
+        assert img.domain == (float(k), float(k + 1))
+        assert stream.image_digest(img) == stream.image_digest(img)
+
+
+def test_replay_and_track_survive_heavy_back_traffic(tmp_path):
+    # An explicit grid puts every sample position in the header as JSON,
+    # so enough blocks of enough points comfortably clear the measured
+    # ~700 kB threshold where the two directions used to deadlock in
+    # sendall on the same socket, one still sending while the other's
+    # unread back traffic filled its receive buffer.
+    n_blocks = 40
+    per_block = 1500
+    rng = np.random.default_rng(3)
+    filt = CountingFilter(every=10**9)
+    back = ImageStream(
+        "legendre", 12, domain=(0.0, float(n_blocks)), block=1.0,
+        detect="previous", grid="explicit", keep_fine=8, fold=8,
+    )
+    chunks = []
+    for k in range(n_blocks):
+        x = k + np.sort(rng.uniform(0.0, 1.0, per_block))
+        y = 3.0 + 0.5 * x
+        for i in range(0, per_block, 500):
+            chunks.append(("AAAA", "east", x[i:i + 500], y[i:i + 500]))
+    port_file = tmp_path / "port"
+    result: dict = {}
+    received: list = []
+
+    def run_tracker():
+        result["out"] = stream.track(
+            "127.0.0.1", 0, filt, block_stream=back, station="AAAA",
+            field="east", port_file=port_file, timeout=60.0,
+        )
+
+    thread = threading.Thread(target=run_tracker)
+    thread.start()
+    try:
+        deadline = time.time() + 20.0
+        while not port_file.exists() and time.time() < deadline:
+            time.sleep(0.02)
+        assert port_file.exists(), "the tracker never bound a port"
+        port = int(port_file.read_text().strip())
+        sent = stream.replay(
+            "127.0.0.1", port, chunks, rate=None, timeout=30.0,
+            back_sink=lambda h, p: received.append((h, p)),
+        )
+    finally:
+        thread.join(timeout=30.0)
+    assert not thread.is_alive(), "the tracker never finished: a deadlock"
+    got = result["out"]
+    assert got["bytes_back"] > 700_000
+    assert got["n_blocks"] == n_blocks
+    assert sent["n_frames_back"] == n_blocks == len(received)
 
 
 def test_the_pacing_rule_drops_a_chunk_that_is_a_whole_chunk_late():
@@ -253,3 +319,220 @@ def test_the_pacing_rule_drops_a_chunk_that_is_a_whole_chunk_late():
     assert not stream.chunk_is_late(
         now=0.5, deadline=1.0, chunk_seconds=0.5
     )
+
+
+def _bare_drain_server():
+    """A listening socket that accepts one connection and discards
+    whatever it sends, replying nothing: enough to exercise
+    :func:`stream.replay`'s pacing without a real tracker."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    def run():
+        conn, _peer = server.accept()
+        conn.settimeout(5.0)
+        try:
+            while conn.recv(65536):
+                pass
+        except OSError:
+            pass
+        conn.close()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return server, thread, port
+
+
+def _slow_chunks(n, delay, size=100):
+    """``n`` chunks, each preceded by a ``delay``-second stall: a source
+    that cannot keep up with any rate the test asks for."""
+    for _ in range(n):
+        time.sleep(delay)
+        yield ("AAAA", "east", np.arange(size, dtype=float), np.zeros(size))
+
+
+def _chunks_with_one_stall(n, stall_index, stall_seconds, size=50):
+    """``n`` chunks, immediate except for one ``stall_seconds`` pause: a
+    transient hiccup rather than a sustained overload."""
+    for i in range(n):
+        if i == stall_index:
+            time.sleep(stall_seconds)
+        yield ("AAAA", "east", np.arange(size, dtype=float), np.zeros(size))
+
+
+def test_replay_recovers_a_single_transient_stall():
+    server, thread, port = _bare_drain_server()
+    try:
+        sent = stream.replay(
+            "127.0.0.1", port, _chunks_with_one_stall(5, 0, 0.6),
+            rate=500, timeout=10.0,
+        )
+    finally:
+        server.close()
+        thread.join(timeout=5.0)
+    # one chunk missed its deadline by more than the whole-chunk grace
+    # period and is dropped; the rest, no longer behind, are sent.
+    assert sent["n_dropped"] == 1
+    assert sent["n_frames"] == 4
+
+
+def test_replay_degrades_instead_of_collapsing_under_sustained_overload():
+    server, thread, port = _bare_drain_server()
+    try:
+        sent = stream.replay(
+            "127.0.0.1", port, _slow_chunks(10, 0.35, 100),
+            rate=1000, timeout=10.0,
+        )
+    finally:
+        server.close()
+        thread.join(timeout=5.0)
+    # a source that cannot sustain the rate at all would drop every
+    # remaining chunk without the give-up rule; two consecutive misses
+    # stop pacing so the rest are sent at the source's own pace.
+    assert sent["n_dropped"] == 2
+    assert sent["n_frames"] == 8
+    assert sent["samples_per_second"] > 0.0
+
+
+def test_serve_counts_a_frame_of_another_kind_as_other(tmp_path):
+    port_file = tmp_path / "port"
+    result: dict = {}
+
+    def run_server():
+        result["out"] = stream.serve(
+            "127.0.0.1", 0, port_file=port_file, timeout=10.0, ack=False,
+        )
+
+    thread = threading.Thread(target=run_server)
+    thread.start()
+    try:
+        deadline = time.time() + 10.0
+        while not port_file.exists() and time.time() < deadline:
+            time.sleep(0.02)
+        port = int(port_file.read_text().strip())
+        with socket.create_connection(("127.0.0.1", port), timeout=5.0) as sock:
+            stream.send_frame(sock, {"kind": "bogus", "nbytes": 0}, b"")
+            img = blocks(1)[0]
+            stream.send_image(sock, img, station="AAAA", field="east")
+    finally:
+        thread.join(timeout=10.0)
+    assert result["out"]["n_other"] == 1
+    assert result["out"]["n_images"] == 1
+
+
+def test_track_counts_a_frame_of_another_kind_as_other(tmp_path):
+    filt = CountingFilter()
+    port_file = tmp_path / "port"
+    result: dict = {}
+
+    def run_tracker():
+        result["out"] = stream.track(
+            "127.0.0.1", 0, filt, station="AAAA", field="east",
+            port_file=port_file, timeout=10.0,
+        )
+
+    thread = threading.Thread(target=run_tracker)
+    thread.start()
+    try:
+        deadline = time.time() + 10.0
+        while not port_file.exists() and time.time() < deadline:
+            time.sleep(0.02)
+        port = int(port_file.read_text().strip())
+        with socket.create_connection(("127.0.0.1", port), timeout=5.0) as sock:
+            stream.send_frame(sock, {"kind": "bogus", "nbytes": 0}, b"")
+            t = np.array([0.0])
+            y = np.array([1.0])
+            stream.send_samples(sock, "AAAA", "east", t, y, seq=0)
+    finally:
+        thread.join(timeout=10.0)
+    assert result["out"]["n_other"] == 1
+    assert result["out"]["n_frames"] == 1
+
+
+def test_image_from_frame_rejects_bad_dtype_and_short_payload():
+    img = blocks(1)[0]
+    header = stream.image_header(img, station="AAAA", field="east")
+    payload = stream.image_payload(img)
+    with pytest.raises(ValueError, match="bytes"):
+        stream.image_from_frame(header, payload[:-8])
+    bad = dict(header, dtype="float32")
+    with pytest.raises(ValueError, match="dtype"):
+        stream.image_from_frame(bad, payload)
+
+
+def test_recv_exactly_raises_when_the_peer_closes_mid_frame():
+    a, b = socket.socketpair()
+    try:
+        a.sendall(b"12")
+        a.close()
+        with pytest.raises(ConnectionError, match="peer closed"):
+            stream._recv_exactly(b, 5)
+    finally:
+        b.close()
+
+
+def test_recv_frame_raises_on_truncation_before_header_and_payload():
+    # Nothing at all of the header arrives: recv_frame's own message.
+    a, b = socket.socketpair()
+    try:
+        a.sendall(stream._LEN.pack(10))
+        a.close()
+        with pytest.raises(ConnectionError, match="before the header"):
+            stream.recv_frame(b)
+    finally:
+        b.close()
+
+    # Nothing at all of the payload arrives: recv_frame's own message.
+    a, b = socket.socketpair()
+    try:
+        header = json.dumps(
+            {"kind": "samples", "nbytes": 20}, separators=(",", ":")
+        ).encode("utf-8")
+        a.sendall(stream._LEN.pack(len(header)))
+        a.sendall(header)
+        a.close()
+        with pytest.raises(ConnectionError, match="before the payload"):
+            stream.recv_frame(b)
+    finally:
+        b.close()
+
+
+def test_track_reports_a_timeout_instead_of_hanging(tmp_path):
+    port_file = tmp_path / "port"
+    filt = CountingFilter()
+    with pytest.raises(TimeoutError):
+        stream.track(
+            "127.0.0.1", 0, filt, port_file=port_file, timeout=0.5,
+        )
+
+
+def test_main_exits_with_timeout_code_two(tmp_path, capsys):
+    out = tmp_path / "summary.json"
+    code = stream.main([
+        "--role", "consumer", "--host", "127.0.0.1", "--port", "0",
+        "--timeout", "0.5", "--out", str(out),
+    ])
+    assert code == 2
+    assert not out.exists()
+
+
+def test_produce_without_ack_reports_no_latency(tmp_path):
+    server, thread, port = _bare_drain_server()
+    imgs = blocks(2)
+    try:
+        summary = stream.produce(
+            "127.0.0.1", port,
+            ((img, {"station": "AAAA", "field": "east"}) for img in imgs),
+            ack=False,
+        )
+    finally:
+        server.close()
+        thread.join(timeout=5.0)
+    assert summary["n_images"] == 2
+    assert summary["n_acks"] == 0
+    assert summary["latency_ms_median"] is None
+    assert summary["latency_ms_p90"] is None
+    assert summary["bytes_sent"] > 0
