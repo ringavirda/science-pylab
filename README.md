@@ -8,7 +8,7 @@ This repository is a **monorepo of three distributions**:
 
 | package | path | what it is |
 |---|---|---|
-| **`dtfit`** | [`packages/dtfit`](packages/dtfit) | the stable, published library -- the public API (`NonlineRegressor`, `EACFilter`, `fit_lsi`/`fit_eac`/`fit_dsb`, `ImageStream`, streaming filters, the `models` framework + `suggest_models`, `auto_estimate`/`auto_forecast`, diagnostics). |
+| **`dtfit`** | [`packages/dtfit`](packages/dtfit) | the stable, published library -- the public API (`NonlineRegressor`, `ImageFilter` (with `LSIFilter`/`EACFilter` as basis aliases), `fit_lsi`/`fit_eac`/`fit_dsb`, `ImageStream`, the `models` framework + `suggest_models`, `auto_estimate`/`auto_forecast`, diagnostics). |
 | **`dtfit-experimental`** | [`packages/dtfit-experimental`](packages/dtfit-experimental) | experimental EAC/LSI adaptations + the full experiment / validation suite. Depends on `dtfit`; **never ships inside the `dtfit` wheel**. |
 | **`dtfit-hardware`** | [`packages/dtfit-hardware`](packages/dtfit-hardware) | the real-silicon rig: Arduino firmware, the USB/BLE host telemetry link, the real-log comparison harness, and a React Native phone app. Depends on `dtfit-experimental`. |
 

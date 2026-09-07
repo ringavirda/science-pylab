@@ -234,7 +234,7 @@ def _make_axis_filters(kind, fixes, off):
             drift_reset="inflate", **off) for ax in range(3)]
     return [EACFilter(
         model, "t", p0=[float(fixes[0, ax]), 0.0, 0.0], window_size=15,
-        q_diag=[1e-2, 1e-2, 1e-2], order=2,
+        q_diag=[1e-2, 1e-2, 1e-2], order=3,
         drift_reset="inflate", **off) for ax in range(3)]
 
 

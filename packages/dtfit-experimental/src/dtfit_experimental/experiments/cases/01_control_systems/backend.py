@@ -155,7 +155,7 @@ def regime_change(rng, n=900):
     y = clean + rng.normal(0, 0.05, n)
     flt = EACFilter(DAMP_EXPR, "t", p0=[2.0, 2.5, 0.1],
                     window_size=60, q_diag=[1e-3, 1e-3, 1e-3],
-                    order=2)
+                    order=3)
     track, z_hist, drift_idx = [], [], []
     for i in range(n):
         flt.partial_fit(t[i], y[i])

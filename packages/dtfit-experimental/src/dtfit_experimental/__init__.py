@@ -8,6 +8,10 @@ per-case and per-domain validation suite each adaptation is measured in.
 That tier is a research tree rather than an API: exempt from the mypy gate,
 ruff-relaxed, driven with ``python -m dtfit_experimental.experiments...``
 instead of imported. Nothing in the library tier imports from it.
+:mod:`dtfit_experimental.streaming` is a third, narrower surface:
+``FilterBank`` and ``FusedChiSquareDetector``, experiment tooling over
+``dtfit``'s filters rather than library API, moved here with the
+experiments that use them.
 
 The adaptations are new ways to compose the differential-transformation
 fitting methods of :mod:`dtfit`, grounded in the methods' own math: linearity

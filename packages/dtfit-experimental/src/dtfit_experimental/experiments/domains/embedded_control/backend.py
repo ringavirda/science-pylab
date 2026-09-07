@@ -131,8 +131,8 @@ class EAAd(_Ad):
 
     def __init__(self, plant, window=None):
         self.f = EACFilter(plant["expr"], "t", p0=list(plant["p0"]),
-                           window_size=window or plant["window"], order=2,
-                           q_diag=list(plant["q"]))
+                           window_size=window or plant["window"],
+                           order=len(plant["p0"]), q_diag=list(plant["q"]))
 
     def step(self, t, y):
         self.f.partial_fit(t, y)

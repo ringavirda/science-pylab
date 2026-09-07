@@ -198,6 +198,6 @@ print(fc.to_series().head(3))   # future dates -> forecast values
 | **Estimator** | plug into scikit-learn | `NonlineRegressor` |
 | **Models** | pick a shape, not a formula | `models`, `Model`, `suggest_models`, `register` |
 | **High-level** | let dtfit choose | `auto_estimate`, `auto_forecast` |
-| **Streaming** | track live parameters | `EACFilter`, `LSIFilter`, `FilterBank` |
+| **Streaming** | track live parameters | `ImageFilter`, `LSIFilter`, `EACFilter` |
 | **Scale** | run big / many | `ImageStream`, `fit_many` |
 | **Stochastic** | genuinely random series | `fit_stochastic`, `StochasticModel` |

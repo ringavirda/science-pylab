@@ -189,16 +189,16 @@ def _axis_filters(fixes, kind="lsi", model="poly", robust=False, off=None):
     def p0(ax):
         return [float(fixes[0, ax])] + list(m["rest"])
 
+    # The window image self-tunes to the local noise from the residual
+    # variance, staying responsive on clean fixes and damping automatically
+    # on the noisy, anomaly-heavy harsh stream, with no per-regime
+    # hand-tuning; this applies to both bases below.
     if kind == "lsi":   # the Legendre spectrum, right for trajectories
-        # The window image self-tunes to the local noise from the residual
-        # variance, staying responsive on clean fixes and damping
-        # automatically on the noisy, anomaly-heavy harsh stream, with no
-        # per-regime hand-tuning.
         return [LSIFilter(m["expr"], "t", p0=p0(ax), window_size=15, order=m["order"],
                           q_diag=[1e-2] * nq,
                           robust=robust, drift_reset="inflate", **off) for ax in range(3)]
-    return [EACFilter(m["expr"], "t", p0=p0(ax), window_size=15, order=2,
-                      q_diag=[1e-2] * nq,
+    return [EACFilter(m["expr"], "t", p0=p0(ax), window_size=15,
+                      order=nq, q_diag=[1e-2] * nq,
                       robust=robust, drift_reset="inflate", **off) for ax in range(3)]
 
 

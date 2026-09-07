@@ -40,11 +40,11 @@ __all__ = [
 # job: (label, model expr, var, p0, filter kwargs, n params, window W).
 CONFIGS = [
     ("CA quadratic (GPS axis)", "c0 + c1*t + c2*t**2", "t", [0.0, 0.0, 0.0],
-     dict(window_size=15, q_diag=[1e-2] * 3, r=0.5, n_sub=2, adapt_r=True), 3, 15),
+     dict(window_size=15, q_diag=[1e-2] * 3, order=3), 3, 15),
     ("damped sine (control ID)", "A*exp(-d*t)*sin(w*t)", "t", [1.0, 0.1, 1.0],
-     dict(window_size=50, q_diag=[1e-2] * 3, r=1.0, n_sub=2), 3, 50),
+     dict(window_size=50, q_diag=[1e-2] * 3, order=3), 3, 50),
     ("linear (range smoother)", "a + b*t", "t", [0.0, 0.0],
-     dict(window_size=20, q_diag=[1e-1, 1e-2], r=0.6, n_sub=2, adapt_r=True), 2, 20),
+     dict(window_size=20, q_diag=[1e-1, 1e-2], order=2), 2, 20),
 ]
 
 
