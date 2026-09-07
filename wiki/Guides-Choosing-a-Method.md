@@ -39,12 +39,11 @@ Is the data arriving live / do the parameters change over time?
          +- you want one reliable default        > LSI            (fit_lsi)
          +- data is very noisy / few parameters
          |   / a transient or saturating shape    > EAC           (fit_eac)
-         +- a localized peak or sharp bend         > curvature EAC (fit_eac(..., window_mode="curvature"))
          +- a sinusoid / clear cycle               > LSI oscillatory recipe
          |                                           (fit_lsi(..., freq_param="w"))
-         +- outliers / glitches present            > Ensemble  (ensemble_fit)
-                                                     (or EAC robust loss if you can
-                                                      tune f_scale to the window scale)
+         +- outliers / glitches present            > robust image (robust=True on
+                                                      fit_lsi / fit_eac); ensemble_fit
+                                                      for a densely contaminated record
 ```
 
 **DSB** is not in this tree on purpose: it is a reference/derivation tool, not a
@@ -56,17 +55,16 @@ production fitter (see [methods-explained.md#dsb](Guides-Methods-Explained#dsb))
   nonlinear-in-parameters models.
 - **Switch to EAC when noise is high or you need speed**, and the model has few
   (2-4) parameters. EAC is ~5x faster than LSI and the most noise-robust.
-- **Use the curvature EAC for peaks and saturating rises** (Gaussian, Lorentzian,
-  Michaelis-Menten, Hill, `arctan`) -- pass `fit_eac(..., window_mode="curvature")`
-  so curvature-placed windows fit the bend.
-- **Use the oscillatory recipe for anything with a cycle.** A plain smoothed fit
+- **Use the oscillatory recipe for anything with a cycle.** A plain fit
   erases cycles; you must pass `freq_param`/`oscillatory=True`.
-- **Use the ensemble when outliers/glitches contaminate the record.**
-  `ensemble_fit` fits overlapping windows and takes the median, rejecting whole
-  corrupted windows with no `f_scale` tuning -- more reliable than the EAC robust
-  loss on spiky data. It's a specialised tool: on clean data prefer a single fit.
-  (For a *single* fit, the self-scaling `fit_eac(..., robust=True)` is the simpler
-  outlier defence -- no `f_scale` to tune.)
+- **Use the robust image when outliers/glitches contaminate a record.**
+  `robust=True` on `fit_lsi` / `fit_eac` Huber-reweights the image before any
+  model is fit -- no scale to tune. For a *densely* contaminated record,
+  `ensemble_fit` fits overlapping windows and takes the median instead,
+  rejecting whole corrupted windows outright.
+- **One image, several models.** Build the image once --
+  `Original(x, y).image("legendre", order)` -- and `fit` each candidate on it;
+  the fits are exact in the span and cost no further data pass.
 - **Streaming with dropouts?** Use `filter.coast(...)` / `coast_cov` to
   dead-reckon through measurement gaps (the uncertainty band grows with the gap)
   instead of freezing or diverging. (For combining several estimators/sensors into
@@ -109,10 +107,10 @@ Only relevant for large or many-channel data ([api/scaling.md](API-Scaling)):
 | Situation | Tool |
 |---|---|
 | Many **independent** fits (different series/models) | `fit_many` (process/thread fan-out) |
-| Many **channels on a shared x-grid**, fit at once | `fit_lsi_batched` (one GEMM; low-level `project_spectra` lives in `dtfit.scale`) |
-| A dataset **too big for memory**, one pass | `PartitionedLSI` / `PartitionedEAC` (streaming map-reduce) |
-| **Distributed** workers, then combine | the same `Partitioned*` accumulators via `.merge()` |
-| Many channels **and** streaming | `PartitionedBatchLSI` |
+| A dataset **too big for memory**, one pass | `ImageStream` accumulator (folds each chunk into a fixed-size image) |
+| **Distributed** workers, then combine | the same `ImageStream` accumulators, `.merge()`d (contiguous chunks on a uniform grid, or `grid="explicit"`) |
+| Many **channels on a shared x-grid**, fit at once | `ImageStream(channels=B)` (one GEMM per chunk, over one shared Gram) |
+| A **long-running stream**, blocks over time | `ImageStream(block=...)` (block images, `assemble` onto a coarse domain) |
 
 ---
 
@@ -139,15 +137,16 @@ diag = residual_diagnostics(fit, x, y)   # leftover autocorrelation / normality
 
 Before trusting any fit:
 
-1. **Normalize the domain and scale.** dtfit's fingerprint assumes a modest
-   dynamic range; map a wide `x` into roughly `[0, 1.5]` and scale `y` to O(1)
-   first (invertible, doesn't change R^2). This is the single most common cause of
-   a bad dtfit fit.
-2. **Pick `active_ratio` to match where the information is** (EAC): the default
-   `1.0` for saturating tails (full record), `0.8` for early transients.
+1. **Watch for the coverage warning.** `fit` warns when the image's order
+   doesn't cover the model's parameter sensitivities to within 2% (`coverage`);
+   raise `order` when it warns. `order_for` is the default, chosen for exactly
+   this.
+2. **Raise the order for an oscillatory model.** A low order erases a cycle;
+   pass `oscillatory=True` (or `freq_param`, which implies it) to raise the
+   order to `osc_order` when that resolves the cycle better than `order_for`.
 3. **Seed oscillations.** Always pass `freq_param` for sinusoids.
-4. **Give bounds for hard models.** Bounds turn on LSI's global search and keep it
-   out of wrong local minima.
+4. **Give bounds for hard models.** Bounds switch LSI to a bounded solve and
+   put a global search behind it when the local one comes out poor.
 5. **Read `residual_diagnostics`.** If the residuals aren't white, the parameters
    you recovered are answering the wrong question.
 

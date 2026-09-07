@@ -118,34 +118,31 @@ The key realization -- that the scale factor cancels in a *balance* -- is what l
 DSB drop its per-function table and become general. Details:
 [../methods/dsb.md](Methods-DSB).
 
-### LSI -- from an ill-conditioned Hilbert matrix to an orthogonal basis
+### LSI -- from an ill-conditioned Hilbert matrix to a Gram-whitened image
 
 | | original LSI (~= DSBI) | current LSI |
 |---|---|---|
-| **Basis** | plain monomials $1, t, t^2, \dots$ | **Legendre** orthogonal polynomials on the data interval |
-| **The match matrix** | a (weighted) **Hilbert matrix** -- condition number explodes (~$10^7$ by order 5) | **diagonal** -- perfectly conditioned, no matrix to invert |
-| **Empirical spectrum** | raw `numpy.polyfit` (ill-conditioned Vandermonde) | `Legendre.fit` (well-conditioned orthogonal least squares) |
-| **Model spectrum** | Taylor-truncated | exact **Gauss-Legendre quadrature** (model integrated exactly) |
-| **High-order control** | a hand-tuned exponential weight $e^{-\alpha i}$ fighting the ill-conditioning | the built-in $1/(2j+1)$ orthonormal weight; `alpha` is now optional and defaults to 0 |
+| **Basis** | plain monomials $1, t, t^2, \dots$ | **Legendre** polynomials, evaluated once into the data's own **image** |
+| **The match matrix** | a (weighted) **Hilbert matrix** -- condition number explodes (~$10^7$ by order 5) | the image's own Gram matrix $G$ on the sample grid, whitened directly -- well-conditioned by the Legendre basis, no orthogonality assumed |
+| **Empirical spectrum** | raw `numpy.polyfit` (ill-conditioned Vandermonde) | the data's image: weighted projections $S$ read straight off the samples |
+| **Model spectrum** | Taylor-truncated | the model's own projection $S_f(\theta)$ on the same grid, exact in the basis's span |
+| **High-order control** | a hand-tuned exponential weight $e^{-\alpha i}$ fighting the ill-conditioning | Gram-whitened projected least squares; no exponential weight needed |
 
 In short, the original LSI spent effort *fighting* a bad basis; the current LSI
-*changes the basis* so the problem is well-posed to begin with. That is why
-`alpha` defaults to 0 today. Details: [../methods/lsi.md](Methods-LSI).
+*changes the basis* so the problem is well-posed to begin with, and reads the
+whole match off one fixed-size image. Details: [../methods/lsi.md](Methods-LSI).
 
-### EAC -- from exactly-determined to overdetermined to adaptive
+### EAC -- from exactly-determined to overdetermined
 
-| | original EAC (~= DSBE) | current EAC (uniform) | curvature EAC |
-|---|---|---|---|
-| **Windows** | exactly $m$ (one per parameter) | $2m$ by default (**overdetermined**) | $2m$, but **placed by curvature** |
-| **Noise** | no redundancy -> throws away the averaging that integration buys | extra equations average out per-window noise (~15% lower variance) | windows concentrate where the signal bends (most information) |
-| **Uncertainty** | none (square system) | a **covariance** from the leftover residuals | a covariance |
-| **Jacobian** | -- | analytic **integrated** Jacobian (exact, smooth) | same |
-| **Best for** | -- | transients, saturating shapes, few params | peaks & rational-saturating rises (Michaelis-Menten, Hill, `arctan`) |
+| | original EAC (~= DSBE) | current EAC |
+|---|---|---|
+| **Windows** | exactly $m$ (one per parameter) | $4m$ by default (**overdetermined**) |
+| **Noise** | no redundancy -> throws away the averaging that integration buys | extra equations average out per-window noise |
+| **Uncertainty** | none (square system) | a **covariance** from the leftover residuals |
+| **Statistic** | -- | the block **image**: window sums $S$ and their Gram $G$, exact in the block basis's span |
+| **Best for** | -- | transients, saturating shapes, few params |
 
-All three EAC generations ship in one function: `fit_eac` defaults to equal,
-overdetermined windows (`window_mode="uniform"`), and the curvature-placed
-variant is the `window_mode="curvature"` option of the same call. Details:
-[../methods/eac.md](Methods-EAC).
+Details: [../methods/eac.md](Methods-EAC).
 
 ---
 
@@ -157,17 +154,14 @@ the complete list across the stable API.
 
 | approach | call / switch | what it is |
 |---|---|---|
-| **LSI (default)** | `fit_lsi(...)` | accurate batch fit, Legendre spectral match |
-| **LSI, auto order** | `fit_lsi(..., k_star="auto")` | pick the spectral order by BIC |
-| **LSI, global search** | `fit_lsi(..., bounds=...)` | differential-evolution -> L-BFGS-B, escapes bad local minima |
-| **LSI oscillatory recipe** | `fit_lsi(..., freq_param="w")` or `oscillatory=True` | smoothing off, order raised to resolve a cycle, frequency seeded from the FFT -- recovers sinusoids to <1% |
-| **EAC (default)** | `fit_eac(...)` | overdetermined equal-areas, most robust/fastest |
-| **EAC, robust loss** | `fit_eac(..., loss="soft_l1", f_scale=...)` | down-weights outlier-contaminated windows (needs `f_scale` tuned to the window) |
-| **EAC, robust IRLS** | `fit_eac(..., robust=True, huber_c=...)` | **self-scaling** winsorized integral loss -- outlier resistance with no `f_scale` to guess |
+| **LSI (default)** | `fit_lsi(...)` | accurate batch fit on the Legendre image; `k_star=None`/`"auto"` (an omitted `order`) takes `order_for`'s default |
+| **LSI, global search** | `fit_lsi(..., bounds=...)` | trust-region local solve, with a differential-evolution stage when it's poor -- escapes bad local minima |
+| **LSI oscillatory recipe** | `fit_lsi(..., freq_param="w")` or `oscillatory=True` | order raised to resolve a cycle, frequency seeded from the FFT -- recovers sinusoids to <1% |
+| **EAC (default)** | `fit_eac(...)` | overdetermined block image, most robust/fastest |
+| **Robust image** | `robust=True` on `fit`, `fit_lsi`, `fit_eac` | Huber-reweights the image before any model is fit -- self-scaling, no scale to tune |
 | **EAC, bounded** | `fit_eac(..., bounds=...)` | constrained trust-region fit |
-| **Curvature EAC** | `fit_eac(..., window_mode="curvature")` | curvature-placed windows for peaks/saturating shapes |
 | **Missing data** | `fit_lsi/fit_eac(..., nan_policy="omit")` | drop NaNs instead of raising |
-| **Ensemble** | `ensemble_fit(...)` | overlapping-window median + spread -- outlier-robust, no `f_scale` tuning |
+| **Ensemble** | `ensemble_fit(...)` | overlapping-window median + spread -- outlier-robust, no scale to tune |
 | **DSB** | `fit_dsb(...)` | symbolic exact balance (reference only) |
 | **EACFilter** | `EACFilter(...)` | streaming EAC (area measurement) |
 | **LSIFilter** | `LSIFilter(...)` | streaming LSI (spectrum measurement) -- for oscillatory plants |
@@ -201,12 +195,12 @@ kept experimental until it proves itself. Here is the complete list with status.
 
 | # | adaptation | now in `dtfit` as | what it is & how it works |
 |---|---|---|---|
-| **#1** | one-pass / distributed map-reduce | `PartitionedLSI`, `PartitionedEAC` | the empirical fingerprint is **additive over the domain** (a sum of per-chunk integrals), so a dataset too big for memory is reduced chunk-by-chunk in one pass, and distributed workers' partial sums `merge()` exactly. -> [../api/scaling.md](API-Scaling) |
-| **--** | GEMM-batched projection | `fit_lsi_batched`, `PartitionedBatchLSI` (low-level `dtfit.scale.project_spectra`) | the fingerprint is **linear across channels**, so `B` channels' spectra are one matrix multiply `D^T.(w*Y)` -- runnable on CPU/GPU by swapping only *where the arrays live*. -> [../api/scaling.md](API-Scaling) |
-| **#6** | curvature-adaptive windows | `fit_eac(..., window_mode="curvature")` | place EAC's windows by cumulative curvature -- narrow where the signal bends -- so each window carries equal information. Best for peaks/saturating shapes. -> [../api/fitting.md#fit_eac](API-Fitting#fit_eac) |
-| **--** | LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` | smoothing off + high order + FFT-seeded frequency, so a cycle isn't erased. -> [../api/fitting.md#fit_lsi](API-Fitting#fit_lsi) |
+| **#1** | one-pass / distributed map-reduce | `ImageStream` accumulator | the image is **additive over the domain** (a sum of per-chunk projections), so a dataset too big for memory is reduced chunk-by-chunk in one pass, and distributed workers' partial images `merge()` exactly on contiguous chunks of a uniform grid (or `grid="explicit"` for other sample sets); the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
+| **--** | GEMM-batched projection | `ImageStream(channels=B)` | the image is **linear across channels**, so `B` channels' projections are one matrix multiply over one shared Gram, on CPU/GPU by swapping only the backend; the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
+| **#6** | curvature-adaptive windows | retired | EAC places its windows uniformly, $4m$ by default. |
+| **--** | LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` | high order + FFT-seeded frequency, so a cycle isn't erased. -> [../api/fitting.md#fit_lsi](API-Fitting#fit_lsi) |
 | **--** | fused multi-axis detection | `FusedChiSquareDetector` | pool a filter bank's per-stream innovations into one `chi2(K)` statistic to catch a fault too weak in any single stream. -> [../api/streaming.md#fused](API-Streaming#fused) |
-| **#3** | overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` | fit on many overlapping sub-windows and take the **median** of the per-window estimates -- bagging over time; rejects outlier windows and yields a spread. Outlier-robust without `f_scale` tuning. -> [../methods/ensemble.md](Methods-Ensemble) |
+| **#3** | overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` | fit on many overlapping sub-windows and take the **median** of the per-window estimates -- bagging over time; rejects outlier windows and yields a spread. Outlier-robust with no scale to tune. -> [../methods/ensemble.md](Methods-Ensemble) |
 
 ### Still experimental (in `dtfit-experimental`)
 
@@ -238,7 +232,7 @@ adaptation is measured against are in
 
 ```
 dtfit (stable, public)
-+-- batch fitting          fit_lsi . fit_eac (window_mode=uniform|curvature) . fit_dsb . ensemble_fit
++-- batch fitting          fit_lsi . fit_eac . fit_dsb . ensemble_fit
 |   support                find_degree . fft_frequency_seed
 +-- result type            FittingResult
 +-- sklearn estimator      NonlineRegressor
@@ -249,8 +243,8 @@ dtfit (stable, public)
 +-- stochastic (random)    fit_stochastic . StochasticModel . StochasticFilter . Stochastic
 |                          estimators: hurst_aggvar/spectral . ar1_reversion . garch_persistence
 |                          cycle_period . decompose_trend_cycle . ar_order . fit_ar . fractional_difference
-+-- scaling backends       fit_many . Partitioned{LSI,EAC,BatchLSI}
-|                          fit_lsi_batched   (dtfit.scale.project_spectra low-level)
++-- scaling backends       fit_many . ImageStream
+|                          (accumulator . block streams . channels; merge/checkpoint/resume)
 +-- diagnostics            fit_report . residual_diagnostics . FitDisplay . ResidualsDisplay
 
 dtfit-experimental (separate; promotes into dtfit when validated)

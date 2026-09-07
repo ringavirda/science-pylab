@@ -70,7 +70,9 @@ parameters), and then tunes the parameters until the two fingerprints match.
 The mathematical name for this fingerprint is the **differential spectrum** (also
 called the *differential transform* or *non-Taylor transform*). It is the central
 object in the author's dissertation, and the source of the package name:
-**d**ifferential-**t**ransform **fit**.
+**d**ifferential-**t**ransform **fit**. In the code it has a shorter name, the
+**image**: `Original(x, y).image(basis, order)` builds it once from the samples.
+See [methods/image.md](Methods-Image).
 
 ### What the fingerprint actually is
 

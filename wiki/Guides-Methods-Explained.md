@@ -15,6 +15,7 @@ treatment of any method, follow the link to [../methods/](Methods).
 Quick map:
 
 - [DSB -- the exact, symbolic reference](#dsb)
+- [The image -- what every method fits](#image)
 - [LSI -- the accurate batch fitter](#lsi)
 - [EAC -- the robust, fast batch fitter](#eac)
 - [The streaming filters -- real-time tracking](#streaming)
@@ -79,6 +80,46 @@ model you can differentiate, not just a hand-coded list of exp/sin/cos.
 
 ---
 
+<a name="image"></a>
+## The image -- what every method fits
+
+Full math: [../methods/image.md](Methods-Image).
+
+### The intuition
+
+Every method below needs a way to turn raw samples into a fingerprint before
+it can compare data to model. In the code, that fingerprint has a name: the
+**image**. An image is a fixed-size summary of the data in a chosen basis
+(Legendre polynomials for LSI, block indicators for EAC), built once from the
+samples, that the model is matched against instead of the raw points.
+
+### How it works
+
+Evaluate the basis at the sample positions and form two objects: the
+projections $S$ (how much of each basis function the data contains) and the
+Gram matrix $G$ (how the basis functions correlate with each other on this
+exact grid of samples). Together with the sample count and the raw sum of
+squares, $S$ and $G$ are the sufficient statistic of the data's regression
+onto the basis -- everything a fit needs, and nothing more. The model gets the
+same treatment on the same grid, with the same weights: its own projection
+$S_f(\theta)$, function of the unknown parameters. Fitting is then reduced to
+closing the gap between $S$ and $S_f(\theta)$.
+
+### Why it's correct
+
+$S$ and $G$ are sums over samples, so they are **additive**: pool two sample
+sets and their images add, term by term, whatever the sample order or overlap.
+Comparing the model's projection to the data's is exactly comparing the two
+curves' fingerprints in the least-squares sense over the basis's span -- exact
+when the model lies in that span, and costing no further pass over the data
+once the image is built: many candidate models can be matched against the same
+image.
+
+LSI is this image in the Legendre basis; EAC is this image in the block basis.
+Everything from here on is which basis, and which knob.
+
+---
+
 <a name="lsi"></a>
 ## LSI -- Least-Squares Integral (the accurate default)
 
@@ -106,59 +147,53 @@ different, independent lengths, so each measures something distinct.)
 
 ### How it works
 
-1. **(Optional) lightly smooth** the data to tame noise.
-2. **Data fingerprint:** project the data onto Legendre polynomials (a
-   well-behaved least-squares fit), giving stable fingerprint coefficients.
-3. **Model fingerprint:** project the model onto the same Legendre polynomials,
-   computing the integrals *exactly* by Gaussian quadrature (so the model is
-   integrated, not crudely approximated). These coefficients contain the unknown
-   parameters.
-4. **Match:** tune the parameters to minimize the weighted difference between the
-   two sets of coefficients. Because the Legendre basis is *orthogonal*, this
-   difference is a clean, perfectly-conditioned sum of squared coefficient gaps.
-5. **Solve:** plain local optimization (Levenberg-Marquardt) by default, or -- if
-   you give parameter `bounds` -- a global search first, so it can't get trapped
-   in a wrong local minimum.
+1. **Build the image.** Project the data onto the Legendre polynomials up to
+   order `k_star` (default from `order_for`): the weighted projections $S$ and
+   the Gram matrix $G$ of the basis on the data's own sample grid.
+2. **Project the model** onto the same basis at the same order, $S_f(\theta)$
+   -- the same projection, taken on the model instead of the data.
+3. **Whiten and match:** with $G = L L^T$, minimize the whitened gap
+   $\lVert L^{-1}(S - S_f(\theta)) \rVert^2$.
+4. **Solve:** Levenberg-Marquardt when the fit is unbounded; a bounded
+   trust-region solve with `bounds`, with a differential-evolution search
+   behind it when that local solve comes out poor.
 
 ### Why it's correct
 
-Start from the most natural goal: make the model curve close to the data curve in
-the integrated-squared-error sense,
+Start from the most natural goal: make the model's projection onto the basis
+match the data's, in the metric the Gram matrix defines,
 
-$$ J(\theta) = \int \big[\,\text{data}(t) - \text{model}(t;\theta)\,\big]^2\,dt . $$
+$$ J(\theta) = (S - S_f(\theta))^T G^{-1} (S - S_f(\theta)) . $$
 
-Now expand both curves in Legendre polynomials. Because those polynomials are
-**orthogonal** (their cross-integrals vanish), this single integral collapses
-into a simple sum:
-
-$$ J(\theta) = \sum_j \frac{H}{2j+1}\,\big(\beta_j^{\text{data}} - \beta_j^{\text{model}}(\theta)\big)^2 . $$
-
-In words: *minimizing the area between the two curves is the same as minimizing
-the gap between their fingerprint coefficients, one coefficient at a time.* That
-is the whole justification -- and it's why LSI is both faithful to the data
-(it minimizes real reconstruction error) and numerically stable (the sum is
-diagonal, no ill-conditioned matrix). The full derivation, including why the
-plain-power version is a notorious *Hilbert matrix* and the Legendre version
-isn't, is in [../methods/lsi.md](Methods-LSI).
+Because $G$ is exactly the correlation of the basis functions on this sample
+grid -- not an idealized orthogonal inner product -- this identity holds
+whatever the grid: uniform, clustered or random; the Legendre basis is not
+required to be orthogonal for it to work, only well-conditioned. Minimizing
+$J$ is minimizing the actual weighted residual sum of squares of any function
+in the basis's span. That is the whole justification -- and it's why LSI is
+both faithful to the data (it minimizes real reconstruction error) and
+numerically stable (Legendre polynomials keep $G$ well-conditioned, unlike the
+notorious *Hilbert matrix* of plain powers). The full derivation is in
+[../methods/lsi.md](Methods-LSI).
 
 ### Knobs & adaptations
 
-- `k_star` -- how many fingerprint levels to match (the spectral order). Higher
-  resolves finer structure; `"auto"` picks it by an information criterion (BIC).
-- `alpha` -- extra down-weighting of high orders (usually unnecessary; the
-  orthogonal basis already handles it).
-- `filter_data` -- the optional pre-smoothing.
-- `bounds` -- supplying per-parameter ranges switches on a **global search**,
-  which is what lets LSI fit stubborn exponential/transcendental models without a
-  good starting guess.
-- **The oscillatory recipe** (`oscillatory=True` / `freq_param=`): smoothing and
-  low order *erase* a cycle, so for sinusoids LSI turns smoothing off, raises the
-  order to resolve the cycle, and seeds the frequency from the data's FFT peak. A
-  sinusoid recovers to under 1% with this recipe versus ~50% without it. See
-  [fft_frequency_seed](API-Fitting#fft_frequency_seed).
-- **Pluggable basis** (experimental `fit_lsi_basis`): swap Legendre for Fourier
-  (natural for periodic signals) or Laguerre (natural for decays). See
-  [../experimental/README.md](Experimental).
+- `k_star` / `order` -- the Legendre order (spectral resolution). `k_star=None`
+  or `"auto"`, and an omitted `order`, both take the default from `order_for`.
+- `order_for(model, params, domain)` -- the smallest order at which every
+  parameter sensitivity is represented to within 2% relative error; raise
+  `order` when `fit`'s coverage warning fires.
+- **The oscillatory recipe** (`oscillatory=True` / `freq_param=`): a low order
+  *erases* a cycle, so for sinusoids LSI raises the order to resolve it
+  (`osc_order`) and seeds the frequency from the data's FFT peak
+  (`fft_frequency_seed`). See [fft_frequency_seed](API-Fitting#fft_frequency_seed).
+- `bounds` -- per-parameter ranges switch the solve to a bounded trust
+  region and put a differential-evolution search behind a poor local solve,
+  which is what lets LSI fit stubborn exponential/transcendental models
+  without a good starting guess.
+- `robust=True` -- the robust image: Huber-reweights the basis regression
+  before the model is ever fit, so a handful of outliers cannot pull the
+  image off the clean signal.
 
 ---
 
@@ -183,71 +218,48 @@ cheap equation, the **fastest**.
 
 ### How it works
 
-1. **Pick windows.** Take the informative part of the data and split it into
-   $M$ windows (by default $2\times$ the number of parameters, so the system has
-   some redundancy to average over).
-2. **Data areas.** Integrate the data over each window (Simpson's rule).
-3. **Model areas.** Integrate the model over each window -- and, for the optimizer,
-   the integral of each parameter-derivative too (the *analytic integrated
-   Jacobian*, computed once symbolically, so the solver gets an exact, smooth
-   gradient).
-4. **Solve** the "model area = data area" equations by least squares.
+1. **Pick windows.** Split the domain into `n_windows` equal windows (default
+   $4$ per parameter, so the system has redundancy to average over).
+2. **Build the image.** Each window's indicator is one basis function;
+   projecting the data onto them gives the window sums $S$ (the data's area in
+   each window) and their Gram matrix $G$ (which windows overlap -- for equal,
+   disjoint windows, none, so $G$ is diagonal).
+3. **Model areas.** Project the model onto the same block basis, giving its own
+   window sums $S_f(\theta)$.
+4. **Solve** by minimizing the whitened gap between $S$ and $S_f(\theta)$.
 
 ### Why it's correct
 
-Each window gives one equation: model area on the window equals data area on the
-window. Why do a few such equations pin down the parameters? Because an area is
-itself a summary of the fingerprint -- integrating the curve over a window is a
-particular weighted combination of its fingerprint numbers. So matching areas
-over $M$ well-placed windows is matching $M$ independent summaries of the
-fingerprint, and once you've matched as many independent summaries as the model
-has free parameters, the model is pinned down (this is a *weak-form*, or Galerkin,
-identification -- the formal statement is in [../methods/eac.md](Methods-EAC)).
+Each window sum is itself a summary of the fingerprint -- integrating the curve
+over a window is a particular weighted combination of its fingerprint numbers.
+So matching sums over $M$ well-placed windows is matching $M$ independent
+summaries of the fingerprint, and once you've matched as many independent
+summaries as the model has free parameters, the model is pinned down (this is
+a *weak-form*, or Galerkin, identification -- the formal statement is in
+[../methods/eac.md](Methods-EAC)).
 
 The robustness has a one-line proof: zero-mean noise integrates toward zero,
 $\int_W \varepsilon(t)\,dt \to 0$ as the window grows. The data enters EAC *only*
-through these integrals, so the noise is gone before the fit even starts.
+through these integrals, so the noise is mostly gone once the image is built,
+before the fit even starts.
 
-**Why overdetermine it?** Using more windows than parameters ($2m$ by default)
+**Why overdetermine it?** Using more windows than parameters ($4m$ by default)
 means the random per-window integration errors partly cancel across windows,
 lowering the variance of the estimate -- and it lets EAC report a parameter
 **covariance** (uncertainty) from the leftover residuals.
 
 ### Knobs & adaptations
 
-- `n_windows` -- number of area equations. More windows localize information (and
-  let a robust loss isolate outlier-contaminated windows); too many makes each
-  window tiny and noisy. The default $2m$ is a safe start.
-- `active_ratio` -- what leading fraction of the data to window. The default `1.0`
-  windows the **full record** (safe for saturating shapes like `arctan` whose
-  asymptote lives in the tail); **set it to `0.8` for signals whose information
-  lives in an early transient** -- the study-tuned recipe that `dtfit.auto`'s
-  EAC routes pin explicitly.
-- `loss` + `f_scale` -- a robust loss (`"soft_l1"`, `"cauchy"`) down-weights
-  windows an outlier has corrupted. This is the *single-fit* robustness path;
-  for densely contaminated records prefer the `ensemble_fit` path below. The
-  loss acts at the *window* level and "bites" when `f_scale` sits near the size
-  of a clean window's area residual; the default (`f_scale=None`) auto-scales
-  to `1.4826 * MAD` of a linear-loss seed fit's window-area residuals, so the
-  robust loss actually engages -- pass an explicit value to override. See the
-  worked discussion in [example 02](Example-02-Fitting-Methods).
-- `robust=True` (+ `huber_c`) -- a **self-scaling** robust *integral* loss.
-  Instead of tuning `f_scale`, it IRLS-winsorizes each sample's residual to the
-  current model (at `huber_c` MADs) and re-solves a few times, so you get outlier
-  resistance with no scale to guess. The single-fit robustness path of choice when
-  contamination is moderate; for densely corrupted records still prefer
-  `ensemble_fit`.
+- `n_windows` -- number of block windows (default $4m$). More windows localize
+  information; too many makes each window tiny and noisy.
+- `robust=True` -- the robust image: Huber-reweights the block regression
+  before the model is fit, the outlier defence for a single fit.
 - `bounds` -- constrained fits (switches to a trust-region solver).
-- **Curvature windows** (`fit_eac(..., window_mode="curvature")`): instead of the
-  default uniform windows, place window edges by **curvature** -- narrow where the
-  signal bends, wide where it's flat -- so each window carries roughly equal
-  information. This is the best estimator for localized transients and saturating
-  (Michaelis-Menten / Hill) shapes. -> [api/fitting.md#fit_eac](API-Fitting#fit_eac)
-- **Overlapping-window ensemble** (`ensemble_fit`): when *outliers* contaminate
-  the record, fit many overlapping sub-windows and take the **median** of the
-  per-window estimates -- whole corrupted windows are simply outvoted, with no
-  `f_scale` tuning, and the inter-window spread is a free uncertainty band. More
-  reliable than the robust loss on spiky data; on clean data prefer a single fit.
+- **Overlapping-window ensemble** (`ensemble_fit`): for a *densely*
+  contaminated record, fit many overlapping sub-windows and take the
+  **median** of the per-window estimates -- whole corrupted windows are simply
+  outvoted, with no scale to tune, and the inter-window spread is a free
+  uncertainty band. On clean data prefer a single fit.
   -> [../methods/ensemble.md](Methods-Ensemble)
 
 ---
@@ -409,7 +421,7 @@ to forecast to generator.
 
 | | DSB | LSI | EAC | EACFilter / LSIFilter |
 |---|---|---|---|---|
-| **Matches** | exact fingerprint | fingerprint (least-squares, Legendre) | integrated areas / windows | area / spectrum, one sample at a time |
+| **Matches** | exact fingerprint | image (least-squares, Legendre) | image (block, window sums) | area / spectrum, one sample at a time |
 | **Mode** | symbolic, offline | batch, offline | batch, offline | streaming, online |
 | **Best at** | derivation / reference | accurate general fitting | robust, fast, few-parameter | real-time tracking + drift detection |
 | **Noise** | fragile | tolerant | most robust | robust (integral measurement) |
