@@ -1,21 +1,76 @@
-"""Guards for the embedded-LSI codegen: the two facts the on-silicon numbers
+"""Guards for the embedded-LSI codegen: the facts the on-silicon numbers
 rest on, neither needing a board.
 
-* The float64 golden reproduces the real ``dtfit.streaming.LSIFilter``, making
-  the firmware the dtfit method rather than a lookalike.
+* The float64 golden reproduces the real ``dtfit.streaming.LSIFilter`` on a
+  uniform, drift-free window, making the firmware the dtfit method and not
+  a lookalike there; the level-shift and jitter cases below bound how far
+  the two part ways once drift fires or the grid stops being uniform.
 * The checked-in flash tables match the generator, and every sketch dir carries
   an identical copy, since Arduino needs sketch-local headers. A config change
   therefore cannot ship one sketch stale.
+* The compiled C hot path, run over the real BLE sample vector, tracks the
+  float64 golden to float32 rounding.
 """
 from __future__ import annotations
+
+import subprocess
+import tempfile
+from pathlib import Path
+
+import numpy as np
 
 from dtfit_hardware.tools import embed_lsi
 
 
 def test_golden_matches_real_lsi_filter() -> None:
     # The embedded float64 golden tracks the configured LSIFilter to 1e-6 in
-    # every parameter, so the two are the same filter and not merely similar.
+    # every parameter on a uniform, drift-free window -- the regime the port
+    # targets. See test_golden_diverges_under_level_shift and
+    # test_golden_diverges_on_jittered_grid for what happens outside it.
     assert embed_lsi.cross_check() < 1e-6
+
+
+def test_golden_diverges_under_level_shift() -> None:
+    # Outside cross_check's no-drift regime: LSIFilter's jump test fires
+    # (cusum_k=inf only disables the two CUSUM arms), the golden has no
+    # model of it, and the two do not re-converge. Regression guard on the
+    # gap's size, not a bound to shrink here.
+    assert embed_lsi.cross_check_level_shift() > 50.0
+
+
+def test_golden_diverges_on_jittered_grid() -> None:
+    # tables() freezes B on a uniform grid; LSIFilter rebuilds it from the
+    # window's actual sample times. cross_check's fixed 0.1 s step cannot
+    # see this. A 1% jitter, close to the sketches' millis()-gated 1 Hz
+    # loop, already clears the 1e-6 bound by more than an order.
+    assert embed_lsi.cross_check_jitter(0.01) > 1e-5
+
+
+def test_c_hot_path_matches_golden() -> None:
+    # Compiles and runs the real C header (not a reimplementation) over the
+    # recorded BLE sample vector, and checks its float32 output against the
+    # float64 golden on the same (t, y).
+    t, y = embed_lsi.load_sample()
+    p0 = np.array([y[0]] + [0.0] * (embed_lsi.N - 1))
+    golden = embed_lsi.golden_run(t, y, p0)
+
+    fw_dir = embed_lsi.FIRMWARE / "nano_lsi_onboard"
+    src = embed_lsi.HERE / "test_lsi.cpp"
+    with tempfile.TemporaryDirectory() as d:
+        exe = Path(d) / "test_lsi"
+        subprocess.run(
+            ["g++", "-O2", "-ffp-contract=off", "-I", str(fw_dir),
+             str(src), "-o", str(exe)],
+            check=True,
+        )
+        out = subprocess.run(
+            [str(exe)], capture_output=True, text=True, check=True,
+        ).stdout
+
+    rows = [ln.split() for ln in out.splitlines() if ln.startswith("VAL")]
+    idx = [int(r[1]) for r in rows]
+    c_p = np.array([[float(r[2]), float(r[3])] for r in rows])
+    assert np.max(np.abs(golden[idx] - c_p)) < 1e-4
 
 
 def test_checked_in_tables_match_generator() -> None:

@@ -2,24 +2,32 @@
 
 The on-MCU filter is a fixed-size specialization of
 ``dtfit.streaming.LSIFilter``: one model, a fixed window ``W`` and Legendre
-``order``, full-window only, with no adaptive-window, drift or robust paths.
-This module bridges the Python method and the C firmware.
+``order``, full-window only, with no adaptive-window, drift, robust or
+damped-step-rejection paths. This module bridges the Python method and the
+C firmware.
 
 * :func:`tables` precomputes every constant the hot path needs, being the
-  whitened basis matrix B, the noise variance and the process-noise
-  diagonal. On the MCU these live in read-only flash.
+  whitened basis matrix B, the noise variance, the process-noise diagonal
+  and the initial covariance diagonal. On the MCU these live in read-only
+  flash.
 * :func:`golden_run` reimplements the C hot path in float64, operation for
   operation. It is the host reference the embedded float32 filter is checked
   against.
 * :func:`cross_check` shows the golden matches the real ``LSIFilter``
-  configured to the same fixed-window subset, which is what makes the embedded
-  filter demonstrably the dtfit method rather than a lookalike.
+  configured to the same fixed-window subset while no drift fires, no step
+  is rejected and the window is exactly uniform -- the regime the two
+  compute the same algebra in, which is what makes the embedded filter
+  demonstrably the dtfit method and not a lookalike there.
+  :func:`cross_check_level_shift` and :func:`cross_check_jitter` measure how
+  far the two part ways outside it.
 * :func:`emit_header` writes ``lsi_tables.h`` for the firmware.
 
 The frozen model is a per-axis constant velocity ``y = c0 + c1*t`` on a
 monomial basis. Being linear in the parameters, it stays well-conditioned in
-float32 even at large absolute ``t``, where the condition number goes as
-t0/span.
+float32 even at large absolute ``t``: the float64 golden degrades right
+alongside the float32 firmware there (measured ``cond(H) ~ 3e6`` at
+``t0 = 3600 s``, window span 14 s), so the loss is representable range, not
+precision.
 """
 
 from __future__ import annotations
@@ -105,7 +113,15 @@ def golden_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
 
 
 def dtfit_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
-    """The real ``LSIFilter`` constrained to the embedded fixed-window subset."""
+    """The real ``LSIFilter`` constrained to the embedded fixed-window subset.
+
+    Matches :func:`golden_run` only while no drift fires and no step is
+    rejected: ``cusum_k=inf`` disables the two CUSUM arms, but
+    ``alpha=1e-15`` only raises the single-sample jump test's threshold to a
+    finite value, it does not disable that test. The damped-step guard in
+    ``ImageFilter.partial_fit`` has no counterpart here either. See
+    :func:`cross_check_level_shift`.
+    """
     from dtfit.streaming import LSIFilter
 
     expr = " + ".join(["c0"] + [f"c{k}*t**{k}" if k > 1 else "c1*t"
@@ -126,6 +142,11 @@ def dtfit_run(t: np.ndarray, y: np.ndarray, p0: np.ndarray) -> np.ndarray:
 def cross_check() -> float:
     """Golden against the real LSIFilter on a synthetic ramp plus noise.
 
+    Uniform sampling, no drift, no rejected step: the regime where
+    :func:`golden_run` and :func:`dtfit_run` compute the same algebra
+    exactly, so this bounds the port itself, not the divergence outside that
+    regime (see :func:`cross_check_level_shift`, :func:`cross_check_jitter`).
+
     Returns:
         The largest absolute parameter difference over the run.
     """
@@ -138,14 +159,61 @@ def cross_check() -> float:
     return float(np.max(np.abs(g - d)))
 
 
+def cross_check_level_shift() -> float:
+    """Golden against the real LSIFilter across a mid-run level shift.
+
+    Same ramp as :func:`cross_check` with a +50 step at sample 60.
+    ``LSIFilter``'s jump test fires and diverts through ``_on_drift``, which
+    :func:`golden_run` has no model of; the two estimates do not re-converge
+    within the run. This is a regression guard on the size of that gap, not
+    a target to shrink -- fixing it is a change to ``ImageFilter`` itself.
+
+    Returns:
+        The largest absolute parameter difference over the run.
+    """
+    t = np.arange(120) * 1.0
+    y = 3.0 - 1.5 * t
+    y[60:] += 50.0
+    p0 = np.array([y[0]] + [0.0] * (N - 1))
+    g = golden_run(t, y, p0)
+    d = dtfit_run(t, y, p0)
+    return float(np.max(np.abs(g - d)))
+
+
+def cross_check_jitter(pct: float) -> float:
+    """Golden against the real LSIFilter on a window with timing jitter.
+
+    :func:`tables` freezes ``B`` on a uniform grid; ``LSIFilter`` rebuilds
+    its basis from the window's actual sample times, so the two only agree
+    exactly when the window is uniformly spaced, which :func:`cross_check`'s
+    fixed-step grid cannot exercise.
+
+    Args:
+        pct: Fractional timing jitter per step, uniform in
+            ``[-pct, pct]`` of the nominal 0.1 s step.
+
+    Returns:
+        The largest absolute parameter difference over the run.
+    """
+    rng = np.random.default_rng(0)
+    dt = 0.1 * (1.0 + rng.uniform(-pct, pct, 80))
+    t = np.cumsum(dt)
+    y = 3.0 - 1.5 * t + rng.normal(0, 0.05, t.size)
+    p0 = np.array([y[0]] + [0.0] * (N - 1))
+    g = golden_run(t, y, p0)
+    d = dtfit_run(t, y, p0)
+    return float(np.max(np.abs(g - d)))
+
+
 def _fc(v: float) -> str:
     """Format a float as a valid C float literal, decimal or exponent.
 
-    Anything under ``1e-12`` in magnitude is snapped to ``0.0``. Those are
-    projection entries that are analytically zero but carry ~1e-17 of roundoff
-    which differs between BLAS and NumPy builds; snapping them keeps the
-    emitted tables byte-identical across machines. Otherwise the checked-in
-    tables sync test goes flaky and the firmware ships meaningless noise.
+    Anything under ``1e-12`` in magnitude is snapped to ``0.0``. The whitened
+    basis ``B`` has entries that are analytically zero (three in its centre
+    row) but carry ~1e-17 of roundoff which differs between BLAS and NumPy
+    builds; snapping them keeps the emitted tables byte-identical across
+    machines. Otherwise the checked-in tables sync test goes flaky and the
+    firmware ships meaningless noise.
     """
     if abs(v) < 1e-12:
         v = 0.0
@@ -164,6 +232,9 @@ def _carr(name: str, a: np.ndarray, dims: str) -> str:
 def render_header() -> str:
     """Render the firmware's ``lsi_tables.h`` text from the frozen config."""
     tb = tables()
+    # _fc snaps |v| < 1e-12 to 0.0; the C inverts LSI_S2, so a snapped R0
+    # would make inv_s2 infinite and poison every estimate silently.
+    assert abs(R0) >= 1e-12, "R0 too small: LSI_S2 would snap to 0.0"
     lines = [
         "// Generated by tools/embed_lsi.py -- do not edit by hand.",
         "// Frozen streaming-LSI config for the on-MCU filter (flash tables).",
