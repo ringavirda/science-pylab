@@ -2,208 +2,176 @@
 
 !!! note
     Adapted from the project [wiki](https://github.com/ringavirda/science-nonline/wiki/Methods-LSI). The wiki has the full set of method, domain and case-study pages.
-
 > Numeric batch method, successor to the symbolic DSBI. Source:
-> [`methods/_lsi.py`https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_lsi.py; the shared
-> orthogonal-basis machinery is in
-> [`_core/_spectral.py`https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/_core/_spectral.py.
-> Invoke via `fit_lsi(x, y, expr, var, ...)`, or
-> `NonlineRegressor(..., method="lsi")`.
+> [`image/fit.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/fit.py); the basis
+> machinery is in
+> [`image/bases.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/bases.py).
+> Invoke via `fit_lsi(x, y, expr, var, ...)`, `fit(model, data,
+> basis="legendre")`, or `NonlineRegressor(..., method="lsi")`.
 
-LSI replaces the **exact** spectra balance of [DSB](https://github.com/ringavirda/science-nonline/wiki/Methods-DSB) -- which solves
-$F(k;\theta)=Z(k)$ symbolically and is brittle under noise -- with a **weighted
-integral least-squares** discrepancy between the empirical and model spectra. It
-fits the raw `(x, y)` directly (no symbolic pre-fit) and is the accurate
-batch/offline fitter and the natural model-selection tool.
+LSI is [`fit`](image.md#the-projected-estimator) in the Legendre image:
+the projected least-squares estimator restricted to the span of the Legendre
+polynomials on the sample grid, the numeric successor of the symbolic
+[DSBI](https://github.com/ringavirda/science-nonline/wiki/Methods-DSB). It fits the raw `(x, y)` directly (no symbolic pre-fit)
+and is the accurate batch/offline fitter and the natural model-selection
+tool.
 
 ## Mathematical grounding
 
-Consider the function-space $L^2$ reconstruction error over the observation
-interval $[0,H]$:
+LSI minimizes the $L^2$ criterion restricted to the span of the Legendre
+basis on the sample grid, not a continuous reconstruction error: with the
+image `S = Phi^T (w y)`, `G = Phi^T diag(w) Phi` of [the image](image.md)
+built at order `K`, and `S_f(theta)` the model projected the same way, the
+criterion is
 
 $$
-J(\theta) \;=\; \int_{0}^{H}\big[x_{\text{data}}(t) - f(t;\theta)\big]^2\,dt .
+J(\theta) = \big(S - S_f(\theta)\big)^\top G^+ \big(S - S_f(\theta)\big)
+          = \big\| L^{-1}(S - S_f(\theta)) \big\|^2, \qquad G = L L^\top .
 $$
 
-Expand both signals in their differential spectra (powers of $t$) and let
-$d_k = Z(k) - F(k;\theta)$ be the per-discrete mismatch, so
-$x_{\text{data}}(t)-f(t;\theta) \approx \sum_k d_k\,t^{k}$. Then
-
-$$
-J(\theta) = \int_{0}^{H}\Big(\sum_k d_k t^{k}\Big)\Big(\sum_j d_j t^{j}\Big)dt
-          = \mathbf{d}^{\!\top} M\,\mathbf{d},
-\qquad M[k,j] = \frac{H^{\,k+j+1}}{k+j+1}.
-$$
-
-This is the integral-OLS normal-equation form. In the **monomial** spectrum $M$ is
-a (scaled) Hilbert matrix, whose condition number grows like $(1+\sqrt2)^{4n}$ --
-already $\sim10^7$ at order 5 -- and the empirical monomial spectrum from
-`numpy.polyfit` is itself an ill-conditioned Vandermonde solve. The original LSI
-fought this with an exponential discrete weighting $w_i=e^{-\alpha i}$, which only
-mitigates a fundamentally ill-posed basis.
-
-### Reconditioning: an orthogonal-polynomial spectrum
-
-The fix is to change basis. Expand the discrepancy in **Legendre polynomials
-$L_j$ on the data interval** instead of monomials. Because the $L_j$ are
-*orthogonal*, the Gram matrix is **diagonal**,
-
-$$
-\int_{x_0}^{x_N} L_i(u(t))\,L_j(u(t))\,dt = \frac{H}{2j+1}\,\delta_{ij},
-\qquad u(t)=\frac{2(t-x_0)}{H}-1,
-$$
-
-so the continuous $L^2$ criterion collapses to a perfectly conditioned diagonal
-sum of squared coefficient residuals,
-
-$$
-J(\theta) \;=\; \sum_{j} \frac{H}{2j+1}\,\big(\beta_j^{\text{data}} - \beta_j^{\text{model}}(\theta)\big)^2 .
-$$
-
-The Hilbert matrix is gone. The **empirical** Legendre coefficients
-$\beta_j^{\text{data}}$ come from `numpy.polynomial.Legendre.fit` (a
-well-conditioned orthogonal-basis least squares, not a raw Vandermonde), and the
-**model** coefficients $\beta_j^{\text{model}}(\theta)$ are obtained by
-Gauss-Legendre quadrature of the model -- so the model is *integrated exactly*
-rather than Taylor-truncated. The $1/(2j+1)$ factor down-weights high orders
-intrinsically; an optional `alpha` adds a further $e^{-\alpha j}$ but now
-**defaults to 0** -- the orthogonal basis already tames high orders, so the
-exponential crutch the original needed is off by default.
-
-Because this is a least-squares relaxation rather than an exact solve, LSI keeps
-the differential-transformation structure of DSB while gaining noise tolerance --
-at the cost of DSB's closed-form analytic property -- and now does so on a
-numerically stable basis.
+In the monomial basis `G` is a Hilbert-like Gram matrix, ill-conditioned by
+construction and only getting worse with order. In the Legendre basis on a
+uniform grid `G` is near-diagonal -- Legendre polynomials are orthogonal on
+`[-1, 1]` under the continuous inner product, and a dense uniform sample sum
+approaches that integral -- so the Cholesky whitening `L^-1` is well
+conditioned instead of amplifying noise the way a monomial fit would.
 
 ## Algorithm
 
-1. **Parse** the model `expr`; collect the free parameters $\theta$.
-2. **Pre-filter** (optional, default on): Savitzky-Golay smoothing of `y`
-   (window <= 11, cubic).
-3. **Order**: `k_star` (default 5) or `"auto"` (the Legendre degree minimizing BIC
-   of the data fit). The order is floored at `n_params - 1` so the spectral
-   residual always carries at least as many equations as parameters -- a
-   many-parameter model (e.g. an 8-coefficient Fourier series) stays solvable at
-   the default `k_star` instead of yielding an underdetermined least-squares.
-4. **Empirical spectrum**: $\beta^{\text{data}}$ = `Legendre.fit(x, y, order).coef`
-   on the interval $[x_0,x_N]$.
-5. **Model spectrum**: $\beta_j^{\text{model}}(\theta)$ by Gauss-Legendre
-   quadrature of the `lambdify`-ed model at fixed nodes (compiled once).
-6. **Diagonal weight** $\sqrt{H/(2j+1)\cdot e^{-\alpha j}}$ on the coefficient
-   residual $\beta^{\text{data}}-\beta^{\text{model}}(\theta)$.
-7. **Solve** the weighted residual:
-   - **unbounded**: Levenberg-Marquardt from the supplied/unit start;
-   - **bounded** (`bounds=` given): two-stage global search --
-     `differential_evolution` then `L-BFGS-B` polish.
-8. **Return** the fitted $\theta$, a `lambdify`-ed callable model, and a parameter
-   covariance estimate (`FittingResult.cov`) from the residual Jacobian.
+1. **Parse** the model `expr`; collect the free parameters `theta`.
+2. **Order**: `order_for(model, p0, domain)` by default, the smallest
+   Legendre order at which every parameter sensitivity is represented to 2 %
+   relative L2 error, floored at `n_params - 1`; an explicit `k_star` (or
+   `order`) overrides it and must leave at least as many coefficients as
+   parameters.
+3. **Image**: build `S` and `G` at that order from the samples.
+4. **Project** the model and its sensitivities on the same grid, with the
+   same weights, to get `S_f(theta)` and its Jacobian.
+5. **Whiten** the residual `S - S_f(theta)` by the Cholesky factor of `G`.
+6. **Solve**: Levenberg-Marquardt from the supplied/unit start when there are
+   no bounds; trust-region when bounds are given, followed by a
+   differential-evolution stage only when every bound is finite and the
+   local solve fails, returns a non-finite cost, or explains less than half
+   the weighted total sum of squares -- a `UserWarning` announces the
+   fallback.
+7. **Covariance** from the SVD of the whitened residual's Jacobian, scaled
+   by `RSS / (n - p)` unless `absolute_sigma=True`; a parameter in a null
+   direction of the Jacobian is unidentified and gets `inf` on its diagonal,
+   `nan` off it.
+8. **Coverage**: `coverage(model, p0, image)` measures the truncation error
+   left at the chosen order; `fit`/`fit_lsi` raise a `UserWarning` above 2 %,
+   meaning the image is too coarse to identify the model.
 
 ## The oscillatory recipe
 
-A smoothed, low-order spectral fit **erases** cycles -- a sinusoid recovers to only
-~50 % that way. For oscillatory models LSI applies a validated recipe, switched on
-by `oscillatory=True` or by naming the angular-frequency parameter with
-`freq_param=`:
+A low default order erases a cycle -- there is no smoothing step to disable,
+since none runs at any order. For oscillatory models LSI applies a
+validated recipe, switched on by `oscillatory=True` or by naming the
+angular-frequency parameter with `freq_param=`:
 
-- **smoothing off** -- the cycle lives in the high-order spectrum that the
-  Savitzky-Golay pre-filter would destroy;
-- **order raised** to resolve the dominant cycle -- a Legendre degree of about
-  $\pi \cdot \text{cycles}$ plus headroom (`_osc_order`: the classical
-  orthogonal-polynomial resolution threshold for a sinusoid), instead of the
-  default 5;
+- **order raised** to `osc_order(x, y)`, `ceil(pi * cycles) + 8` where
+  `cycles` is the number of periods of the FFT-peak frequency spanned by
+  `x` -- the polynomial resolution threshold for a sinusoid, with headroom,
+  taken over `order_for`'s own default when it is larger;
 - **frequency seeded** from the data's FFT peak via
-  [`fft_frequency_seed`](https://github.com/ringavirda/science-nonline/wiki/API-Fitting#fft_frequency_seed) -- the local solve
-  cannot lock onto the right cycle without a frequency seed.
+  [`fft_frequency_seed`](../api/batch-fitting.md#fft_frequency_seed) before the solve,
+  overwriting `p0` for that parameter -- the local solve cannot lock onto
+  the right cycle without it.
 
-**When `bounds` are supplied** the FFT frequency seed is *not* relied on: the
-bounded path runs a **global search** (`differential_evolution` over the bounds,
-polished by `L-BFGS-B`) that brackets the frequency by its bounds rather than
-starting from the seed. (It first tries a fast bounded *local* solve from the seed,
-but falls back to the global search whenever that seed-started solve does not
-converge or leaves a large residual, so a good frequency bound is what pins the
-cycle there -- not the seed.) The FFT seed matters for the *unbounded* local solve.
+The bounded case follows the same solver rule as any other fit: an
+unbounded fit runs Levenberg-Marquardt from the seeded start; a bounded fit
+runs the trust-region solve first and only falls to differential evolution
+under the condition above, so a tight frequency bound pins the cycle as
+well as the seed does.
 
-With the recipe a sinusoid recovers to **<1 %**. The recipe was validated across
-the forecasting and parameter-estimation domain studies (see
+With the recipe a sinusoid recovers to under 1 %. The recipe was validated
+across the forecasting and parameter-estimation domain studies (see
 [../experimental/](https://github.com/ringavirda/science-nonline/wiki/Experimental)).
 
-**Left:** the default (smoothed, low-order) LSI flattens the cycle to a wrong
-low-frequency wobble (`w~=0.9`), while the recipe recovers `w=1.70` and overlays
-the truth. **Right:** the FFT peak the recipe seeds the frequency from.
+**Left:** the default (low-order) LSI flattens the cycle to a wrong
+low-frequency wobble (`w~=0.9`), while the recipe recovers `w=1.70` and
+overlays the truth. **Right:** the FFT peak the recipe seeds the frequency
+from.
 
-![LSI oscillatory recipefigures/lsi_oscillatory.png
+![LSI oscillatory recipe](figures/lsi_oscillatory.png)
 
-## Pluggable basis (generalization)
+## Bases
 
-The LSI derivation needs only that the basis be **orthogonal** on the interval --
-nothing is special about Legendre. The shared machinery
-([`_core/_spectral.py`https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/_core/_spectral.py)
-exposes the same diagonal-weighted spectral match on a choice of basis:
-
-| basis | natural for | orthogonality weight used |
-|---|---|---|
-| **Legendre** (default) | smooth bulk shapes | $H/(2j+1)$ |
-| **Chebyshev** | endpoints emphasized | $T_j$ weight |
-| **Fourier** | periodic / seasonal signals (a wiggle is 2-3 harmonics, not many polynomial orders) | $P,\ P/2$ |
-| **Laguerre** | decays / transients on $[0,\infty)$ | $e^{-u}$ |
-
-`fit_lsi` hard-codes Legendre; the pluggable form is `fit_lsi_basis` (experimental,
-see [../experimental/adaptations-api.md](https://github.com/ringavirda/science-nonline/wiki/Experimental-Adaptations-API)), and
-the **same** machinery powers the scale backends ([scaling.md](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling)) -- where
-the empirical coefficient $\beta_j = (2j+1)/H\cdot\int y\,P_j\,dx$ is used in its
-**additive integral** form $\int y\,P_j\,dx$, which sums across a domain partition.
+LSI needs no orthogonality from its basis -- the Gram `G` carries whatever
+correlation the test functions have, exactly, and is whitened by its own
+Cholesky factor either way. A `Basis` exposes `evaluate(u) -> Phi` and
+`n_coef`; the transfer between domains is `Image.transfer`
+([Methods-Image](image.md#bases)). The Legendre basis is the one LSI
+is built around; the block basis is [EAC](eac.md)'s. The experimental
+package carries Fourier, Chebyshev and Laguerre bases on its own spectral
+machinery through `fit_lsi_basis` -- see
+[Experimental-Adaptations-API](https://github.com/ringavirda/science-nonline/wiki/Experimental-Adaptations-API).
 
 ## Relation to classical (Western) methods
 
-LSI also has well-known Western counterparts worth naming for a signal-processing
-audience:
+LSI also has well-known Western counterparts worth naming for a
+signal-processing audience:
 
-- **Spectral-Galerkin projection.** A weighted integral least-squares match in an
-  *orthogonal* (Legendre) basis is a **spectral / $p$-version Galerkin** projection:
-  global orthogonal-polynomial test functions, where [EAC](eac.md) uses local
-  piecewise-constant (Haar) ones. The two are the $p$- and $h$-versions of one
-  weighted-residual identification.
-- **Method of moments (and what the reconditioning buys).** Matching the model's and
-  data's spectral coefficients is **classical moment matching** (Pearson / GMM). The
-  *monomial*-moment form of this is the ill-conditioned Hilbert system above -- so
-  LSI's switch to an orthogonal basis is precisely the reconditioning that turns a
-  naive method-of-moments fit into a perfectly-conditioned one. (The experimental
-  suite runs the unconditioned monomial method-of-moments as a baseline to show the
-  gap -- see [the baselines page](https://github.com/ringavirda/science-nonline/wiki/Experimental-Baselines).)
-- **Variable projection (Golub-Pereyra).** For a model linear in an amplitude (e.g.
-  $A\,f(t;\theta)$), the Legendre projection is **linear in $A$** -- the same
-  separable structure VarPro exploits to eliminate the linear parameters in closed
-  form. LSI shares that structure without the alternating-minimization loop.
-- **Prony / ESPRIT** are the algebraic alternative to the oscillatory recipe for
-  recovering a frequency from an exponential/sinusoid sum (roots / subspace
-  eigenvalues vs. a high-order spectral fit). All of these are baselined in the
-  experimental suite -- see [the baselines page](https://github.com/ringavirda/science-nonline/wiki/Experimental-Baselines).
+- **Spectral-Galerkin projection.** A weighted least-squares match in the
+  Legendre basis is a **spectral / $p$-version Galerkin** projection: global
+  orthogonal-polynomial test functions, where [EAC](eac.md) uses local
+  piecewise-constant (Haar) ones. The two are the $p$- and $h$-versions of
+  one weighted-residual identification, both realized here as the same
+  projected estimator on two bases.
+- **Method of moments (and what the reconditioning buys).** The projections
+  `S` are the model's and data's moments in the chosen basis, matched by
+  least squares; this is classical moment matching (Pearson / GMM). In the
+  monomial basis that match is the ill-conditioned Hilbert system above, so
+  LSI's Legendre image is precisely the reconditioning that turns a naive
+  method-of-moments fit into a well-conditioned one -- the Gram whitening
+  *is* the reconditioning. (The experimental suite runs the unconditioned
+  monomial method-of-moments as a baseline to show the gap -- see
+  [the baselines page](https://github.com/ringavirda/science-nonline/wiki/Experimental-Baselines).)
+- **Variable projection (Golub-Pereyra).** For a model linear in an
+  amplitude (e.g. $A\,f(t;\theta)$), the projection $S_f(\theta)$ is linear
+  in $A$ -- the same separable structure VarPro exploits to eliminate the
+  linear parameters in closed form. LSI shares that structure without the
+  alternating-minimization loop.
+- **Prony / ESPRIT** are the algebraic alternative to the oscillatory recipe
+  for recovering a frequency from an exponential/sinusoid sum (roots /
+  subspace eigenvalues vs. a raised-order projected fit). All of these are
+  baselined in the experimental suite -- see
+  [the baselines page](https://github.com/ringavirda/science-nonline/wiki/Experimental-Baselines).
 
 ## Optimizations and guards
 
-- **Orthogonal (Legendre) basis** -- the integral criterion becomes a diagonal,
-  perfectly conditioned sum of squares; no Hilbert matrix, no Cholesky.
-- **Conditioned empirical spectrum** -- `Legendre.fit` replaces the raw
-  `numpy.polyfit` Vandermonde.
-- **Exact model integration** -- Gauss-Legendre quadrature of the model (compiled
-  once via the native `legendre_project` kernel, NumPy fallback).
-- **Two-stage global optimization** with bounds (`differential_evolution` ->
-  `L-BFGS-B`) escapes the local minima that plague exponential/transcendental
-  fits; without bounds, LM from the supplied/unit start.
-- **Automatic order selection** (`k_star="auto"`) by BIC; the oscillatory recipe
-  raises the order to resolve a cycle.
-- **Non-finite guard** -- a parameter vector producing non-finite spectra is
-  penalized (`1e6` residual) rather than crashing the solver.
+- **Cholesky whitening** of the Gram, jittered by `1e-14` relative to the
+  diagonal before the factorization.
+- **Hermitian pseudo-inverse**, singular values below `1e-15` of the
+  largest dropped, behind the basis coefficients `beta = G^+ S` and the
+  image RSS identity.
+- **Coverage warning** -- `fit`/`fit_lsi` warn when the image's order leaves
+  more than 2 % relative L2 truncation error in a parameter's sensitivity,
+  rather than silently returning an unidentifiable fit.
+- **Non-finite guard** -- a model not finite at the (bounds-clipped) `p0`
+  raises `ValueError` before the solver starts; an overflow met later during
+  the solve is instead priced at more than the start's own cost, so the
+  optimizer can only step away from it, never toward it.
+- **Differential-evolution gate** -- the global search only runs when every
+  bound is finite and the local solve is poor, not on every bounded fit.
+- **Unidentified-parameter covariance** -- a parameter with a component in a
+  null direction of the Jacobian gets `inf` on its diagonal and `nan` off
+  it, rather than a spuriously small variance.
+- **Per-sample sensitivity mask** -- a sensitivity that is not finite at
+  isolated samples (an exponential's derivative at `x = 0`, say) is taken as
+  zero there, its analytic limit, rather than poisoning the whole fit.
 
 ## Worked example
 
-`y = a.exp(b.x)` (truth `a=1.0, b=1.2`), 5 % noise, fit on the first 70 %, the rest
-held out. **Left:** LSI recovers the exponential and extrapolates onto the
-held-out tail. **Right:** the differential spectra LSI balances -- the empirical
-high-order discretes ($k\ge3$) blow up under noise while the model discretes stay
-small; the orthonormal weighting keeps the low-order match dominant.
+`y = a.exp(b.x)` (truth `a=1.0, b=1.2`), 5 % noise, fit on the first 70 %, the
+rest held out. **Left:** LSI recovers the exponential and extrapolates onto
+the held-out tail. **Right:** the monomial (Maclaurin) discretes the
+Legendre image replaces -- the empirical `Z(k)` from a degree-5 polynomial
+fit against the model's own `F(k, c) = a b^k / k!`; the high-order empirical
+discretes swing widely under noise while the model's stay small, the
+ill-conditioning LSI's Legendre image avoids.
 
-![LSI fit and matched spectrafigures/lsi_fit.png
+![LSI fit and matched spectra](figures/lsi_fit.png)
 
 ## Comparison
 
@@ -217,7 +185,7 @@ Error is against the *clean* signal (true parameter recovery).
 | SciPy `curve_fit` | a=1.000, b=1.204 | 0.9999 | 0.01305 | 0.25 | 0.1 |
 | numpy.polyfit (deg 5) | -- | 0.9997 | 0.02302 | 0.85 | 0.1 |
 
-![Parameter-recovery error across methodsfigures/comparison_mape.png
+![Parameter-recovery error across methods](figures/comparison_mape.png)
 
 **Real data -- COVID-19 Ukraine** (cumulative confirmed, 28-day take-off,
 548->8617 cases), exponential `y = a.exp(b.t)`:
@@ -228,22 +196,24 @@ Error is against the *clean* signal (true parameter recovery).
 | EAC | 0.8506 | 960.1 | 9.39 |
 | SciPy `curve_fit` | 0.9879 | 273.5 | 13.34 |
 
-LSI lands within a few percent of the NLS gold standard on model data and tracks
-the real growth curve at single-digit MAPE. Unlike `polyfit`, LSI returns
-interpretable model parameters $(a,b)$, not opaque polynomial coefficients.
+LSI lands within a few percent of the NLS gold standard on model data and
+tracks the real growth curve at single-digit MAPE. Unlike `polyfit`, LSI
+returns interpretable model parameters $(a,b)$, not opaque polynomial
+coefficients.
 
 ## Where it is best applied
 
-**Use LSI for:** accurate **batch / periodic-refit** fitting of models nonlinear
-in their parameters (exponential, transcendental, mixed) on noisy real data,
-especially when you want a global search over bounded parameters, an oscillatory
-fit, or interpretable coefficients. It is the accuracy tier of the batch methods
-and the model-selection workhorse (its BIC/order machinery underlies
-[`suggest_models`](https://github.com/ringavirda/science-nonline/wiki/API-Models)).
+**Use LSI for:** accurate **batch / periodic-refit** fitting of models
+nonlinear in their parameters (exponential, transcendental, mixed) on noisy
+real data, especially when you want a global search over bounded
+parameters, an oscillatory fit, or interpretable coefficients. It is the
+accuracy tier of the batch methods and the model-selection workhorse (its
+order machinery underlies [`suggest_models`](../api/models.md)). Because the
+image is built on the sample grid mapped to `[-1, 1]`, LSI carries no
+dynamic-range caveat: a wide or narrow domain is rescaled to `[-1, 1]`
+before any projection happens.
 
-**Caveats.** The empirical spectrum is a Maclaurin-type fit, so LSI needs a
-**modest dynamic range** -- normalize a wide domain (e.g. to `[0, 1.5]`) and scale
-the series to O(1) before fitting. For real-time/streaming use the
-[LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter) / [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter); for the most
-noise-robust batch fit with few parameters, [EAC](eac.md); at scale (one-pass,
-distributed, or many-channel), the [partitioned / batched backends](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling).
+For real-time/streaming use the [LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter) /
+[EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter); for the most noise-robust batch fit
+with few parameters, [EAC](eac.md); at scale (streams, blocks, many
+channels), [ImageStream](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling).

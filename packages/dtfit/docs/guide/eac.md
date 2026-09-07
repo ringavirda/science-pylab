@@ -2,38 +2,41 @@
 
 !!! note
     Adapted from the project [wiki](https://github.com/ringavirda/science-nonline/wiki/Methods-EAC). The wiki has the full set of method, domain and case-study pages.
-
 > Numeric batch method, successor to the symbolic DSBE. Source:
-> [`methods/_eac.py`https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_eac.py.
-> Invoke via `fit_eac(x, y, expr, var, ...)` -- with `window_mode="curvature"`
-> for the curvature variant -- or `NonlineRegressor(..., method="eac")`.
+> [`image/fit.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/fit.py),
+> [`image/bases.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/bases.py).
+> Invoke via `fit_eac(x, y, expr, var, ...)`, `fit(model, data, basis="block",
+> order=n_windows)`, or `NonlineRegressor(..., method="eac")`.
 
-EAC identifies parameters by matching **integral areas** of the model and the
-data over a set of windows, rather than matching spectra pointwise. Because
-integration is a smoothing (low-pass) operator, EAC never differentiates the data
-and is the **most noise-robust** of the batch methods. It is also the fastest, and
+EAC is [`fit`](image.md) in the **block** basis: the basis is the set of
+indicator functions of `n_windows` equal windows in the normalized variable
+`u`, so the image `S` is the vector of window sums -- the areas -- and the
+Gram `G` is diagonal, each entry the sum of the sample weights in its window.
+The model is projected on the same grid and matched window sum for window
+sum. EAC is the numeric successor of the symbolic DSBE, and its block image
 is the basis of the streaming [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter).
 
 ## Mathematical grounding
 
-For a model $f(t;\theta)$ with $m$ unknown parameters, split the active region of
-the data into $M \ge m$ contiguous windows $W_1,\dots,W_M$ and require the model
-area to equal the data area on each:
+For a model $f(x;\theta)$ with $m$ unknown parameters, the block image splits
+the domain into $M \ge m$ equal windows $W_1,\dots,W_M$ and requires the
+model's window sum to equal the data's on each:
 
 $$
-\int_{W_i} f(t;\theta)\,dt \;=\; \int_{W_i} x_{\text{data}}(t)\,dt,
+S_{f,i}(\theta) \;=\; \sum_{k \in W_i} w_k\, f(x_k;\theta)
+\qquad = \qquad
+S_i \;=\; \sum_{k \in W_i} w_k\, y_k,
 \qquad i = 1,\dots,M .
 $$
 
 That is $M$ equations in $m$ unknowns -- residuals
 
 $$
-r_i(\theta) \;=\; \int_{W_i} f(t;\theta)\,dt \;-\; A_i,
-\qquad A_i = \int_{W_i} x_{\text{data}}\,dt .
+r_i(\theta) \;=\; S_i - S_{f,i}(\theta) .
 $$
 
-**Connection to the differential spectrum.** The area of a signal over $[0,H]$ is
-the integral of its inverse transform,
+**Connection to the differential spectrum.** The area of a signal over
+$[0,H]$ is the integral of its inverse transform,
 
 $$
 \int_{0}^{H} x(t)\,dt
@@ -41,90 +44,58 @@ $$
    = H\sum_{k} \frac{X(k)}{k+1},
 $$
 
-so an area is a **moment of the differential spectrum**. Matching areas over $M$
-shifted windows is matching $M$ independent integral functionals of the spectrum --
-a weak-form (Galerkin, piecewise-constant test function) identification. Two
-analytic functions sharing $m$ such independent moments agree where the model has
-$m$ degrees of freedom, so the parameters are recovered.
+so an area is a **moment of the differential spectrum**. Matching areas over
+$M$ shifted windows is matching $M$ independent integral functionals of the
+spectrum -- a weak-form (Galerkin, piecewise-constant test function)
+identification. Two analytic functions sharing $m$ such independent moments
+agree where the model has $m$ degrees of freedom, so the parameters are
+recovered.
 
-**Why it is robust.** Zero-mean observation noise integrates toward zero:
-$\int_{W} \varepsilon(t)\,dt \to 0$ as the window grows. The data enter EAC only
-through their integrals $A_i$, never through a derivative or a high-order
-polynomial fit -- so EAC has none of LSI's ill-conditioned high-order discretes and
-degrades gracefully as noise rises. The figure below shows the cumulative integral
-of model and data lying on top of each other even though the raw samples are
-visibly noisy.
+**Why it is robust.** A window sum averages zero-mean observation noise
+toward zero as the window widens: $\sum_{k \in W_i} w_k \varepsilon_k$ grows
+slower than the window's own signal content. The data enter EAC only through
+these window sums, never through a derivative or a high-order polynomial fit
+-- so EAC degrades gracefully as noise rises. The worked example below
+recovers a transcendental curve from a visibly noisy cloud by matching window
+sums alone.
 
-### Overdetermined by default
+## Windows
 
-The original EAC used exactly $M=m$ windows -- a determined system with no
-redundancy, which discards the very noise averaging that integration buys. The
-current method makes $M$ default to **$2m$** (configurable via `n_windows`), an
-**overdetermined** least-squares system. The benefits are concrete:
+`n_windows` defaults to **four per parameter** (`4 * n_params`); an explicit
+value must still leave at least as many windows as parameters, since
+[`fit`](image.md) raises when the image has fewer coefficients than the
+model has parameters. The windows are equal in the normalized variable `u`
+and half-open: a sample exactly on a window's upper edge belongs to the
+**next** window; a sample at the domain's end belongs to the last window.
+Measured on the model catalog, this recovers parameter RMSE 1.02 to 1.06
+times NLLS at four windows per parameter.
 
-- the random per-window integration errors partly cancel, lowering the estimation
-  variance (empirically $\sim15\%$ on the arctan benchmark going from $m$ to $2m$
-  windows);
-- a parameter covariance can be read off the residual Jacobian
-  ([`FittingResult.cov`](https://github.com/ringavirda/science-nonline/wiki/API-Types)), which an exactly-determined system
-  cannot provide.
+`fit_eac` recovers a sharp sigmoid step with its windows spread evenly across
+`x` (dotted edges): the block preset uses four uniform windows per parameter,
+and the estimate comes from the projection on those windows, not from where
+the curve bends.
 
-`n_windows` is clamped to be $\ge m$ for solvability and to target 3 samples per
-window (Simpson's rule wants three points). **This is a target, not a hard
-guarantee:** solvability wins, so in the small-$n$ / high-parameter corner where
-$m$ is forced up to the parameter count on a short record, a uniform window can
-fall to a **floor of 2 samples** -- there Simpson degrades to the trapezoid rule on
-that window (still a valid area, just lower-order). Give EAC more samples (or fewer
-parameters) if you want every window to keep the full three.
-
-### Window placement -- equal vs. curvature-adaptive
-
-Two placement strategies are shipped:
-
-- **Equal windows** (`fit_eac`, default `window_mode="uniform"`): the active
-  region is split into $M$ **equal** spans. Simple and well-conditioned for
-  signals whose information is spread fairly evenly.
-- **Curvature-adaptive windows** (`fit_eac(..., window_mode="curvature")`): window edges are placed so
-  each window carries roughly **equal information**, measured as cumulative
-  absolute curvature $|x''(t)|$. Concretely, with $c(t)=\int_0^t |x''|\,ds$
-  (a flat floor added so smooth stretches are still covered), the edges are the
-  points where $c$ reaches $\tfrac{1}{M},\tfrac{2}{M},\dots$ of its total -- narrow
-  windows where the signal bends, wide where it is smooth. For a signal with a
-  localized transient (a step take-off, a sharp turn, a peak's rise) this is a
-  better-conditioned area-matching system, and the parameter-estimation domain
-  study validated it as the **best estimator on concentrated transients and
-  rational-saturating shapes** (Michaelis-Menten / Hill / `arctan`). The
-  curvature mode uses the **full** record (no `active_ratio` clipping), which is
-  part of why it captures a saturating asymptote in the tail.
-
-**Left:** `fit_eac(..., window_mode="curvature")` recovers a sharp sigmoid step (`k=2.45, x0=4.99`),
-its window edges (dotted) clustering on the bend. **Right:** the placement
-principle -- edges sit at equal *cumulative curvature*, so they bunch where the
-curve bends (green) instead of spreading evenly in `x` (grey). Under heavy noise
-the curvature estimate softens toward equal spacing.
-
-![Adaptive EAC on a sharp sigmoid stepfigures/eac_adaptive.png
+![EAC with uniform windows on a sharp sigmoid step](figures/eac_adaptive.png)
 
 ## Algorithm
 
 1. **Parse** the model; collect the $m$ free parameters $\theta$.
-2. **Compile once**: `lambdify` the model and each analytic partial derivative
-   $\partial f/\partial\theta_j$ (used for the Jacobian).
-3. **Window placement**:
-   - `window_mode="uniform"` (default) takes the leading `active_ratio`
-     (default 1.0 -- the full record) of the data and splits it into $M$ equal windows
-     ($M=$ `n_windows`, default $2m$);
-   - `window_mode="curvature"` places $M$ curvature-weighted edges over the
-     full record.
-4. **Data areas**: $A_i = \int_{W_i} y\,dx$ by Simpson's rule
-   ([`simpson_windows`https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/_core/_kernels.py, the
-   compiled kernel).
-5. **Solve** the $M\times m$ system by least squares using the **analytic
-   integrated Jacobian** $J[i,j] = \int_{W_i} \partial f/\partial\theta_j\,dt$ --
-   Levenberg-Marquardt (`method="lm"`) by default, or trust-region (`trf`) when
-   `bounds` or a robust `loss` (e.g. `"soft_l1"`) is requested.
-6. **Return** the fitted $\theta$, a `lambdify`-ed callable model, and (when
-   overdetermined) a parameter covariance estimate.
+2. **Image** the data in the block basis at `n_windows` (default $4m$):
+   $S_i = \sum_{k \in W_i} w_k y_k$, and $G$ diagonal with $G_{ii} =
+   \sum_{k \in W_i} w_k$.
+3. **Project** the model and its analytic sensitivities
+   $\partial f/\partial\theta_j$ onto the same grid:
+   $S_{f,i}(\theta) = \sum_{k \in W_i} w_k f(x_k;\theta)$, and likewise for
+   the Jacobian columns.
+4. **Whiten** by the diagonal Gram: $r(\theta) = L^{-1}\big(S -
+   S_f(\theta)\big)$ with $G = LL^\top$ -- for the diagonal block Gram this
+   is dividing each window residual by the square root of its weight sum.
+5. **Solve**: Levenberg-Marquardt when unbounded, trust-region when `bounds`
+   is given, followed by a differential-evolution stage only when every
+   bound is finite and the local solve fails, returns a non-finite cost, or
+   explains less than half the weighted total sum of squares.
+6. **Return** the fitted $\theta$ and, when the degrees of freedom allow, a
+   parameter covariance from the SVD of the whitened Jacobian.
 
 ## Relation to classical (Western) methods
 
@@ -133,19 +104,19 @@ literature, but EAC has exact, well-known counterparts there -- naming them make
 the method legible to a signal-processing or system-identification audience and
 explains *why* the defaults are what they are.
 
-- **Galerkin weighted residuals (Haar test functions).** Requiring the area
-  residual to vanish on each window is exactly a **Galerkin / method-of-weighted-
-  residuals** identification with **piecewise-constant (Haar / indicator) test
-  functions** $\phi_i$: $\int \phi_i\,[x_{\text{data}}-f(\theta)]\,dt = 0$. The
-  exactly-determined ($M=m$) original is the classical square Galerkin system.
-- **Over-identified method of moments (GMM).** The shipped **overdetermined**
-  $M=2m$ form is an **over-identified moment system** -- $2m$ integral-functional
-  (moment) conditions in $m$ unknowns, solved by least squares. This is the lens
-  that justifies "*why $2m$ windows*": Hansen's GMM theory says extra moment
-  conditions reduce estimator variance (and supply the residual covariance an
-  exactly-determined system cannot), which is exactly the $\sim15\%$ variance drop
-  measured above. The robust `loss`/`f_scale` is then a **robust GMM / M-estimator**
-  on those moment conditions.
+- **Galerkin weighted residuals (Haar test functions).** Requiring the window-
+  sum residual to vanish on each window is exactly a **Galerkin / method-of-
+  weighted-residuals** identification with **piecewise-constant (Haar /
+  indicator) test functions** $\phi_i$: $\sum_k \phi_i(x_k)\, w_k\,
+  [y_k - f(x_k;\theta)] = 0$. The exactly-determined case ($M = m$) is the
+  classical square Galerkin system.
+- **Over-identified method of moments (GMM).** `fit_eac`'s default of $M =
+  4m$ windows is an **over-identified moment system** -- more moment
+  conditions than unknowns, solved by least squares. This is the lens that
+  justifies windows beyond the parameter count: Hansen's GMM theory says
+  extra moment conditions reduce estimator variance and supply the residual
+  covariance an exactly-determined system cannot. The robust image is then
+  a **robust GMM / M-estimator** on those moment conditions.
 - **Alternative routes to the same parameters.** For the special case of sums of
   exponentials / sinusoids, the classical *algebraic* route is **Prony's method**
   and its SVD-robust successors **Matrix Pencil / ESPRIT** (recover the modes as
@@ -157,58 +128,36 @@ In one line: **EAC is the $h$-version (local Haar) Galerkin / GMM** counterpart 
 [LSI](lsi.md)'s $p$-version (global spectral) projection -- two faces of the
 same weighted-residual identification.
 
-## Robustness to outliers -- the robust loss and `f_scale`
+## Robustness to outliers -- the robust image
 
-EAC accepts a robust least-squares `loss` (`"soft_l1"`, `"cauchy"`, `"huber"`) for
-outlier-contaminated data, with a soft margin `f_scale`. Two facts matter for
-using it correctly:
+EAC's outlier defense is the **robust image**: `robust=True`, or any `loss`
+other than `"linear"`, runs Huber IRLS on the block regression `y ~ Phi
+beta` -- the window means -- before the model is involved: each sample's
+weight is scaled by `min(1, c s / |r_i|)`, `c = 1.345`, `s` the MAD scale of
+the regression residual, five passes. Measured with 10 percent outliers at
+ten sigma, the robust image gives parameter RMSE 0.34 to 0.38 of plain
+NLLS -- the same reduction scipy's `soft_l1` loss gives.
 
-- **The loss acts on the *window-area* residuals**, not on pointwise residuals.
-  Integration has already smeared each outlier across the window(s) it falls in,
-  so a robust loss can only down-weight a whole contaminated *window* -- it cannot
-  isolate an individual outlier. Give it **enough windows** (raise `n_windows`)
-  that each outlier stays localized to a few, or the loss has nothing to grip.
-- **`f_scale` must match the residual scale.** A robust loss only departs from
-  quadratic once a residual exceeds `f_scale`. Window-area residuals are typically
-  $\ll 1$, so the scipy default `f_scale=1.0` leaves any robust loss behaving like
-  plain `"linear"` least squares. Set `f_scale` near the size of a *clean*
-  window's area residual to actually engage the robustness. (A worked example of
-  this -- `linear` vs `soft_l1` at matched `f_scale` and window count -- is in
-  [example 02](https://github.com/ringavirda/science-nonline/wiki/Example-02-Fitting-Methods).)
+For a record densely contaminated with outliers, reach for
+[`ensemble_fit`](https://github.com/ringavirda/science-nonline/wiki/Methods-Ensemble) instead: it rejects whole bad windows by a
+coordinate-wise median across many overlapping fits, rather than reweighting
+individual samples within one image.
 
 ## Optimizations and guards
 
-- **Analytic integrated Jacobian** -- derivatives are taken symbolically once and
-  *integrated*, not finite-differenced, giving an exact, smooth Jacobian for LM
-  (faster, more stable convergence than numeric differencing).
-- **Compiled Simpson kernel** -- the model and its sensitivities are evaluated once
-  over the whole active region per solver step and integrated per window by a
-  compiled (native, with a NumPy/SciPy fallback) Simpson kernel, rather than
-  re-evaluated window by window.
-- **Integration as the denoiser** -- the equal-areas criterion is itself the noise
-  guard; no separate pre-filter is needed.
-- **Active-region windowing** (`active_ratio`) concentrates equal windows on the
-  informative transient. The default `1.0` windows the full record -- safe for
-  saturating shapes whose asymptote (and hence a parameter) lives in the tail.
-  For a signal whose information lives in a **leading transient**, set
-  `active_ratio=0.8` (the study-tuned recipe `dtfit.auto`'s EAC routes pin), or
-  use `window_mode="curvature"`, which adapts its windows over the full record.
-- **Overdetermined averaging** (`n_windows` $>m$) -- extra area equations average
-  out per-window integration noise and yield a parameter covariance.
-- **Bounds / robust loss** -- `bounds=` and a robust `loss=`/`f_scale=` switch the
-  solver to trust-region for constrained or outlier-prone fits.
-- **Scalar-derivative broadcast** -- a constant $\partial f/\partial\theta_j$ (a
-  purely linear parameter) is broadcast to the window grid so Simpson integrates
-  it correctly.
-- **Singular-endpoint sanitization** -- a transcendental sensitivity can blow up
-  at an isolated sample while its window integral stays finite (e.g.
-  $\partial_n\,x^{n} = x^{n}\ln x$ is `NaN` at $x=0$, with limit $0$). Such
-  measure-zero non-finite samples are replaced by their finite contribution so
-  they cannot poison a window area / Jacobian -- without it the solver silently
-  stalls at the seed (LM) or crashes (TRF). This is what makes the curvature
-  mode recover the **Hill** exponent (whose grid starts at $x=0$).
-- **Sample-count guard** -- raises if there are fewer than $2m$ samples, since $m$
-  windows of meaningful area cannot otherwise be formed.
+- **Diagonal Gram** -- the block basis's windows never overlap, so `G` is
+  diagonal and whitening the residual amounts to a per-window division by
+  the square root of its weight sum.
+- **Per-sample sensitivity mask** -- a transcendental sensitivity can be
+  singular at an isolated sample while its window sum stays finite elsewhere
+  (e.g. $\partial_n\, x^{n} = x^{n}\ln x$ is `NaN` at $x=0$, with limit $0$).
+  Such a sample is zeroed before the projection so it cannot poison a window
+  sum or a Jacobian column.
+- **Sample-count guard** -- an image at `n_windows` windows needs at least
+  `n_windows + 1` samples; `fit_eac` raises otherwise.
+- **Coverage does not apply** -- [`coverage`](image.md) measures
+  Legendre truncation error and returns `0.0` for the block basis; `fit`
+  never runs the coverage check on an EAC image.
 
 ## Worked example
 
@@ -219,7 +168,7 @@ the equal-areas criterion -- the cumulative integral of the fitted model (dashed
 tracks the cumulative integral of the data, which is the quantity EAC actually
 matches.
 
-![EAC fit and the equal-areas criterionfigures/eac_fit.png
+![EAC fit and the equal-areas criterion](figures/eac_fit.png)
 
 ## Comparison
 
@@ -250,15 +199,21 @@ the streaming [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Met
 
 ## Where it is best applied
 
-**Use EAC for:** noise-robust batch fitting of models with **few parameters**
-(2-4); transient signals where the early dynamics carry the information; outlier-
-prone data (with a robust `loss`/`f_scale` and enough windows); and as a fast,
-stable initializer. Prefer it to LSI when the data are noisy enough that a
-polynomial spectrum would be unreliable, or when speed matters. Prefer
-**`fit_eac(..., window_mode="curvature")`** for peaks and rational-saturating rises.
+**Use EAC for:** noise-robust batch fitting of few-parameter (2-4) transient
+and saturating shapes, when speed and a minimal statistic matter -- the block
+image is `n_windows` sums -- the batch form of the streaming
+[EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter)'s measurement and of the MCU block
+images. For peaks and cycles the Legendre preset at
+[`order_for`](image.md) is the more statistically efficient image;
+`Model.fit` and the `auto` route send peaks to the block basis; that is a
+routing choice, not an efficiency claim.
+Outlier-prone data reach for the robust image (`robust=True`) or, densely
+contaminated, [`ensemble_fit`](https://github.com/ringavirda/science-nonline/wiki/Methods-Ensemble); a whole-record EAC fit is
+also a fast, stable initializer for a slower method.
 
-**Caveats.** EAC's area criterion partly cancels **oscillations** -- for a cycle
+**Caveats.** EAC's window sums partly cancel **oscillations** -- for a cycle
 use [LSI](lsi.md)'s oscillatory recipe or the streaming
-[LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter). Like all the spectral/area methods it assumes a
+[LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter). Like the other image methods it assumes a
 modest dynamic range -- normalize wide domains first. For real-time tracking of
 *time-varying* parameters, use the recursive [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter).
+</content>

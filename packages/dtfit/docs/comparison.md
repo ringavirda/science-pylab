@@ -1,5 +1,7 @@
 # dtfit vs SciPy
 
+!!! note
+    Adapted from the project [wiki](https://github.com/ringavirda/science-nonline/wiki/Comparison). The wiki has the full set of method, domain and case-study pages.
 **Short version.** For a one-shot batch curve fit with a reasonable initial
 guess, `scipy.optimize.curve_fit` is the right tool: it is faster and more
 general than dtfit, and just as accurate. dtfit earns its place on the problems
@@ -9,7 +11,7 @@ general than dtfit, and just as accurate. dtfit earns its place on the problems
 [lmfit](#a-note-on-lmfit)), not a replacement.
 
 The numbers below are produced by
-[`gen_comparison.py`](gen_comparison.py) in this directory (run it yourself with
+[`gen_comparison.py`](gen_comparison.py) (run it yourself with
 the repo venv). Both fitters get the **same** data-driven initial guess (the
 model's own `_seed_arrays`), so the comparison isolates the *method*, not the
 seeding. Scenarios are drawn from dtfit's own accuracy corpus
@@ -52,10 +54,11 @@ that changes.
 ### Out-of-core, one pass
 
 `curve_fit` needs every sample resident in memory and runs its NLLS over the full
-array. dtfit's `PartitionedLSI` folds each chunk into a fixed-size accumulator
+array. dtfit's `ImageStream` accumulator folds each chunk into a fixed-size image
 (an additive basis projection), so it fits a dataset far larger than memory in a
 single streaming pass -- and the same accumulators `merge()` across distributed
-workers.
+workers holding contiguous chunks of a uniform grid (or `grid="explicit"` for
+other sample sets).
 
 - **n = 2,000,000 points**, streamed in 20 chunks of 100,000 (peak working set
   ~1.6 MB of sample buffers).
@@ -87,8 +90,8 @@ per step.
 - **Integral criteria denoise by construction.** EAC matches *areas*; integration
   is a low-pass operator, so it degrades gracefully as noise rises instead of
   chasing a high-order polynomial.
-- **Outliers.** `ensemble_fit` (overlapping-window median) and
-  `fit_eac(..., robust=True)` reject contamination with no `f_scale` to tune.
+- **Outliers.** `ensemble_fit` (overlapping-window median) and the robust image
+  (`fit_eac(..., robust=True)`) reject contamination with no scale to tune.
 
 ### Embedded / real-time
 
@@ -104,7 +107,7 @@ batch NLLS is not a natural fit for a per-sample real-time loop.
 | One-shot batch fit, good initial guess | **`scipy.optimize.curve_fit`** |
 | Batch fit needing bounds, CIs, model comparison, GUI-friendly params | **lmfit** (or dtfit's `Model` / `suggest_models`) |
 | Live / recursive tracking, drifting parameters | **dtfit** streaming filters |
-| Data too big for memory, or distributed | **dtfit** `PartitionedLSI` / `fit_lsi_batched` |
+| Data too big for memory, or distributed | **dtfit** `ImageStream` |
 | Embedded / real-time, fixed per-step budget | **dtfit** streaming filters |
 | Noisy / outlier-prone, no guess to give | **dtfit** self-seeding models + robust EAC / ensemble |
 
