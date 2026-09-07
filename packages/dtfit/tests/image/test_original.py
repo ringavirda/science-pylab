@@ -78,10 +78,12 @@ def test_infinite_weight_rejected():
 def test_original_owns_its_data():
     x = np.array([1.0, 2.0, 3.0])
     y = np.array([10.0, 20.0, 30.0])
-    o = Original(x, y)
+    w_in = np.array([1.0, 2.0, 3.0])
+    o = Original(x, y, w=w_in)
     x[0] = -1.0
     y[0] = -1.0
-    assert o.x[0] == 1.0 and o.y[0] == 10.0
+    w_in[0] = -1.0
+    assert o.x[0] == 1.0 and o.y[0] == 10.0 and o.w[0] == 1.0
 
     w = o.window(0, 2)
     w.y[0] = -1.0

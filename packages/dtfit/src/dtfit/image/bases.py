@@ -95,8 +95,17 @@ _BASES: dict[str, type[Basis]] = {
 
 
 def make_basis(basis: str | Basis, order: int | None) -> Basis:
-    """A basis by name at ``order``, or the given :class:`Basis` unchanged."""
+    """A basis by name at ``order``, or the given :class:`Basis` unchanged.
+
+    :raises ValueError: if ``basis`` is a :class:`Basis` instance and
+        ``order`` is given but differs from ``basis.order``.
+    """
     if isinstance(basis, Basis):
+        if order is not None and order != basis.order:
+            raise ValueError(
+                f"basis order mismatch: instance has order {basis.order}, "
+                f"got order {order}"
+            )
         return basis
     try:
         cls = _BASES[str(basis)]

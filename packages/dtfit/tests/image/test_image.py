@@ -19,7 +19,8 @@ def test_projections_and_gram_match_direct_formulas():
     assert np.allclose(img.S, Phi.T @ (o.w * o.y))
     assert np.allclose(img.G, Phi.T @ (o.w[:, None] * Phi))
     assert img.n == 200 and np.isclose(img.sumsq, np.sum(o.w * o.y ** 2))
-    assert np.isclose(img.sumy, np.sum(o.w * o.y)) and np.isclose(img.wsum, o.w.sum())
+    assert np.isclose(img.sumy, np.sum(o.w * o.y))
+    assert np.isclose(img.wsum, o.w.sum())
     assert img.order == 6 and img.n_coef == 7 and img.weighted
 
 
@@ -31,10 +32,15 @@ def test_unweighted_image_stores_no_weights():
 def test_additivity_under_merge():
     o = _orig(n=301)
     whole = Image.of(o, "legendre", 12)
-    a = Image.of(Original(o.x[:150], o.y[:150], domain=o.domain), "legendre", 12)
-    b = Image.of(Original(o.x[150:], o.y[150:], domain=o.domain), "legendre", 12)
+    a = Image.of(
+        Original(o.x[:150], o.y[:150], domain=o.domain), "legendre", 12
+    )
+    b = Image.of(
+        Original(o.x[150:], o.y[150:], domain=o.domain), "legendre", 12
+    )
     m = a.merge(b)
-    assert np.allclose(m.S, whole.S, atol=1e-12) and np.allclose(m.G, whole.G, atol=1e-10)
+    assert np.allclose(m.S, whole.S, atol=1e-12)
+    assert np.allclose(m.G, whole.G, atol=1e-10)
     assert m.n == whole.n and np.isclose(m.sumsq, whole.sumsq)
     assert m.grid.kind == "uniform" and m.grid.n == 301
 
@@ -48,12 +54,18 @@ def test_merge_requires_same_basis_and_domain():
         a.merge(Image.of(Original(o.x, o.y, domain=(0.0, 5.0)), "legendre", 6))
 
 
-def test_nesting_is_exact():
+def test_nesting_matches_direct_image():
     o = _orig()
-    direct_S = Image.of(o, "legendre", 12).S
-    direct_G = Image.of(o, "legendre", 12).G
-    assert np.allclose(Image.of(o, "legendre", 48).truncate(12).S, direct_S, rtol=1e-13, atol=1e-13 * np.max(np.abs(direct_S)))
-    assert np.allclose(Image.of(o, "legendre", 48).truncate(12).G, direct_G, rtol=1e-13, atol=1e-13 * np.max(np.abs(direct_G)))
+    direct = Image.of(o, "legendre", 12)
+    truncated = Image.of(o, "legendre", 48).truncate(12)
+    assert np.allclose(
+        truncated.S, direct.S,
+        rtol=1e-13, atol=1e-13 * np.max(np.abs(direct.S)),
+    )
+    assert np.allclose(
+        truncated.G, direct.G,
+        rtol=1e-13, atol=1e-13 * np.max(np.abs(direct.G)),
+    )
     with pytest.raises(ValueError):
         Image.of(o, "block", 8).truncate(4)
 
@@ -61,13 +73,14 @@ def test_nesting_is_exact():
 def test_beta_reconstruct_and_serialisation():
     o = _orig()
     img = Image.of(o, "legendre", 8)
-    beta = np.linalg.solve(img.G, img.S)
-    assert np.allclose(img.beta, beta)
     Phi = LegendreBasis(8).evaluate(u_of(o.x, *o.domain))
-    assert np.allclose(img.reconstruct(o.x), Phi @ beta)
+    ref = np.linalg.lstsq(Phi, o.y, rcond=None)[0]
+    assert np.allclose(img.beta, ref, atol=1e-10)
+    assert np.allclose(img.reconstruct(o.x), Phi @ img.beta)
     back = Image.from_dict(img.to_dict())
     assert np.array_equal(back.S, img.S) and np.array_equal(back.G, img.G)
-    assert back.basis == img.basis and back.grid.to_dict() == img.grid.to_dict()
+    assert back.basis == img.basis
+    assert back.grid.to_dict() == img.grid.to_dict()
 
 
 def test_simulate_shape_and_seed():
@@ -80,9 +93,15 @@ def test_simulate_shape_and_seed():
 
 def test_of_model_equals_image_of_sampled_model():
     o = _orig()
-    img = Image.of_model("a*exp(-b*x) + c", [2.0, 0.7, 0.3], o.grid, "legendre", 6, var="x", domain=o.domain)
+    img = Image.of_model(
+        "a*exp(-b*x) + c", [2.0, 0.7, 0.3], o.grid, "legendre", 6,
+        var="x", domain=o.domain,
+    )
     x = o.grid.positions()
-    direct = Image.of(Original(x, 2.0 * np.exp(-0.7 * x) + 0.3, domain=o.domain), "legendre", 6)
+    direct = Image.of(
+        Original(x, 2.0 * np.exp(-0.7 * x) + 0.3, domain=o.domain),
+        "legendre", 6,
+    )
     assert np.allclose(img.S, direct.S) and np.allclose(img.G, direct.G)
 
 
@@ -104,4 +123,29 @@ def test_block_image_sums_windows():
     o = _orig(n=40)
     img = Image.of(o, "block", 4)
     assert np.allclose(img.S, o.y.reshape(4, 10).sum(axis=1))
-    assert np.allclose(np.diag(img.G), [10, 10, 10, 10]) and np.allclose(img.G - np.diag(np.diag(img.G)), 0)
+    assert np.allclose(np.diag(img.G), [10, 10, 10, 10])
+    assert np.allclose(img.G - np.diag(np.diag(img.G)), 0)
+
+
+def test_of_requires_an_order():
+    o = _orig()
+    with pytest.raises(ValueError):
+        Image.of(o, "legendre", None)
+
+
+def test_of_rejects_too_few_samples():
+    o = Original([0.0, 1.0, 2.0], [0.0, 1.0, 2.0])
+    with pytest.raises(ValueError):
+        Image.of(o, "legendre", 6)
+
+
+def test_roundtrip_equality_and_hash():
+    rng = np.random.default_rng(1)
+    x = np.array([0.0, 0.3, 1.0, 1.4, 2.5, 3.1, 3.9])
+    y = 2.0 * np.exp(-0.7 * x) + 0.3 + 0.02 * rng.standard_normal(x.size)
+    w = rng.uniform(0.5, 2.0, x.size)
+    o = Original(x, y, w=w, domain=(0.0, 4.0))
+    img = Image.of(o, "legendre", 3, robust=True)
+    back = Image.from_dict(img.to_dict())
+    assert back == img
+    assert hash(back) == hash(img)

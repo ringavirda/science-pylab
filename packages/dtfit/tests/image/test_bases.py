@@ -48,3 +48,11 @@ def test_basis_serialisation_roundtrip():
     b = LegendreBasis(4)
     d = b.to_dict()
     assert make_basis(d["name"], d["order"]).to_dict() == d
+
+
+def test_make_basis_rejects_order_mismatch_on_instance():
+    b = LegendreBasis(4)
+    assert make_basis(b, 4) is b
+    assert make_basis(b, None) is b
+    with pytest.raises(ValueError):
+        make_basis(b, 5)

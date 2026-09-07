@@ -85,7 +85,7 @@ class Original:
                 )
             w_arr = 1.0 / (s * s)
         elif w is not None:
-            w_arr = np.asarray(w, dtype=float).reshape(-1)
+            w_arr = np.array(w, dtype=float, copy=True).reshape(-1)
             if w_arr.size != x.size:
                 raise ValueError(
                     "w must have the same length as data_y; got "

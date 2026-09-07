@@ -40,7 +40,7 @@ def huber_weights(
     return mult
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Image:
     """The discrete image of a signal in a basis on a domain.
 
@@ -48,9 +48,8 @@ class Image:
     Phi`` the Gram matrix of the basis on the sample grid; with ``n``,
     ``sumsq = sum(w y^2)``, ``sumy = sum(w y)`` and ``wsum = sum(w)`` they
     are the sufficient statistic of the linear model in that basis. ``w``
-    is the per-sample weight vector when any weight differs from one, else
-    ``None``; a robust image (``robust=True``) carries its Huber weights
-    there.
+    is the per-sample weights, stored when any weight differs from one or
+    the image is robust; else None.
 
     Images with the same basis, order, domain and grid kind are additive
     (:meth:`merge`), a Legendre image is nested (:meth:`truncate`), and the
@@ -79,19 +78,51 @@ class Image:
 
     @property
     def weighted(self) -> bool:
+        """True when the image carries a weight vector."""
         return self.w is not None
 
     @cached_property
     def beta(self) -> np.ndarray:
-        """Least-squares coefficients ``G^-1 S`` (pseudo-inverse if singular)."""
-        try:
-            return np.linalg.solve(self.G, self.S)
-        except np.linalg.LinAlgError:
-            return np.linalg.pinv(self.G) @ self.S
+        """Least-squares coefficients: the minimum-norm solution of
+        ``G beta = S`` with singular values below 1e-15 of the largest
+        dropped."""
+        return np.linalg.pinv(self.G, hermitian=True) @ self.S
 
     def phi(self) -> np.ndarray:
-        """The basis evaluated on the image's grid, ``(n, n_coef)``."""
+        """The basis evaluated on the image's grid, ``(n, n_coef)``.
+
+        Weights are not applied; a caller forming ``G`` from this must
+        multiply by ``w`` itself.
+        """
         return self.basis.evaluate(u_of(self.grid.positions(), *self.domain))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Image):
+            return NotImplemented
+        if (
+            self.basis != other.basis
+            or self.domain != other.domain
+            or self.grid != other.grid
+            or self.n != other.n
+            or self.robust != other.robust
+            or self.sumsq != other.sumsq
+            or self.sumy != other.sumy
+            or self.wsum != other.wsum
+        ):
+            return False
+        if not (
+            np.array_equal(self.S, other.S)
+            and np.array_equal(self.G, other.G)
+        ):
+            return False
+        if (self.w is None) != (other.w is None):
+            return False
+        return self.w is None or np.array_equal(self.w, other.w)
+
+    def __hash__(self) -> int:
+        return hash(
+            (self.basis, self.domain, self.grid, self.n, self.robust)
+        )
 
     @classmethod
     def of(
@@ -106,13 +137,13 @@ class Image:
         if not isinstance(basis, Basis) and order is None:
             raise ValueError("order is required to build an image")
         b = make_basis(basis, order)
-        x0, x1 = original.domain
-        Phi = b.evaluate(u_of(original.x, x0, x1))
         if original.n < b.n_coef + 1:
             raise ValueError(
                 f"an image at order {b.order} needs at least "
                 f"{b.n_coef + 1} samples; got {original.n}"
             )
+        x0, x1 = original.domain
+        Phi = b.evaluate(u_of(original.x, x0, x1))
         w = original.w
         if robust:
             w = w * huber_weights(Phi, original.y, w, huber_c)
