@@ -925,6 +925,27 @@ def test_noise_var_fixed_is_used_verbatim():
     assert abs(free.params_["c1"] - 0.3) < 0.02
 
 
+def test_noise_var_fixed_changes_the_gain():
+    """A ``noise_var`` far from the window's own residual variance changes
+    the gain: fixing it that wrong makes ``P`` settle much larger than the
+    self-estimating filter's, which is only possible if ``s2`` really comes
+    from ``noise_var`` and not from the window's residual, as
+    ``test_noise_var_fixed_is_used_verbatim`` alone cannot show (a
+    ``noise_var`` close to the true variance makes both filters agree
+    regardless of which one is actually used)."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0, 10, 300)
+    y = 1.0 + 0.3 * t + rng.normal(0, 0.05, t.size)
+    fixed = LSIFilter("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=20, order=3,
+                      noise_var=100.0, adaptive_window=False)
+    free = LSIFilter("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=20, order=3,
+                     adaptive_window=False)
+    for ti, yi in zip(t, y):
+        fixed.partial_fit(ti, yi)
+        free.partial_fit(ti, yi)
+    assert np.all(np.diag(fixed.P) > 5.0 * np.diag(free.P))
+
+
 def test_irregular_sampling_is_imaged_at_the_actual_positions():
     """The window image is built on the samples' own positions: a jittered
     grid recovers the parameters as well as a uniform one."""
@@ -938,3 +959,19 @@ def test_irregular_sampling_is_imaged_at_the_actual_positions():
         flt.partial_fit(ti, yi)
     assert abs(flt.params_["A"] - 3.0) < 0.3
     assert abs(flt.params_["w"] - 1.5) < 0.1
+
+
+def test_window_image_uses_the_actual_positions_not_a_uniform_grid():
+    """``_window_ops`` images a clustered window at its own normalized
+    positions, not at a uniform grid of the same length: the two bases
+    differ pointwise, which the parameter-recovery tolerance above is too
+    loose to show (the innovation ``Phi^T(y - f)`` uses the same ``Phi`` on
+    both sides, so a wrong ``u`` re-weights rather than misfits)."""
+    rng = np.random.default_rng(1)
+    n = 40
+    t = np.sort(np.cumsum(rng.uniform(0.02, 2.0, n)))
+    flt = LSIFilter("A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=n, order=5,
+                    adaptive_window=False)
+    Phi_actual, _, _ = flt._window_ops(t)
+    Phi_uniform = flt.basis.evaluate(np.linspace(-1.0, 1.0, n))
+    assert not np.allclose(Phi_actual, Phi_uniform, atol=1e-6)
