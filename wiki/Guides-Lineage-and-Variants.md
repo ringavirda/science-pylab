@@ -193,11 +193,10 @@ kept experimental until it proves itself. Here is the complete list with status.
 
 ### Promoted into stable `dtfit`
 
-| # | adaptation | now in `dtfit` as | what it is & how it works |
+| # | adaptation | in `dtfit` as | what it is & how it works |
 |---|---|---|---|
 | **#1** | one-pass / distributed map-reduce | `ImageStream` accumulator | the image is **additive over the domain** (a sum of per-chunk projections), so a dataset too big for memory is reduced chunk-by-chunk in one pass, and distributed workers' partial images `merge()` exactly on contiguous chunks of a uniform grid (or `grid="explicit"` for other sample sets); the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
 | **--** | GEMM-batched projection | `ImageStream(channels=B)` | the image is **linear across channels**, so `B` channels' projections are one matrix multiply over one shared Gram, on CPU/GPU by swapping only the backend; the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
-| **#6** | curvature-adaptive windows | retired | EAC places its windows uniformly, $4m$ by default. |
 | **--** | LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` | high order + FFT-seeded frequency, so a cycle isn't erased. -> [../api/fitting.md#fit_lsi](API-Fitting#fit_lsi) |
 | **--** | fused multi-axis detection | `FusedChiSquareDetector` | pool a filter bank's per-stream innovations into one `chi2(K)` statistic to catch a fault too weak in any single stream. -> [../api/streaming.md#fused](API-Streaming#fused) |
 | **#3** | overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` | fit on many overlapping sub-windows and take the **median** of the per-window estimates -- bagging over time; rejects outlier windows and yields a spread. Outlier-robust with no scale to tune. -> [../methods/ensemble.md](Methods-Ensemble) |

@@ -9,6 +9,7 @@
 > [`image/fit.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/fit.py),
 > [`image/transfer.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/transfer.py).
 > Invoke via `Original(x, y)`, `.image(basis, order)`, `fit(model, data)`.
+> API: [../api/fitting.md](../api/batch-fitting.md).
 
 Every batch method in `dtfit` -- [LSI](lsi.md), [EAC](eac.md), the
 streaming filters, the stochastic tier -- runs its fit on the **image** of a
@@ -142,7 +143,7 @@ functions of `order` equal, half-open windows in `u`. A `Basis` exposes
 `Image.transfer` dispatches on the basis name to `legendre_transfer` and
 `block_transfer` (below). The experimental package carries more families
 on its own spectral machinery -- Fourier, Chebyshev, Laguerre -- see
-[Experimental-Adaptations-API](https://github.com/ringavirda/science-nonline/wiki/Experimental-Adaptations-API).
+[the experimental adaptations API](https://github.com/ringavirda/science-nonline/wiki/Experimental-Adaptations-API).
 
 ## Transfer and assembly
 
@@ -161,7 +162,7 @@ union of fine windows, and the transfer (`block_transfer`) is a 0/1
 aggregation, exact whenever each coarse window is a union of fine windows.
 `assemble(images, domain,
 order)` transfers every image onto one coarse domain and sums them --
-[Methods-Scaling](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling) builds streams and block map-reduce on
+[the streams page](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling) builds streams and block map-reduce on
 top of exactly this.
 
 ## Worked example
@@ -213,4 +214,4 @@ and `G` update over a running accumulator, block images or channel batches;
 the [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter) and
 [LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter) read a window image each step; and the
 stochastic tier fits the functionals of a random process through the same
-Legendre image -- see [Methods-Stochastic](https://github.com/ringavirda/science-nonline/wiki/Methods-Stochastic).
+Legendre image -- see [the stochastic tier](https://github.com/ringavirda/science-nonline/wiki/Methods-Stochastic).

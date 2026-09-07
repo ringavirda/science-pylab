@@ -36,9 +36,9 @@ An adaptation graduates only after the experiment suite shows it helps across a
 **physically moved** into `dtfit` and imported from there -- there is no
 re-export shim, so the dependency only ever points one way.
 
-**Promoted** (now in stable `dtfit`):
+**Promoted** (in stable `dtfit`):
 
-| was experimental | now in `dtfit` as |
+| adaptation | in `dtfit` as |
 |---|---|
 | the LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` |
 | fused multi-axis fault detection | `FusedChiSquareDetector` |

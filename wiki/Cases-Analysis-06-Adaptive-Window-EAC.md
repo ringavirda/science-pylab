@@ -2,14 +2,10 @@
 
 > **Status (2026-09):** retired. Window placement by curvature left with
 > the image core: `fit_eac` places `n_windows` equal windows and the
-> estimate is the projection on them. The sections below describe the
-> adaptation as it was run.
+> estimate is the projection on them. Equal windows at the same count
+> matched it in the image-core measurements, and it was retired.
 
-**Verdict.** Promoted at the time for localized transients that equal-span
-windows smear; retired because the placement moved with the noise and gave
-no statistical benefit over equal windows at the same count.
-
-Source: [Noise & robustness (3)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/03_noise_robustness/03_noise_robustness.ipynb) (transient class).
+Tested in: [Noise & robustness (3)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/03_noise_robustness/03_noise_robustness.ipynb) (transient class).
 
 ## What it is
 
@@ -50,11 +46,6 @@ rate is concentrated in the **high-curvature region** -- the fast initial bend o
 
 In effect it aligns the **measurement grid with the Fisher information** of the
 problem -- the windows that most constrain the parameters get the most resolution.
-
-## Outcome
-
-The placement never settled on a stable per-signal layout -- it moved with
-the noise realization from run to run.
 
 ## When it would help / when it wouldn't
 

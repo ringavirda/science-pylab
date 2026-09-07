@@ -33,7 +33,7 @@
 - [Models](API-Models)
 - [Stochastic](API-Stochastic)
 - [Streaming](API-Streaming)
-- [Scaling](API-Scaling)
+- [Streams and scale](API-Scaling)
 - [Diagnostics](API-Diagnostics)
 
 **Methods (math)**
@@ -47,7 +47,7 @@
 - [EACFilter](Methods-Equal-Areas-Filter)
 - [LSIFilter](Methods-Legendre-Filter)
 - [Filter bank](Methods-Filter-Bank)
-- [Scaling](Methods-Scaling)
+- [Streams](Methods-Scaling)
 - [Auto](Methods-Auto)
 - [Stochastic](Methods-Stochastic)
 

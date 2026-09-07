@@ -5,10 +5,10 @@
 > [`image/parallel.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/parallel.py).
 > API: [../api/scaling.md](API-Scaling).
 
-The additive image runs at scale because of two structural properties, both
-exact: it is **additive over sample sets** -- a sum over samples, no boundary
-carry -- and **linear across channels**. `ImageStream` is the one class that
-exploits both.
+[The image](Methods-Image) runs at scale because of two structural properties,
+both exact: it is **additive over sample sets** -- a sum over samples, no
+boundary carry -- and **linear across channels**. `ImageStream` is the one
+class that exploits both.
 
 ## Additive over sample sets -> streaming and map-reduce
 
@@ -96,7 +96,7 @@ coefficients and either the previous block or that model's image on the
 same domain, and records a flagged boundary as `(block_index, domain)` in
 `flags_`. The per-sample equivalent -- drift on an innovation stream rather
 than block boundaries -- is the filters' own detector; see
-[Methods-Legendre-Filter](Methods-Legendre-Filter).
+[the LSI filter](Methods-Legendre-Filter).
 
 ## `fit_many`
 

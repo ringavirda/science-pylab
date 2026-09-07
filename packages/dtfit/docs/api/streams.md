@@ -1,7 +1,7 @@
 # Streams and scale
 
-The image accumulates in fixed memory: a running `ImageStream` folds one
-sample at a time into the same `(S, G)` statistic the batch fitters build in
+The image accumulates in fixed memory: a running `ImageStream` folds each
+chunk of samples into the same `(S, G)` statistic the batch fitters build in
 one pass. Blocks assemble onto a coarser domain through an exact transfer,
 channels batch through one shared GEMM, and independent fits fan out across
 processes with `fit_many`.

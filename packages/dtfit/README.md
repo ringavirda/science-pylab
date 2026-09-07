@@ -170,9 +170,9 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 - `dtfit.streaming.FilterBank` runs a bank of independent streaming filters
   (one per channel / satellite / axis) for multi-stream real-time tracking.
 
-Further experimental adaptations (pluggable orthogonal bases, robust
-overlapping-window ensembles, joint multi-channel fits, stage-wise boosting,
-adaptive windows) live in the separate **`dtfit-experimental`** package
+Further experimental adaptations (pluggable orthogonal bases, joint
+multi-channel fits, stage-wise boosting) live in the separate
+**`dtfit-experimental`** package
 (`dtfit_experimental`); their cross-application evaluation is in its experiment
 suite ([../dtfit-experimental/src/dtfit_experimental/experiments/cases/REPORTS.md](../dtfit-experimental/src/dtfit_experimental/experiments/cases/REPORTS.md)).
 

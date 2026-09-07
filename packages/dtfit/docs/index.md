@@ -61,7 +61,7 @@ y = y_true + rng.normal(0.0, 0.05 * y_true.std(), x.size)
 fit = fit_lsi(x, y, "a*exp(b*x)", "x")
 
 print(fit.params)      # {'a': 1.4991, 'b': 0.8027}
-print(fit.stderr())    # {'a': 0.0134, 'b': 0.0058}
+print(fit.stderr())    # {'a': 0.0112, 'b': 0.0048}
 print(fit.rsquared)    # 0.997763
 ```
 
@@ -74,8 +74,8 @@ print(fit.aic, fit.bic)          # -397.83  -393.06
 print(fit.confidence_intervals())
 print(fit.summary())
 # FittingResult: a*exp(b*x)
-#   a = 1.49906 +/- 0.0134
-#   b = 0.802724 +/- 0.00582
+#   a = 1.49913 +/- 0.0112
+#   b = 0.802796 +/- 0.00482
 #   R^2 = 0.997763
 ```
 
@@ -121,7 +121,7 @@ exactly like `scipy.optimize.curve_fit`. Here we down-weight a noisier tail:
 ```python
 sigma = np.where(x > 1.0, 1.0, 0.1)   # trust the first half 10x more
 fit = fit_lsi(x, y, "a*exp(b*x)", "x", sigma=sigma)
-print(fit.params)      # {'a': 1.5001, 'b': 0.8036}
+print(fit.params)      # {'a': 1.4855, 'b': 0.8131}
 ```
 
 Pass `absolute_sigma=True` when `sigma` is an absolute standard deviation (so the
@@ -139,8 +139,8 @@ from dtfit import auto_forecast
 fc = auto_forecast(x, y, horizon=10)
 
 print(fc.model_name)   # 'linear_seasonal'  (the model it chose)
-print(fc[:3])          # [7.4002 7.5135 7.6259]  -- fc *is* an ndarray
-print(fc.std_band[:3]) # [0.1333 0.152  0.1726] -- 1-sigma band when available
+print(fc[:3])          # [7.4240036  7.53862295 7.65241176]  -- fc *is* an ndarray
+print(fc.std_band[:3]) # [0.0608103  0.069421   0.07887614] -- 1-sigma band when available
 ```
 
 `fc` is an `ndarray` subclass, so it indexes and broadcasts like any array while
@@ -163,9 +163,9 @@ fit = fit_lsi(xs, ys, "a*exp(b*x)", "x")
 pred = fit.predict(xs)          # -> pandas Series, indexed by idx
 print(type(pred).__name__)      # 'Series'
 print(pred.head(3))
-# 2021-01-01    1.499064
-# 2021-01-02    1.529839
-# 2021-01-03    1.561247
+# 2021-01-01    1.499127
+# 2021-01-02    1.529907
+# 2021-01-03    1.561319
 # Freq: D, dtype: float64
 ```
 

@@ -1,7 +1,8 @@
 # API: batch fitting
 
-The core batch fitters run on the **image** of the data: a fixed-size statistic
-of a basis projection, additive over sample sets. All return a
+The core batch fitters run on [the image](Methods-Image) of the data: a
+fixed-size statistic of a basis projection, additive over sample sets. All
+return a
 [`FittingResult`](API-Types) unless noted. Conceptual background:
 [../guides/methods-explained.md](Guides-Methods-Explained); proofs:
 [../methods/](Methods).
@@ -46,7 +47,7 @@ and block bases respectively -- presets, not separate methods.
 | `model` | str \| sympy.Expr \| callable | -- | the model, in any of three equivalent forms (resolved by [`resolve_model`](#also-exported-from-dtfitmethods)): a SymPy-expression **string** `"a0 + a1*exp(a2*x)"`, a `sympy.Expr`, or a plain Python **callable** `f(x, *params)`. A symbolic model lays its parameters out **sorted by name**; a callable follows **signature order** (the parameters after the leading `x`) |
 | `data` | `Original` \| `Image` | -- | an `Original` is imaged first in `basis` at `order`; an `Image` is used as given |
 | `var` | str \| None | `None` | main variable name, required for a symbolic model; a label only for a callable |
-| `basis` | str \| Basis | `"legendre"` | `"legendre"`, `"block"`, a `Basis` instance, or `"auto"`: the candidates are the Legendre basis at its default order, the block basis at its default order, and the Legendre basis with the oscillatory recipe when `oscillatory` or `freq_param` is given or the detrended spectral peak share exceeds 0.3; the candidate with the lowest unweighted sample RSS wins, a later candidate only by more than 0.1 percent. Needs an `Original` -- rejected with an `Image` (`TypeError`), which does not carry the samples the routing needs |
+| `basis` | str \| Basis | `"legendre"` | `"legendre"`, `"block"`, a `Basis` instance, or `"auto"`: the candidates are the Legendre basis with the oscillatory recipe when `oscillatory` or `freq_param` is given or the detrended spectral peak share exceeds 0.3, then the Legendre basis at its default order, then the block basis at its default order; the candidate with the lowest unweighted sample RSS wins, a later candidate only by more than 0.1 percent. Needs an `Original` -- rejected with an `Image` (`TypeError`), which does not carry the samples the routing needs |
 | `order` | int \| None | `None` | basis order (polynomial degree for Legendre, window count for block). Omitted with an `Original`, it defaults to [`order_for`](#order_for) at `p0` (`osc_order` too, and the larger taken, when `oscillatory`), floored at `n_params - 1` and capped at `n_obs - 2`; for the block basis, `4 * n_params`. A `Basis` instance sets its own order; passing `order` with one that disagrees raises |
 | `p0` | array \| dict \| None | `None` | initial guess (defaults to ones): positional in canonical parameter order, or a `{name: value}` dict |
 | `bounds` | list[(lo, hi)] \| dict \| (lo, hi) \| None | `None` | per-parameter bounds: a pair list in canonical order, a partial `{name: (lo, hi)}` dict, or a scipy-style `(lo, hi)` 2-tuple |
@@ -210,7 +211,7 @@ G^+ S` are derived, never stored.
 - **`merge(other) -> Image`** -- the image of the two signals' samples
   pooled, whatever their sample sets; requires the same basis (including
   order) and domain. The sums are additive regardless of sample order, so
-  they are simply added; the grid is rebuilt from the sorted union of both
+  they are added; the grid is rebuilt from the sorted union of both
   position sets.
 <a name="imagetruncate"></a>
 - **`truncate(order) -> Image`** -- the image at a lower order; exact for

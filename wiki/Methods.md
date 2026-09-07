@@ -38,7 +38,7 @@ successors** to the symbolic originals (DSBI -> LSI, DSBE -> EAC). DSB is kept a
 the analytical reference. The split follows the dissertation's hard requirement
 that the **runtime path carry no unbounded symbolic solve** -- SymPy is allowed
 only once, offline, at derivation/initialization time. (For the full lineage --
-which method came from which, and what changed between versions -- see
+which method came from which, and how the variants differ -- see
 [../guides/lineage-and-variants.md](Guides-Lineage-and-Variants).)
 
 ---
@@ -75,7 +75,7 @@ discrete differential transform of a signal in a basis at a finite order, a
 fixed-size statistic built directly from `(x, y)` that every batch method --
 LSI, EAC, the filters, ImageStream -- fits on.
 
-### The non-Taylor base (and why a table is no longer needed)
+### The non-Taylor base (and why no table is needed)
 
 The classical motivation is that elementary functions have **closed-form
 discretes** -- you never truncate an infinite Taylor series for them:
@@ -92,7 +92,7 @@ A transcendental model such as $a\,e^{bt}$ or $a\,\arctan(wt)$ is represented by
 the *exact* discrete of its basis function, so the parameters $a,b,w$ appear
 analytically in the spectrum and can be solved for or fitted.
 
-**Implementation note.** `dtfit` no longer maintains this table in code. In a
+**Implementation note.** `dtfit` does not maintain this table in code. In a
 *spectra balance* every equation matches model and data discretes at the same
 order $k$, so the $H^{k}$ factor cancels on both sides (see [DSB](Methods-DSB)) and the
 balance reduces to matching plain Maclaurin coefficients $g^{(k)}(0)/k!$. Those

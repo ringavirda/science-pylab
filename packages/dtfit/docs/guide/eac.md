@@ -134,9 +134,10 @@ EAC's outlier defense is the **robust image**: `robust=True`, or any `loss`
 other than `"linear"`, runs Huber IRLS on the block regression `y ~ Phi
 beta` -- the window means -- before the model is involved: each sample's
 weight is scaled by `min(1, c s / |r_i|)`, `c = 1.345`, `s` the MAD scale of
-the regression residual, five passes. Measured with 10 percent outliers at
-ten sigma, the robust image gives parameter RMSE 0.34 to 0.38 of plain
-NLLS -- the same reduction scipy's `soft_l1` loss gives.
+the regression residual, five passes. Measured on the Legendre image at
+order 12 with 10 percent outliers at ten sigma, the robust image gives
+parameter RMSE 0.34 to 0.38 of plain NLLS -- the same reduction scipy's
+`soft_l1` loss gives.
 
 For a record densely contaminated with outliers, reach for
 [`ensemble_fit`](https://github.com/ringavirda/science-nonline/wiki/Methods-Ensemble) instead: it rejects whole bad windows by a
@@ -213,7 +214,5 @@ also a fast, stable initializer for a slower method.
 
 **Caveats.** EAC's window sums partly cancel **oscillations** -- for a cycle
 use [LSI](lsi.md)'s oscillatory recipe or the streaming
-[LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter). Like the other image methods it assumes a
-modest dynamic range -- normalize wide domains first. For real-time tracking of
+[LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter). For real-time tracking of
 *time-varying* parameters, use the recursive [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter).
-</content>

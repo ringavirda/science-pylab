@@ -12,9 +12,9 @@ Recover physical parameters from noisy responses of systems with a known nonline
 
 ## Methods under test (dtfit)
 
-- **LSI** (`fit_lsi`) -- integral least-squares matching the model's Legendre spectrum to the data's; spectral projection smooths noise, with a global differential-evolution search before local refinement. **Oscillatory families** are fitted with `filter_data=False`, a high `k_star` and an FFT frequency seed (else the smoothing/low-order default erases the cycle).
-- **EAC** (`fit_eac`) -- equal areas over `2.n_params` windows (overdetermined, noise-averaging); supports a `soft_l1` robust loss.
-- **#6 adaptive-window EAC** (`fit_eac(..., window_mode="curvature")`) -- curvature-placed windows concentrate resolution on the informative bend (a peak / transient).
+- **LSI** (`fit_lsi`) -- integral least-squares matching the model's Legendre spectrum to the data's; spectral projection smooths noise, with a global differential-evolution search before local refinement. **Oscillatory families** are fitted with `fit_lsi(..., freq_param=...)` (an FFT frequency seed drives the oscillatory recipe; else the low-order default erases the cycle).
+- **EAC** (`fit_eac`) -- equal areas over four windows per parameter (overdetermined, noise-averaging); `robust=True` is its outlier defence.
+- **#6 adaptive-window EAC, retired** -- the table's adaptive-EAC columns are the variant that was run.
 - **#3 overlapping-window ensemble** (`ensemble_fit`) -- median of per-window fits; rejects outlier-corrupted windows.
 - **#4 joint multi-channel fit** (`fit_joint`) -- one shared parameter estimated from all channels at once.
 - **merged selector** (`merged_estimate`) -- routes by shape: shared->#4, transient->#6, outliers->#3, else the better of LSI / EAC by in-sample fit.

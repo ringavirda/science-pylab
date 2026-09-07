@@ -99,11 +99,11 @@ LSI needs no orthogonality from its basis -- the Gram `G` carries whatever
 correlation the test functions have, exactly, and is whitened by its own
 Cholesky factor either way. A `Basis` exposes `evaluate(u) -> Phi` and
 `n_coef`; the transfer between domains is `Image.transfer`
-([Methods-Image](Methods-Image#bases)). The Legendre basis is the one LSI
+([the bases section](Methods-Image#bases)). The Legendre basis is the one LSI
 is built around; the block basis is [EAC](Methods-EAC)'s. The experimental
 package carries Fourier, Chebyshev and Laguerre bases on its own spectral
 machinery through `fit_lsi_basis` -- see
-[Experimental-Adaptations-API](Experimental-Adaptations-API).
+[the experimental adaptations API](Experimental-Adaptations-API).
 
 ## Relation to classical (Western) methods
 
