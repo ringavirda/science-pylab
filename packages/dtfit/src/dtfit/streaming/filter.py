@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
 from scipy.linalg import solve_triangular
 
 from dtfit.image.bases import Basis, make_basis, u_of
+from dtfit.image.fit import fit
 from dtfit.image.image import gram_whitener
+from dtfit.image.original import Original
 from dtfit.types import InitialGuess
 from . import coast as _coast
 from ._model import CompiledModel
 from .detect import DriftDetector
+
+if TYPE_CHECKING:
+    from dtfit.types import FittingResult
 
 
 class ImageFilter:
@@ -536,6 +541,54 @@ class ImageFilter:
         return _coast.coast_cov(
             self.model, self.p, self.P, x, self._anchor, order=order
         )
+
+    def result(self, **kwargs: Any) -> "FittingResult":
+        """A batch fit of the model on the current window, with the filter's
+        basis and order, started from the current estimate: the window's
+        parameters, covariance, standard errors and prediction band in the
+        same :class:`~dtfit.types.FittingResult` a batch fit returns. The
+        window is imaged robustly when the filter is robust. A regressor
+        model is fitted as a callable closed over the window's regressor
+        columns, interpolated linearly onto whatever grid a diagnostic
+        evaluates and exact on the window grid the fit runs on. ``kwargs``
+        go to :func:`dtfit.image.fit.fit` (``bounds``, ``solver_options``).
+
+        Raises:
+            ValueError: fewer than ``min_window`` samples ingested.
+        """
+        k = len(self._t)
+        if k < self.min_window:
+            raise ValueError(
+                f"result() needs at least min_window={self.min_window} "
+                f"samples; the window holds {k}"
+            )
+        t_arr = np.asarray(self._t, dtype=float)
+        y_arr = np.asarray(self._y, dtype=float)
+        original = Original(t_arr, y_arr)
+        options: dict[str, Any] = {
+            "basis": self.basis, "p0": self.p, "robust": self._robust,
+        }
+        options.update(kwargs)
+        if self.model.has_regressors:
+            rb = np.asarray(self._rbuf, dtype=float)
+            cols = [rb[:, c] for c in range(rb.shape[1])]
+            names = list(self.model.names)
+            model_f = self.model.f
+
+            def on_window(x: Any, *p: float) -> np.ndarray:
+                xa = np.asarray(x, dtype=float)
+                at_x = [np.interp(xa, t_arr, col) for col in cols]
+                return np.asarray(model_f(xa, *at_x, *p), dtype=float)
+
+            return fit(
+                on_window, original, self.model.var, param_names=names,
+                **options,
+            )
+        if self.model.symbolic:
+            return fit(self.model.source, original, self.model.var,
+                       **options)
+        return fit(self.model.source, original, self.model.var,
+                   param_names=list(self.model.names), **options)
 
 
 class LSIFilter(ImageFilter):

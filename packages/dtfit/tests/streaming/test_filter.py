@@ -988,3 +988,152 @@ def test_stream_rejection_leaves_the_window_untouched():
     with pytest.raises(ValueError, match="domain"):
         flt.partial_fit(10.0, 1.0)
     assert flt._t == [] and flt._y == []
+
+
+CT_BASELINE_RMSE = 1.310   # mean over seeds 0-4; see test_coordinated_turn
+
+
+def _coordinated_turn(seed, n=300, dt=0.2, speed=15.0, omega=0.1, sigma=1.0):
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) * dt
+    heading = omega * t
+    x = speed / omega * np.sin(heading)
+    y = speed / omega * (1.0 - np.cos(heading))
+    return t, x, y, x + rng.normal(0, sigma, n), y + rng.normal(0, sigma, n)
+
+
+def _ct_forecast_rmse(seed, horizon=1):
+    t, tx, ty, zx, zy = _coordinated_turn(seed)
+    expr = "c0 + c1*t + c2*t**2 + c3*t**3"
+    fx = LSIFilter(expr, "t", p0=[zx[0], 0.0, 0.0, 0.0], window_size=15,
+                   order=5, q_diag=[1e-2] * 4)
+    fy = LSIFilter(expr, "t", p0=[zy[0], 0.0, 0.0, 0.0], window_size=15,
+                   order=5, q_diag=[1e-2] * 4)
+    err = []
+    for i in range(t.size - horizon):
+        fx.partial_fit(t[i], zx[i])
+        fy.partial_fit(t[i], zy[i])
+        if i >= 30:
+            px = float(fx.coast(np.array([t[i + horizon]]))[0])
+            py = float(fy.coast(np.array([t[i + horizon]]))[0])
+            dx = px - tx[i + horizon]
+            dy = py - ty[i + horizon]
+            err.append(dx ** 2 + dy ** 2)
+    return float(np.sqrt(np.mean(err)))
+
+
+def test_coordinated_turn_forecast_gate():
+    """The synthetic coordinated-turn benchmark: a constant-speed turn at
+    5 Hz with 1 m noise per axis, tracked per axis by a cubic on a
+    15-sample adaptive window, one-step forecast by ``coast``. The RMSE over
+    five seeds must not exceed the pinned baseline by more than 5 percent
+    (the adaptive-window regression of the spec, on synthetic data)."""
+    rmse = float(np.mean([_ct_forecast_rmse(s) for s in range(5)]))
+    assert rmse < 3.0            # a broken filter forecasts worse than noise
+    assert rmse <= 1.05 * CT_BASELINE_RMSE
+
+
+def test_result_is_a_batch_fit_on_the_window():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0, 20, 800)
+    y = 2.0 + 0.5 * t + rng.normal(0, 0.05, t.size)
+    flt = LSIFilter("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=200,
+                    order=4, adaptive_window=False)
+    with pytest.raises(ValueError, match="min_window"):
+        flt.result()
+    for ti, yi in zip(t, y):
+        flt.partial_fit(ti, yi)
+    res = flt.result()
+    assert res.n_obs == 200 and res.image_order == 4
+    assert res.basis_name == "legendre"
+    assert set(res.params) == {"c0", "c1"}
+    assert abs(res.params["c1"] - 0.5) < 0.02
+    assert res.cov is not None and res.cov.shape == (2, 2)
+    se = res.stderr()
+    assert all(np.isfinite(v) and v > 0 for v in se.values())
+    assert res.x_range == (float(t[-200]), float(t[-1]))
+
+
+def test_result_for_regressor_and_callable_models():
+    rng = np.random.default_rng(1)
+    t = np.linspace(0, 20, 500)
+    Sx = 0.5 * t ** 2 * np.sin(0.3 * t)
+    y = 3.0 - 0.8 * t + Sx + rng.normal(0, 0.3, t.size)
+    flt = LSIFilter("c0 + c1*t + Sx", "t", regressors="Sx", p0=[0.0, 0.0],
+                    window_size=30, order=4, adaptive_window=False)
+    for i in range(t.size):
+        flt.partial_fit(t[i], y[i], regressors={"Sx": Sx[i]})
+    res = flt.result()
+    assert abs(res.params["c1"] + 0.8) < 0.1 and res.cov is not None
+
+    def line(x, c0, c1):
+        return c0 + c1 * x
+
+    y2 = 2.0 + 0.5 * t + rng.normal(0, 0.05, t.size)
+    flc = EACFilter(line, "t", p0=[0.0, 0.0], window_size=100, order=3,
+                    adaptive_window=False)
+    for ti, yi in zip(t, y2):
+        flc.partial_fit(ti, yi)
+    resc = flc.result()
+    assert resc.basis_name == "block" and abs(resc.params["c1"] - 0.5) < 0.02
+
+
+def test_result_covariance_covers_the_filter_error():
+    """Over replicates the ratio of the filter's RMS parameter error to
+    the mean standard error ``result()`` reports lies within a factor of
+    two at the default process noise, static and tracking alike (the
+    spec's uncertainty gate); with a small process noise the filter
+    integrates information across overlapping windows and the reported
+    error is conservative."""
+    def ratio(drift, q, seeds=12):
+        errs, ses = [], []
+        for seed in range(seeds):
+            rng = np.random.default_rng(seed)
+            t = np.linspace(0, 30, 900)
+            c1 = 0.5 + (0.01 * t if drift else 0.0)
+            y = 2.0 + c1 * t + rng.normal(0, 0.1, t.size)
+            kw = {} if q is None else {"q_diag": [q, q]}
+            flt = LSIFilter("c0 + c1*t", "t", p0=[2.0, 0.5], window_size=60,
+                            order=4, **kw)
+            for ti, yi in zip(t, y):
+                flt.partial_fit(ti, yi)
+            res = flt.result()
+            k = len(flt._t)
+            tm = float(np.mean(t[-k:]))
+            # the window's local slope
+            slope = 0.5 + 0.02 * tm if drift else 0.5
+            errs.append(flt.params_["c1"] - slope)   # the filter's error
+            ses.append(res.stderr()["c1"])
+        return float(np.sqrt(np.mean(np.square(errs)))) / float(np.mean(ses))
+
+    for drift in (False, True):
+        r = ratio(drift, None)
+        assert 0.5 < r < 2.0, (drift, r)
+    assert ratio(False, 1e-4) < 1.0
+
+
+def test_stream_hook_accumulates_every_sample():
+    from dtfit import ImageStream
+    rng = np.random.default_rng(2)
+    t = np.linspace(0, 10, 400)
+    y = 1.3 * np.exp(0.2 * t) + rng.normal(0, 0.05, t.size)
+    direct = ImageStream("legendre", 6, domain=(0.0, 10.0))
+    direct.update(t, y)
+    attached = ImageStream("legendre", 6, domain=(0.0, 10.0))
+    flt = LSIFilter("a*exp(b*t)", "t", p0=[1.0, 0.1], window_size=40,
+                    order=4, stream=attached)
+    for ti, yi in zip(t, y):
+        flt.partial_fit(ti, yi)
+    def same(a, b):
+        assert a.n == b.n and a.basis == b.basis and a.domain == b.domain
+        for name in ("S", "G", "sumsq", "sumy", "wsum"):
+            np.testing.assert_allclose(getattr(a, name), getattr(b, name),
+                                       rtol=1e-10, atol=1e-10)
+
+    assert flt.stream is attached
+    # to rounding: the sums run in another order
+    same(attached.image(), direct.image())
+    with pytest.warns(RuntimeWarning):
+        flt.partial_fit(10.0, float("nan"))
+    # a skipped sample never reaches the stream
+    same(attached.image(), direct.image())
