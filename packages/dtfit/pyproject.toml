@@ -95,6 +95,7 @@ testpaths = ["tests"]
 # Put tests/ on sys.path so the shared accuracy corpus (tests/accuracy/) is
 # importable as `accuracy.*` from the grouped test subdirectories.
 pythonpath = ["tests"]
+markers = ["nightly: full-replicate statistical gates"]
 
 [tool.mypy]
 # No `python_version` pin here on purpose. mypy's default target does NOT track
