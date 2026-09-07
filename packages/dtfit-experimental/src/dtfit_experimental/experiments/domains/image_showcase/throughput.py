@@ -1,0 +1,290 @@
+"""Leg 1's measurements: how fast the reduction runs, how much memory it
+holds, what float32 accumulation costs, and whether the GPU can be used at
+all.
+
+The GPU check runs a real matrix product. ``dtfit._core._backend`` reports
+``cupy`` as available whenever the module imports, which on this machine it
+does even though cuBLAS is missing, so an availability flag is not enough.
+
+Two memory numbers are reported per row, and they measure different
+things: ``peak_mib`` is ``tracemalloc`` (traced Python and numpy
+allocations of this process only, blind to a process pool's children) and
+``peak_rss_mib`` is the resident set of this process plus its exited
+children. The memory claim is stated against the second.
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import sys
+import time
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+import numpy as np
+
+from dtfit.image import Image, ImageStream, Original
+
+from dtfit_experimental.experiments.domains.common import peak_memory
+
+from . import isd_reduce, ngl_reduce
+from .isd_reduce import DAY_POSITIONS, DIURNAL_ORDER
+
+try:                                         # POSIX only
+    import resource
+except ImportError:                          # pragma: no cover - Windows
+    resource = None                          # type: ignore[assignment]
+
+THROUGHPUT_COLUMNS = [
+    "dataset", "route", "workers", "n_files", "samples", "seconds",
+    "samples_per_second", "peak_mib", "peak_rss_mib", "raw_bytes",
+    "coef_bytes", "gram_bytes", "grid_bytes", "image_bytes",
+    "reduction_ratio", "host", "backend", "note",
+]
+GEMM_COLUMNS = [
+    "dataset", "backend", "order", "channels", "days", "samples",
+    "repeats", "seconds", "elements_per_second", "gather_seconds",
+    "note",
+]
+
+
+def machine_row() -> dict[str, Any]:
+    """Who ran the measurement: host, architecture, cores, interpreter and
+    numpy version. Every table carries it so the PC and the Pi rows are
+    never confused."""
+    return {
+        "host": platform.node(),
+        "machine": platform.machine(),
+        "cpu_count": int(os.cpu_count() or 1),
+        "python": ".".join(str(v) for v in sys.version_info[:3]),
+        "numpy": np.__version__,
+    }
+
+
+def peak_rss_mib() -> float:
+    """Peak resident set of this process plus its exited children, MiB.
+
+    ``ru_maxrss`` is kibibytes on Linux and bytes on macOS. A process
+    pool's children only appear here once they have exited, so a pooled
+    measurement reads this after the pool closes. Returns ``nan`` where
+    :mod:`resource` is unavailable (Windows), which the tables report as
+    an empty field rather than as a zero.
+    """
+    if resource is None:
+        return float("nan")
+    total = float(
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    )
+    unit = 1024.0 * 1024.0 if sys.platform == "darwin" else 1024.0
+    return total / unit
+
+
+def gpu_probe(backend: str = "cupy") -> tuple[bool, str]:
+    """Whether ``backend`` can actually multiply, and what it said.
+
+    Runs a 64 by 64 float64 matrix product on the device: an import check
+    is not enough, since a wheel built for another CUDA major version
+    imports and sees the device but fails in cuBLAS. Returns
+    ``(False, "<ExceptionType>: <message>")`` on any failure, never
+    raises.
+    """
+    try:
+        if backend == "cupy":
+            import cupy as cp
+
+            a = cp.arange(64 * 64, dtype=cp.float64).reshape(64, 64)
+            value = float(cp.asnumpy(a.T @ a).sum())
+            if not np.isfinite(value):
+                return False, "cupy: the product was not finite"
+            return True, f"cupy {cp.__version__}"
+        if backend == "torch":
+            import torch
+
+            if not torch.cuda.is_available():
+                return False, "torch: no CUDA device"
+            a = torch.arange(
+                64 * 64, dtype=torch.float64, device="cuda"
+            ).reshape(64, 64)
+            value = float((a.T @ a).sum().item())
+            if not np.isfinite(value):
+                return False, "torch: the product was not finite"
+            return True, f"torch {torch.__version__}"
+        return False, f"unknown backend {backend!r}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def disk_read_rate(
+    paths: Sequence[Any], *, block: int = 1 << 20
+) -> dict[str, Any]:
+    """Raw read throughput over ``paths``, parsing nothing.
+
+    Read next to a reduction rate this says whether the reduction is
+    I/O-bound. Measure it on files the reduction does not also read: the
+    page cache would otherwise serve the second reader from memory.
+    """
+    total = 0
+    started = time.perf_counter()
+    for path in paths:
+        with open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(block)
+                if not chunk:
+                    break
+                total += len(chunk)
+    seconds = time.perf_counter() - started
+    return {
+        "n_files": len(list(paths)), "bytes": total,
+        "seconds": round(seconds, 4),
+        "mb_per_second": (
+            round(total / seconds / 1e6, 2) if seconds > 0 else 0.0
+        ),
+    }
+
+
+def float32_error(
+    t: np.ndarray, y: np.ndarray, order: int, *, chunk: int = 10_000
+) -> dict[str, Any]:
+    """What a float32 producer would cost on one series.
+
+    Accumulates ``S`` and ``G`` chunk by chunk in float32 and in float64
+    and compares both against the direct float64 image of the whole
+    series. Returns the maximum relative differences of ``S``
+    (``rel_S_float32``, ``rel_S_float64``) with ``n``, ``order`` and the
+    chunk size. ``ImageStream`` accumulates in float64 whatever its
+    backend, so the float32 arm is built here rather than asked of it.
+    """
+    from dtfit.image import make_basis, u_of
+
+    t = np.asarray(t, dtype=float)
+    y = np.asarray(y, dtype=float)
+    domain = (float(t[0]), float(t[-1]))
+    basis = make_basis("legendre", int(order))
+    direct = Image.of(Original(t, y, domain=domain), basis, int(order))
+    out: dict[str, Any] = {
+        "n": int(t.size), "order": int(order), "chunk": int(chunk),
+    }
+    for name, dtype in (("float64", np.float64), ("float32", np.float32)):
+        S = np.zeros(basis.n_coef, dtype=dtype)
+        for start in range(0, t.size, chunk):
+            sl = slice(start, start + chunk)
+            Phi = basis.evaluate(u_of(t[sl], *domain)).astype(dtype)
+            S = S + Phi.T @ y[sl].astype(dtype)
+        scale = float(np.max(np.abs(direct.S)))
+        out[f"rel_S_{name}"] = float(
+            np.max(np.abs(S.astype(float) - direct.S)) / scale
+        )
+    return out
+
+
+def channel_gemm_rate(
+    Y: np.ndarray,
+    *,
+    order: int = DIURNAL_ORDER,
+    backend: str = "numpy",
+    repeats: int = 3,
+) -> dict[str, Any]:
+    """Time the channel-form projection of a resident batch.
+
+    ``Y`` has shape ``(24, channels)`` on the day grid
+    :data:`~.isd_reduce.DAY_POSITIONS`. The read is excluded on purpose:
+    this measures the GEMM, and :func:`disk_read_rate` measures the other
+    half. The fastest of ``repeats`` runs is reported, with the images of
+    the last one.
+    """
+    Y = np.asarray(Y, dtype=float)
+    best = float("inf")
+    images: list[Image] = []
+    for _ in range(max(1, int(repeats))):
+        stream = ImageStream(
+            "legendre", int(order), domain=(0.0, 1.0), grid="explicit",
+            channels=Y.shape[1], backend=backend,
+        )
+        started = time.perf_counter()
+        stream.update(DAY_POSITIONS[: Y.shape[0]], Y)
+        images = stream.images()
+        best = min(best, time.perf_counter() - started)
+    samples = int(Y.size)
+    return {
+        "backend": backend, "order": int(order),
+        "channels": int(Y.shape[1]), "samples": samples,
+        "repeats": int(repeats), "seconds": best,
+        "elements_per_second": (
+            round(samples / best, 1) if best > 0 else 0.0
+        ),
+        "images": images,
+    }
+
+
+def reduce_rate(
+    paths: Sequence[Any],
+    out_dir: Any,
+    *,
+    dataset: str,
+    workers: int = 1,
+    steps_by_station: Mapping[str, Sequence[float]] | None = None,
+    fields: Sequence[str] = ("TMP",),
+) -> dict[str, Any]:
+    """Reduce a set of files and report the rate, the peak memory and the
+    size reduction.
+
+    ``dataset`` is ``"ngl"`` or ``"isd"``. Two peaks are reported:
+    ``peak_mib`` is :func:`peak_memory`'s traced allocation high-water
+    mark, which covers this process only and is blind to a pool's
+    children; ``peak_rss_mib`` is :func:`peak_rss_mib`, read after the
+    pool has closed so the children are included. Both are flat in the
+    file count because one file is held at a time, and the memory gate
+    compares the ``cpu-1`` ``peak_rss_mib`` of two runs of different
+    sizes.
+
+    Raises:
+        ValueError: an unknown ``dataset``.
+    """
+    files = [Path(p) for p in paths]
+    out_dir = Path(out_dir)
+    if dataset == "ngl":
+        def work() -> list[dict[str, Any]]:
+            return ngl_reduce.reduce_many(
+                files, out_dir, dict(steps_by_station or {}),
+                workers=workers,
+            )
+    elif dataset == "isd":
+        def work() -> list[dict[str, Any]]:
+            return isd_reduce.reduce_many_years(
+                files, out_dir, fields=fields, workers=workers,
+            )
+    else:
+        raise ValueError(f"dataset must be 'ngl' or 'isd', got {dataset!r}")
+    started = time.perf_counter()
+    rows, peak = peak_memory(work)
+    seconds = time.perf_counter() - started
+    # After peak_memory returns the pool has closed, so RUSAGE_CHILDREN
+    # now carries the workers' peaks.
+    rss = peak_rss_mib()
+    good = [r for r in rows if not r["error"]]
+    samples = sum(int(r["n"]) for r in good)
+    raw = sum(int(r["raw_bytes"]) for r in good)
+    coef = sum(int(r["coef_bytes"]) for r in good)
+    gram = sum(int(r["gram_bytes"]) for r in good)
+    grid = sum(int(r["grid_bytes"]) for r in good)
+    image_bytes = coef + gram + grid
+    machine = machine_row()
+    return {
+        "dataset": dataset, "route": f"cpu-{workers}", "workers": workers,
+        "n_files": len(files), "samples": samples,
+        "seconds": round(seconds, 3),
+        "samples_per_second": (
+            round(samples / seconds, 1) if seconds > 0 else 0.0
+        ),
+        "peak_mib": round(peak, 2),
+        "peak_rss_mib": None if np.isnan(rss) else round(rss, 2),
+        "raw_bytes": raw, "coef_bytes": coef, "gram_bytes": gram,
+        "grid_bytes": grid, "image_bytes": image_bytes,
+        "reduction_ratio": (
+            round(raw / image_bytes, 3) if image_bytes else None
+        ),
+        "host": machine["host"], "backend": "numpy",
+        "note": f"{len(rows) - len(good)} failed",
+    }
