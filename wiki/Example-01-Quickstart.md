@@ -66,17 +66,18 @@ if __name__ == "__main__":
 ```text
 == fit_lsi: a*exp(b*t) ==
 FittingResult: a*exp(b*t)
-  a = 1.40784 +/- 0.0066
-  b = 0.797447 +/- 0.0019
-params: {'a': 1.4078, 'b': 0.7974}
+  a = 1.40773 +/- 0.00896
+  b = 0.797487 +/- 0.00258
+  R^2 = 0.998637
+params: {'a': 1.4077, 'b': 0.7975}
 converged: True
 
 == uncertainty ==
-stderr: {'a': 0.0066, 'b': 0.0019}
-95% CI: {'a': (1.395, 1.421), 'b': (0.794, 0.801)}
-predict(return_std) sd: [0.0066 0.0085 0.0094 0.0094 0.0242]
+stderr: {'a': 0.009, 'b': 0.0026}
+95% CI: {'a': (1.39, 1.425), 'b': (0.792, 0.803)}
+predict(return_std) sd: [0.009  0.0115 0.0128 0.0128 0.0325]
 extrapolation warned: True
 
 == auto_estimate ==
-params: {'a': 1.4078, 'b': 0.7974}
+params: {'a': 1.4077, 'b': 0.7975}
 ```

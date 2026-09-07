@@ -92,7 +92,7 @@ if __name__ == "__main__":
 == fit_stochastic: an AR(1) mean-reverting series ==
 detected regime : mean-reverting
 10-step forecast: [0.326 0.171 0.075] ...  (band widens with horizon)
-band at h=10    : [-2.54, 2.40]
+band at h=10    : [-2.53, 2.38]
 simulate() round-trips: mean-reverting
 
 == fit_stochastic: trend + cycle ==

@@ -82,16 +82,16 @@ if __name__ == "__main__":
   n             : 250
   rmse          : 0.2006
   r2            : 0.9969
-  aic           : -797.2346
-  bic           : -786.6703
+  aic           : -797.2391
+  bic           : -786.6747
   durbin_watson : 2.1299
   converged     : True
 
 == residual_diagnostics ==
   durbin_watson : 2.13
   lag1_autocorr : -0.067
-  normality_p   : 0.835
+  normality_p   : 0.834
 
 == to_dict / from_dict round-trip ==
-  params: {'a0': 0.494, 'a1': 2.008, 'a2': 0.499}
+  params: {'a0': 0.498, 'a1': 2.004, 'a2': 0.499}
 ```

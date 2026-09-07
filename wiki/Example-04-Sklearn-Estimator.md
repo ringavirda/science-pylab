@@ -68,14 +68,14 @@ if __name__ == "__main__":
 
 ```text
 == fit / predict / score ==
-coef_: [1.4081 0.7974]
+coef_: [1.4078 0.7975]
 R2   : 0.9986
 
 == GridSearchCV ==
 best params: {'fit__k_star': 4, 'fit__method': 'lsi'}
-best CV R2 : 0.9674
+best CV R2 : 0.9682
 
 == cross_val_score ==
-per-fold R2: [0.885 0.936 0.983 0.995]
-mean R2    : 0.9498
+per-fold R2: [0.885 0.941 0.984 0.995]
+mean R2    : 0.9512
 ```

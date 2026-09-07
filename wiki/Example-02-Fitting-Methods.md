@@ -7,8 +7,7 @@ Each differential-transformation fitter uses a different *measurement* of "fit":
 - LSI (fit_lsi)  -- integral least-squares in a reconditioned Legendre spectrum;
                     the general default, with an oscillatory recipe for cycles.
 - EAC (fit_eac)  -- equal-areas integral matching over windows; robust to sparse
-                    outliers (loss="soft_l1") and good on transients
-                    (window_mode="curvature").
+                    outliers (robust=True) and good on transients.
 - DSB (fit_dsb)  -- symbolic differential-spectra balance against a polynomial
                     pre-fit; an analytical reference method.
 
@@ -44,25 +43,25 @@ def lsi_oscillatory(rng) -> None:
 
 
 def eac_robust(rng) -> None:
-    # Equal-areas integrates over windows, so it averages over sparse outliers;
-    # loss="soft_l1" adds robustness under heavier contamination (the EAC paper's
-    # mechanism). Tune f_scale to the clean window-area residual to engage it.
+    # robust=True builds the image with per-sample Huber weights from an
+    # IRLS regression on the basis, so outliers are down-weighted before
+    # any model is involved.
     x = np.linspace(0, 5, 250)
     y = 3.0 * np.arctan(1.5 * x) + rng.normal(0, 0.1, x.size)  # truth a=3, w=1.5
     idx = rng.choice(x.size, 12, replace=False)
     y[idx] += rng.normal(0, 3.0, 12)                          # scattered outliers
-    res = fit_eac(x, y, "a*atan(w*x)", "x", loss="soft_l1", f_scale=0.1)
-    print("\n== EAC robust (loss=soft_l1) ==")
+    res = fit_eac(x, y, "a*atan(w*x)", "x", robust=True)
+    print("\n== EAC robust (robust=True) ==")
     print("truth a=3.0 w=1.5 ->", {k: round(v, 3) for k, v in res.params.items()})
 
 
-def eac_curvature(rng) -> None:
-    # Curvature window placement: narrow where the signal bends, wide where it is
-    # smooth -- the right conditioning for a localized transient/peak.
+def eac_transient(rng) -> None:
+    # The block preset's uniform windows condition a localized transient/peak
+    # well without any window-placement tuning.
     x = np.linspace(0, 6, 300)
     y = 5.0 * x * np.exp(-1.2 * x) + rng.normal(0, 0.03, x.size)
-    res = fit_eac(x, y, "a*x*exp(-b*x)", "x", window_mode="curvature")
-    print("\n== EAC curvature windows on a transient peak ==")
+    res = fit_eac(x, y, "a*x*exp(-b*x)", "x")
+    print("\n== EAC block preset on a transient peak ==")
     print("params:", {k: round(v, 3) for k, v in res.params.items()})
 
 
@@ -84,7 +83,7 @@ def main() -> None:
     lsi_basic(rng)
     lsi_oscillatory(rng)
     eac_robust(rng)
-    eac_curvature(rng)
+    eac_transient(rng)
     dsb(rng)
 
 
@@ -96,17 +95,17 @@ if __name__ == "__main__":
 
 ```text
 == LSI: offset + exponential ==
-params: {'a0': 0.5193, 'a1': 1.9956, 'a2': 0.4993}
+params: {'a0': 0.519, 'a1': 1.9959, 'a2': 0.4992}
 
 == LSI oscillatory recipe: A*sin(w*x + p) ==
 FFT frequency seed: 1.8802
 params: {'A': 1.992, 'p': 0.505, 'w': 1.699}
 
-== EAC robust (loss=soft_l1) ==
-truth a=3.0 w=1.5 -> {'a': 2.846, 'w': 1.634}
+== EAC robust (robust=True) ==
+truth a=3.0 w=1.5 -> {'a': 3.0, 'w': 1.464}
 
-== EAC curvature windows on a transient peak ==
-params: {'a': 4.998, 'b': 1.199}
+== EAC block preset on a transient peak ==
+params: {'a': 4.973, 'b': 1.196}
 
 == DSB (polynomial degree 4) ==
 params: {'a': 1.496, 'b': 1.106}
