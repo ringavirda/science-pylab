@@ -3,12 +3,15 @@ it."""
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Callable
 
 import numpy as np
+import numpy.polynomial.legendre as leg
 from scipy.linalg import cholesky, solve_triangular
 from scipy.optimize import differential_evolution, least_squares, minimize
 
+from dtfit._signal import dominant_period
 from dtfit.methods._common import _validate_p0, normalize_bounds, normalize_p0
 from dtfit.methods._modelinput import ModelSpec, resolve_model, result_kwargs
 from dtfit.types import FittingResult
@@ -130,6 +133,159 @@ def _rss_from_image(image: Image, S_f: np.ndarray) -> float:
     return float(image.sumsq - image.S @ image.beta + d @ (Ginv @ d))
 
 
+def fft_frequency_seed(x: np.ndarray, y: np.ndarray) -> float:
+    """Dominant angular frequency of ``y`` on the near-uniform grid ``x``.
+
+    Computed as ``2 pi f`` at the peak of the mean-removed real FFT of
+    ``y``, with the DC bin ignored.
+
+    Args:
+        x: Sample positions, non-decreasing; only ``x[1] - x[0]`` sets the
+            sampling interval, so a near-uniform grid is assumed.
+        y: Sample values, same length as ``x``.
+
+    Returns:
+        The angular frequency (radians per unit ``x``) of the strongest
+        spectral peak.
+    """
+    yy = np.asarray(y, dtype=float) - float(np.mean(y))
+    spec = np.abs(np.fft.rfft(yy))
+    if spec.size:
+        spec[0] = 0.0
+    freqs = np.fft.rfftfreq(yy.size, d=float(x[1] - x[0]))
+    return 2.0 * np.pi * float(freqs[int(np.argmax(spec))])
+
+
+def osc_order(x: np.ndarray, y: np.ndarray, max_order: int = 200) -> int:
+    """Legendre order that resolves the dominant cycle of ``y``.
+
+    ``ceil(pi * cycles) + 8``, the polynomial resolution threshold with
+    headroom, where ``cycles`` is the number of periods of the FFT-peak
+    frequency spanned by ``x``.
+
+    Args:
+        x: Sample positions, non-decreasing.
+        y: Sample values, same length as ``x``.
+        max_order: Upper cap on the returned order, >= 1.
+
+    Returns:
+        The suggested Legendre order, at most ``max_order``.
+    """
+    w0 = fft_frequency_seed(x, y)
+    cycles = w0 * float(x[-1] - x[0]) / (2.0 * np.pi)
+    return min(int(np.ceil(np.pi * cycles)) + 8, max_order)
+
+
+def _sensitivity_truncation(
+    spec: ModelSpec, params: np.ndarray, domain: tuple[float, float],
+    max_order: int,
+) -> np.ndarray:
+    """Relative L2 truncation error of every parameter sensitivity after
+    each Legendre order ``0..max_order-1``, as an array of shape
+    ``(p, max_order)``."""
+    xi, q = leg.leggauss(4 * max_order)
+    x0, x1 = domain
+    xq = x0 + (x1 - x0) * (xi + 1.0) / 2.0
+    V = leg.legvander(xi, max_order)
+    j = np.arange(max_order + 1)
+    out = []
+    for s in spec.param_derivs(xq, params):
+        beta = ((2 * j + 1) / 2.0) * (V.T @ (q * s))
+        energy = beta ** 2 * 2.0 / (2 * j + 1)
+        tot = float(energy.sum()) + 1e-300
+        tail = np.cumsum(energy[::-1])[::-1]
+        out.append(np.sqrt(tail[1:] / tot))
+    return np.array(out)
+
+
+def order_for(
+    model: Any, params: Any, domain: tuple[float, float], *,
+    var: str | None = None, tol: float = 0.02, max_order: int = 64,
+    param_names: Any = None,
+) -> int:
+    """Smallest Legendre order that represents the model's sensitivities.
+
+    The order at which every parameter sensitivity of the model at
+    ``params`` is represented on ``domain`` to relative L2 error ``tol``,
+    floored at ``n_params - 1`` and capped at ``max_order``. Measured
+    against the model catalog, ``tol=0.02`` is at or above the order at
+    which the projected fit reaches NLLS efficiency for every family.
+
+    Args:
+        model: A SymPy expression string, a ``sympy.Expr``, or a callable
+            ``f(x, *params)``.
+        params: Parameter values, in canonical order, at which the
+            sensitivities are measured.
+        domain: ``(x0, x1)``, the interval the order is chosen for.
+        var: The main variable name, required for a symbolic model.
+        tol: Relative L2 truncation tolerance, in ``(0, 1)``.
+        max_order: Upper cap on the returned order, >= 1.
+        param_names: Parameter names for a callable model; see
+            :func:`~dtfit.methods._modelinput.resolve_model`.
+
+    Returns:
+        The smallest order meeting ``tol`` for every parameter, or
+        ``max_order`` if none does; never less than ``n_params - 1`` or 1.
+
+    Raises:
+        RuntimeError: the model has no free parameters.
+    """
+    spec = resolve_model(model, var, param_names=param_names)
+    p = np.asarray(params, dtype=float)
+    err = _sensitivity_truncation(
+        spec, p, (float(domain[0]), float(domain[1])), max_order,
+    )
+    ok = np.all(err < tol, axis=0)
+    k = int(np.argmax(ok)) if ok.any() else max_order
+    return max(k, len(spec.names) - 1, 1)
+
+
+def coverage(
+    model: Any, params: Any, image: Image, *, var: str | None = None,
+    param_names: Any = None,
+) -> float:
+    """Largest relative truncation error of the model's sensitivities at
+    the image's order.
+
+    Above ``0.02`` the image loses information about ``params``: the
+    order is too low to identify the model's parameter sensitivities from
+    this image. ``0.0`` for a non-Legendre basis, which this measure does
+    not apply to.
+
+    Args:
+        model: A SymPy expression string, a ``sympy.Expr``, or a callable
+            ``f(x, *params)``.
+        params: Parameter values, in canonical order, at which the
+            sensitivities are measured.
+        image: The image the fit would run on.
+        var: The main variable name, required for a symbolic model.
+        param_names: Parameter names for a callable model; see
+            :func:`~dtfit.methods._modelinput.resolve_model`.
+
+    Returns:
+        The largest relative L2 truncation error, over every parameter,
+        of the model's sensitivities at ``image.order``.
+    """
+    spec = resolve_model(model, var, param_names=param_names)
+    if image.basis.name != "legendre":
+        return 0.0
+    err = _sensitivity_truncation(
+        spec, np.asarray(params, dtype=float), image.domain,
+        max(image.order + 1, 8),
+    )
+    return float(np.max(err[:, image.order]))
+
+
+def _auto_basis(original: Original) -> tuple[str, bool]:
+    """``(basis, oscillatory)`` from the signal's shape: a spectral peak
+    above 0.10 of the detrended power means a cycle, else the bulk
+    route."""
+    _, strength = dominant_period(original.y)
+    if strength > 0.10:
+        return "legendre", True
+    return "bulk", False
+
+
 def fit(
     model: Any,
     data: Original | Image,
@@ -172,10 +328,19 @@ def fit(
             label only for a callable.
         basis: The basis to image an Original in, ``"legendre"``,
             ``"block"``, or a :class:`~dtfit.image.Basis` instance.
-            ``"auto"`` is rejected here (``TypeError``); it needs the
-            samples an Image no longer carries.
+            ``"auto"`` routes by the signal's shape (:func:`_auto_basis`):
+            a spectral peak means ``"legendre"`` with ``oscillatory=True``;
+            otherwise both bases are tried and the lower-``rss`` result is
+            returned. Rejected with an Image (``TypeError``), which no
+            longer carries the samples the routing needs.
         order: The basis order (polynomial degree for Legendre, window
-            count for block). Required when ``data`` is an Original.
+            count for block). When omitted with an Original, defaults to
+            :func:`order_for` at ``p0`` (:func:`osc_order` also, and the
+            larger taken, when oscillatory), floored at ``n_params - 1``
+            and capped at ``n_obs - 2``; for the block basis, ``4 *
+            n_params``. A :class:`~dtfit.image.Basis` instance sets its
+            own order; passing ``order`` with one that disagrees raises
+            (:func:`~dtfit.image.make_basis`).
         p0: Initial guess, a positional sequence in canonical parameter
             order or a ``{name: value}`` mapping; ``None`` defaults to
             ones.
@@ -191,12 +356,15 @@ def fit(
             ``scipy.optimize.curve_fit`` with true absolute uncertainties.
         robust: Huber-reweight the image when building it from an
             Original; raises ``TypeError`` with an Image (already built).
-        oscillatory: Declares the model has a dominant frequency;
-            validated here and used by the order rule and the frequency
-            seed added in a later task. No effect yet.
-        freq_param: The name of the frequency parameter when
-            ``oscillatory=True``; likewise validated here for the later
-            task.
+        oscillatory: Declares the model has a dominant frequency. Raises
+            the default order to :func:`osc_order` when that exceeds
+            :func:`order_for`; implied by ``freq_param`` and by
+            ``basis="auto"`` routing to a cyclic signal.
+        freq_param: The name of the frequency parameter to seed from the
+            FFT peak of the data (:func:`fft_frequency_seed`) before the
+            solve; also sets ``oscillatory=True``. Overwrites ``p0`` for
+            that parameter. With an Image the peak is read from
+            :meth:`~dtfit.image.Image.reconstruct` on its own grid.
         param_names: Parameter names for a callable model, in signature
             order after ``x``; introspected from the signature when
             omitted. Optional and cross-checked for a symbolic model.
@@ -229,16 +397,22 @@ def fit(
           component in a null direction of the Jacobian is unidentified,
           reported with an ``inf`` diagonal entry and ``nan``
           off-diagonal entries rather than a spuriously small variance.
+        - ``image_order`` and ``basis_name``: the order and basis of the
+          image the fit ran on.
 
     Raises:
         TypeError: ``robust=True``, ``sigma`` given, or ``basis="auto"``
             with an Image; ``data`` is neither an Original nor an Image.
-        ValueError: ``order`` missing with an Original; the image has
-            fewer coefficients than parameters; the model is not finite
-            at ``p0`` on the data's grid; ``sigma`` given for an Original
-            that already carries weights; a malformed ``p0`` or
-            ``bounds`` (from the normalizers).
-        RuntimeError: the model has no free parameters.
+        ValueError: ``freq_param`` names no parameter of the model; the
+            image has fewer coefficients than parameters; the model is
+            not finite at ``p0`` on the data's grid; ``sigma`` given for
+            an Original that already carries weights; a malformed ``p0``
+            or ``bounds`` (from the normalizers).
+        RuntimeError: the model has no free parameters; both bases fail
+            when ``basis="auto"`` routes to the non-cyclic comparison.
+        UserWarning: the image's coverage of the model's sensitivities at
+            ``p0`` exceeds ``0.02`` (:func:`coverage`); the order is too
+            low to identify the model from this image.
     """
     spec: ModelSpec = resolve_model(model, var, param_names=param_names)
     names = list(spec.names)
@@ -248,6 +422,12 @@ def fit(
     bounds_list = normalize_bounds(bounds, names)
     guess = _validate_p0(p0_arr, names)
 
+    oscillatory = bool(oscillatory or freq_param is not None)
+    if freq_param is not None and freq_param not in names:
+        raise ValueError(
+            f"freq_param {freq_param!r} is not a parameter of the model "
+            f"(have {names})."
+        )
     if isinstance(data, Image):
         if robust:
             raise TypeError(
@@ -264,6 +444,21 @@ def fit(
                 "basis='auto' needs the samples; pass the Original."
             )
         image = data
+        original = None
+        cov_err = coverage(model, guess, image, var=var,
+                            param_names=param_names)
+        if cov_err > 0.02:
+            warnings.warn(
+                f"image coverage {cov_err:.3f} at order {image.order}: "
+                "the model's sensitivities are not represented at this "
+                "order; build the image at order_for(model, p0, domain)",
+                UserWarning, stacklevel=2,
+            )
+        if freq_param is not None:
+            xg = image.grid.positions()
+            guess[names.index(freq_param)] = fft_frequency_seed(
+                xg, image.reconstruct(xg)
+            )
     else:
         if not isinstance(data, Original):
             raise TypeError(
@@ -279,8 +474,51 @@ def fit(
             data if sigma is None
             else Original(data.x, data.y, sigma=sigma, domain=data.domain)
         )
+        if basis == "auto":
+            route, osc = _auto_basis(original)
+            if route == "bulk":
+                best = None
+                for b in ("legendre", "block"):
+                    try:
+                        cand = fit(
+                            model, original, var, basis=b, order=order,
+                            p0=p0, bounds=bounds,
+                            absolute_sigma=absolute_sigma, robust=robust,
+                            param_names=param_names,
+                            solver_options=solver_options,
+                            random_state=random_state,
+                        )
+                    except Exception:
+                        continue
+                    if best is None or (
+                        cand.rss is not None and cand.rss < best.rss
+                    ):
+                        best = cand
+                if best is None:
+                    raise RuntimeError("both bases failed for this series")
+                return best
+            basis, oscillatory = route, oscillatory or osc
+        if freq_param is not None:
+            guess[names.index(freq_param)] = fft_frequency_seed(
+                original.x, original.y
+            )
         if order is None:
-            raise ValueError("order is required")
+            if not isinstance(basis, str):
+                order = basis.order
+            else:
+                if basis == "block":
+                    order = 4 * len(names)
+                else:
+                    order = order_for(
+                        model, guess, original.domain, var=var,
+                        param_names=param_names,
+                    )
+                    if oscillatory:
+                        order = max(
+                            order, osc_order(original.x, original.y)
+                        )
+                order = max(order, len(names) - 1, 1)
+                order = min(order, original.n - 2)
         image = Image.of(original, basis, order, robust=robust)
     if image.n_coef < len(names):
         raise ValueError(
@@ -334,7 +572,7 @@ def fit(
     )
 
     S_f = model_image(coeffs)
-    if isinstance(data, Original):
+    if original is not None:
         f = spec.eval(x, coeffs)
         rss = float(np.sum(w * (original.y - f) ** 2))
         rss_source = "samples"
@@ -352,4 +590,6 @@ def fit(
         cost=0.5 * float(r @ r), **result_kwargs(spec, coeffs),
     )
     result.rss_source = rss_source
+    result.image_order = image.order
+    result.basis_name = image.basis.name
     return result

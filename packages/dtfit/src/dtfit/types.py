@@ -81,6 +81,8 @@ class FittingResult:
         cost: Final optimizer cost, typically ``0.5 * rss``.
         rss_source: Where ``rss`` was computed: ``"samples"``, ``"image"``
             or ``None``.
+        image_order: The order of the image the fit ran on, or ``None``.
+        basis_name: The basis of the image the fit ran on, or ``None``.
     """
 
     def __init__(
@@ -125,6 +127,8 @@ class FittingResult:
         self.nfev = None if nfev is None else int(nfev)
         self.cost = None if cost is None else float(cost)
         self.rss_source: str | None = None
+        self.image_order: int | None = None
+        self.basis_name: str | None = None
 
     def __repr__(self) -> str:
         if self.error is not None:
@@ -363,6 +367,9 @@ class FittingResult:
         ):
             if val is not None:
                 out[key] = val
+        out["rss_source"] = self.rss_source
+        out["image_order"] = self.image_order
+        out["basis_name"] = self.basis_name
         return out
 
     @classmethod
@@ -370,7 +377,7 @@ class FittingResult:
         """Rebuild a :class:`FittingResult` from :meth:`to_dict` output."""
         cov = d.get("cov")
         xr = d.get("x_range")
-        return cls(
+        result = cls(
             coeffs=np.asarray(d["coeffs"], dtype=float),
             cov=None if cov is None else np.asarray(cov, dtype=float),
             expr=d["expr"],
@@ -383,6 +390,10 @@ class FittingResult:
             nfev=d.get("nfev"),
             cost=d.get("cost"),
         )
+        result.rss_source = d.get("rss_source")
+        result.image_order = d.get("image_order")
+        result.basis_name = d.get("basis_name")
+        return result
 
     def summary(self) -> str:
         """A short text summary: parameters +/- their standard errors."""

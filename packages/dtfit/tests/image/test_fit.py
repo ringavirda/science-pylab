@@ -2,7 +2,10 @@ import numpy as np
 import pytest
 from scipy.optimize import curve_fit
 
-from dtfit.image import Original, Image, fit
+from dtfit.image import (
+    Original, Image, fit, order_for, coverage, fft_frequency_seed,
+)
+from dtfit.types import FittingResult
 
 from accuracy.scenarios import SCENARIOS_BY_NAME
 
@@ -182,8 +185,6 @@ def test_input_type_errors():
         fit("a*exp(-b*x)", img, "x", basis="auto", p0=[1.0, 1.0])
     with pytest.raises(TypeError):
         fit("a*exp(-b*x)", (x, y), "x", order=8, p0=[1.0, 1.0])
-    with pytest.raises(ValueError):
-        fit("a*exp(-b*x)", o, "x", p0=[1.0, 1.0])
 
 
 def test_unidentified_parameter_reports_infinite_stderr():
@@ -258,3 +259,86 @@ def test_callable_model_and_input_errors():
         fit(
             "a + b*x + c*x**2 + d*x**3", Original(x, y), "x", order=2
         )
+
+
+def test_order_for_matches_measured_orders():
+    assert order_for(
+        "a0 + a1*x", [1.0, 2.0], (0.0, 5.0), var="x"
+    ) == 1
+    assert order_for(
+        "a0 + a1*x + a2*x**2", [1.0, 0.5, 0.3], (0.0, 5.0), var="x"
+    ) == 2
+    k = order_for(
+        "L/(1 + exp(-k*(x - x0)))", [5.0, 1.5, 5.0], (0.0, 10.0), var="x"
+    )
+    assert 12 <= k <= 20
+    k = order_for(
+        "A*exp(-z*w*x)*sin(w*sqrt(1 - z**2)*x)", [2.0, 2.0, 0.12],
+        (0.0, 12.0), var="x",
+    )
+    assert 12 <= k <= 24
+
+
+def test_default_order_and_coverage_warning():
+    expr, var, fn, pt, scn = _case("logistic")
+    x = _grids(scn, "uniform")
+    y = fn(x, *pt)
+    r = fit(expr, Original(x, y), var, p0=pt)
+    assert r.image_order >= 12
+    assert np.max(np.abs(r.coeffs / pt - 1)) < 1e-6
+    low = Image.of(Original(x, y), "legendre", 4)
+    with pytest.warns(UserWarning, match="coverage"):
+        fit(expr, low, var, p0=pt)
+    assert coverage(expr, pt, low, var=var) > 0.02
+
+
+def test_oscillatory_recipe_seeds_frequency():
+    x = np.linspace(0, 12, 400)
+    y = (
+        1.0 + 2.0 * np.sin(1.5 * x + 0.5)
+        + 0.05 * np.random.default_rng(3).standard_normal(400)
+    )
+    assert abs(fft_frequency_seed(x, y) - 1.5) < 0.3
+    r = fit(
+        "c + A*sin(w*x + p)", Original(x, y), "x",
+        p0={"c": 0.0, "A": 1.0, "w": 0.3, "p": 0.0}, freq_param="w",
+    )
+    assert abs(r.params["w"] - 1.5) < 0.01
+    assert r.image_order >= 12
+
+
+def test_auto_basis_routes_by_shape():
+    x = np.linspace(0, 12, 400)
+    y = (
+        1.0 + 2.0 * np.sin(1.5 * x + 0.5)
+        + 0.05 * np.random.default_rng(3).standard_normal(400)
+    )
+    r = fit(
+        "c + A*sin(w*x + p)", Original(x, y), "x", basis="auto",
+        p0={"c": 0.0, "A": 1.0, "w": 0.3, "p": 0.0}, freq_param="w",
+    )
+    assert r.basis_name == "legendre"
+    assert abs(r.params["w"] - 1.5) < 0.01
+    expr, var, fn, pt, scn = _case("exp_decay_offset")
+    xg = _grids(scn, "uniform")
+    yg = fn(xg, *pt) + 0.02 * np.random.default_rng(1).standard_normal(
+        xg.size
+    )
+    r = fit(expr, Original(xg, yg), var, basis="auto", p0=pt)
+    assert r.basis_name in ("legendre", "block")
+    assert np.max(np.abs(r.coeffs / pt - 1)) < 0.05
+    with pytest.raises(TypeError):
+        fit(
+            expr, Image.of(Original(xg, yg), "legendre", 8), var,
+            basis="auto", p0=pt,
+        )
+
+
+def test_result_round_trips_through_dict():
+    x = np.linspace(0, 5, 60)
+    y = 1.0 + 2.0 * x + 0.01 * np.random.default_rng(0).standard_normal(60)
+    r = fit("a + b*x", Original(x, y), "x", p0=[1.0, 1.0])
+    r2 = FittingResult.from_dict(r.to_dict())
+    assert r2.rss_source == r.rss_source
+    assert r2.image_order == r.image_order
+    assert r2.basis_name == r.basis_name
