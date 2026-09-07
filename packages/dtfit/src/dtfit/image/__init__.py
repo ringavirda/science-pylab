@@ -5,6 +5,7 @@ from .bases import Basis, LegendreBasis, BlockBasis, make_basis, u_of
 from .original import Original
 from .image import Image, huber_weights, gram_whitener
 from .transfer import assemble, legendre_transfer, block_transfer
+from .stream import ImageStream
 from .fit import (
     fit, order_for, coverage, osc_order, fft_frequency_seed, fit_lsi,
     fit_eac,
@@ -21,6 +22,7 @@ __all__ = [
     "Image",
     "huber_weights",
     "gram_whitener",
+    "ImageStream",
     "assemble",
     "legendre_transfer",
     "block_transfer",

@@ -63,7 +63,7 @@ from dtfit.methods import (
     EnsembleResult,
     find_degree,
 )
-from dtfit.image import Original, Image, fit, order_for
+from dtfit.image import Original, Image, ImageStream, fit, order_for
 from dtfit.estimators import NonlineRegressor
 from dtfit.streaming import (
     EACFilter,
@@ -83,6 +83,7 @@ from dtfit.stochastic import fit_stochastic, StochasticModel, StochasticFilter
 __all__ = [
     "Original",
     "Image",
+    "ImageStream",
     "fit",
     "order_for",
     "NonlineRegressor",
