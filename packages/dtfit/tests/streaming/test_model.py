@@ -38,6 +38,8 @@ def test_regressor_model_splits_drift_and_regressor_parts():
     np.testing.assert_allclose(
         m.eval(t, cols, np.array([1.0, 2.0])), [6.0, 10.0]
     )
+    assert m.f_drift(1.0, 1.0, 2.0) == 3.0
+    assert m.f_reg(0.0, 5.0, 1.0, 2.0) == 5.0
     assert m.reg_tuple({"S": 3.0}) == (3.0,)
     assert m.reg_tuple([3.0]) == (3.0,)
     with pytest.raises(ValueError):

@@ -228,6 +228,9 @@ class CompiledModel:
         arr = np.asarray(regressors, float)
         if arr.ndim == 2 and arr.shape[1] == len(self.regressors):
             return [arr[:, c] for c in range(arr.shape[1])]
+        if (len(self.regressors) == 1 and arr.ndim == 1
+                and arr.size == xa.size and xa.size > 1):
+            return [arr]
         return [
             np.broadcast_to(arr.reshape(-1)[c], xa.shape)
             for c in range(len(self.regressors))

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from dtfit import EACFilter, LSIFilter
+from dtfit import ImageFilter, EACFilter, LSIFilter
 
 
 def test_filter_tracks_stable_sine():
@@ -13,7 +13,7 @@ def test_filter_tracks_stable_sine():
 
     flt = EACFilter(
         "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
-        q_diag=[0.05, 0.001], r=20.0,
+        q_diag=[0.05, 0.001],
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -35,34 +35,16 @@ def test_partial_fit_returns_self():
     assert flt.partial_fit(0.0, 0.0) is flt
 
 
-@pytest.mark.parametrize("cls", [EACFilter, LSIFilter])
-def test_running_param_uncertainty_contracts(cls):
-    """Both filters expose a running covariance and std that shrink as the
-    parameters become identified. This is the streaming twin of
-    ``FittingResult.stderr``."""
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 40, 1500)
-    y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
-    flt = cls("A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50)
-
-    flt.partial_fit(t[0], y[0])
-    early = float(np.trace(flt.param_cov_))
-    for ti, yi in zip(t[1:], y[1:]):
-        flt.partial_fit(ti, yi)
-
-    assert flt.param_cov_.shape == (2, 2)
-    assert set(flt.stderr_) == {"A", "w"}
-    assert all(v >= 0 for v in flt.stderr_.values())
-    assert float(np.trace(flt.param_cov_)) < early
-
-
 def _feed_step(low: float, high: float, n: int = 120):
-    """Run the filter over a clean level step and return (filter, direction)."""
+    """Run the filter over a clean level step and return
+    (filter, direction)."""
     rng = np.random.default_rng(0)
-    levels = np.r_[np.full(n, low), np.full(n, high)] + rng.normal(0, 0.02, 2 * n)
+    levels = (np.r_[np.full(n, low), np.full(n, high)]
+              + rng.normal(0, 0.02, 2 * n))
     x = np.linspace(0, 1.0, levels.size)
     flt = EACFilter(
-        "a*exp(b*x)", "x", p0=[1.0, 0.0], window_size=20, q_diag=[1e-3, 1e-3], r=0.2
+        "a*exp(b*x)", "x", p0=[1.0, 0.0], window_size=20, q_diag=[1e-3, 1e-3],
+        adaptive_window=False,
     )
     direction = 0
     for xi, yi in zip(x, levels):
@@ -131,7 +113,8 @@ def test_predict_cov_is_nonneg_shaped_and_contracts(cls):
     rng = np.random.default_rng(0)
     t = np.linspace(0, 20, 800)
     y = 2.0 + 0.5 * t + rng.normal(0, 0.05, t.size)
-    flt = cls("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=40, q_diag=[1e-4, 1e-4])
+    flt = cls("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=40,
+              q_diag=[1e-4, 1e-4])
     flt.partial_fit(t[0], y[0])
     early = float(flt.predict_cov(np.array([10.0]))[0])
     for ti, yi in zip(t[1:], y[1:]):
@@ -149,21 +132,21 @@ def test_no_false_drift_on_stable_signal():
     t = np.linspace(0, 40, 2000)
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
     flt = EACFilter(
-        "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50, q_diag=[0.05, 0.001], r=20.0
+        "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50, q_diag=[0.05, 0.001]
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
     assert flt.n_drifts_ == 0
 
 
-def test_vector_measurement_tracks_with_adaptive_r():
-    # n_sub > 1 is the vector-measurement path.
+def test_block_order_tracks():
+    # order > 1 gives the block basis more than one window.
     rng = np.random.default_rng(1)
     t = np.linspace(0, 40, 2000)
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
     flt = EACFilter(
         "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
-        q_diag=[0.05, 0.001], r=20.0, n_sub=4, adapt_r=True,
+        q_diag=[0.05, 0.001], order=4,
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -175,7 +158,7 @@ def test_vector_measurement_tracks_with_adaptive_r():
 def test_subareas_detect_amplitude_jump_on_oscillation():
     # On an oscillation an amplitude jump nets to very little signed area;
     # a single scalar area barely registers it. Splitting the window into
-    # sub-areas gives the energy NIS a chi^2(n_sub) statistic with that many
+    # sub-areas gives the energy NIS a chi^2(order) statistic with that many
     # independent channels, which is what catches the jump here.
     n = 900
     t = np.linspace(0, 40, n)
@@ -183,10 +166,11 @@ def test_subareas_detect_amplitude_jump_on_oscillation():
     amp = np.where(np.arange(n) < half, 2.0, 3.5)
     y = amp * np.sin(1.8 * t) + np.random.default_rng(3).normal(0, 0.2, n)
 
-    def detect(n_sub):
+    def detect(order):
+        """The block image with five windows."""
         flt = EACFilter(
-            "A*sin(w*t)", "t", p0=[2.0, 1.8], window_size=60, n_sub=n_sub,
-            adapt_r=True, q_diag=[3e-3, 1e-4], drift_reset="inflate",
+            "A*sin(w*t)", "t", p0=[2.0, 1.8], window_size=60, order=order,
+            q_diag=[3e-3, 1e-4], drift_reset="inflate", adaptive_window=False,
         )
         first, false = None, 0
         for i in range(n):
@@ -198,7 +182,7 @@ def test_subareas_detect_amplitude_jump_on_oscillation():
                     first = i
         return first, false
 
-    first, false = detect(n_sub=5)
+    first, false = detect(order=5)
     assert first is not None
     assert first - half < 60        # within one window stride of the shift
     assert false == 0               # no false alarm before it
@@ -206,11 +190,12 @@ def test_subareas_detect_amplitude_jump_on_oscillation():
 
 def test_inflate_drift_reset_detects_step_and_keeps_window():
     rng = np.random.default_rng(0)
-    levels = np.r_[np.full(120, 1.0), np.full(120, 3.0)] + rng.normal(0, 0.02, 240)
+    levels = (np.r_[np.full(120, 1.0), np.full(120, 3.0)]
+              + rng.normal(0, 0.02, 240))
     x = np.linspace(0, 1.0, levels.size)
     flt = EACFilter(
         "a*exp(b*x)", "x", p0=[1.0, 0.0], window_size=20,
-        q_diag=[1e-3, 1e-3], r=0.2, drift_reset="inflate",
+        q_diag=[1e-3, 1e-3], drift_reset="inflate", adaptive_window=False,
     )
     direction = 0
     for xi, yi in zip(x, levels):
@@ -231,7 +216,7 @@ def test_lsi_filter_tracks_stable_sine():
 
     flt = LSIFilter(
         "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
-        q_diag=[1e-3, 5e-4], r=5.0,
+        q_diag=[1e-3, 5e-4],
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -247,7 +232,7 @@ def test_lsi_filter_recovers_exponential():
     y = 2.5 * np.exp(-0.6 * t) + rng.normal(0, 0.05, t.size)
     flt = LSIFilter(
         "a*exp(b*t)", "t", p0=[1.0, -0.2], window_size=50, order=5,
-        q_diag=[1e-4, 1e-4], r=0.5,
+        q_diag=[1e-4, 1e-4],
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -274,7 +259,7 @@ def test_lsi_filter_no_false_drift_on_stable_signal():
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
     flt = LSIFilter(
         "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
-        q_diag=[1e-3, 5e-4], r=5.0,
+        q_diag=[1e-3, 5e-4],
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -283,11 +268,12 @@ def test_lsi_filter_no_false_drift_on_stable_signal():
 
 def test_lsi_filter_detects_level_step():
     rng = np.random.default_rng(0)
-    levels = np.r_[np.full(150, 1.0), np.full(150, 3.0)] + rng.normal(0, 0.02, 300)
+    levels = (np.r_[np.full(150, 1.0), np.full(150, 3.0)]
+              + rng.normal(0, 0.02, 300))
     x = np.linspace(0, 1.5, levels.size)
     flt = LSIFilter(
         "a*exp(b*x)", "x", p0=[1.0, 0.0], window_size=20, order=5,
-        q_diag=[1e-3, 1e-3], r=0.2,
+        q_diag=[1e-3, 1e-3], adaptive_window=False,
     )
     direction = 0
     for xi, yi in zip(x, levels):
@@ -311,7 +297,7 @@ def test_filter_survives_exp_overflow_without_nan_poisoning():
     y = 5.0 + 4.0 * (1.0 - np.exp(-t / 3.0)) + rng.normal(0, 0.3, t.size)
     flt = EACFilter(
         "z0 + c*(1-exp(-k*t))", "t", p0=[3.0, 0.3, 4.0], window_size=40,
-        q_diag=[1e-3, 1e-3, 1e-3], r=0.5, n_sub=2, adapt_r=True,
+        q_diag=[1e-3, 1e-3, 1e-3], order=3,
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -327,7 +313,7 @@ def test_lsi_filter_survives_nonfinite_update():
     y = 5.0 + 4.0 * (1.0 - np.exp(-t / 3.0)) + rng.normal(0, 0.3, t.size)
     flt = LSIFilter(
         "z0 + c*(1-exp(-k*t))", "t", p0=[3.0, 0.3, 4.0], window_size=30,
-        order=4, q_diag=[1e-3, 1e-3, 1e-3], r=0.5,
+        order=4, q_diag=[1e-3, 1e-3, 1e-3],
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -343,7 +329,7 @@ def test_last_residual_is_the_forecast_innovation():
     y = 2.0 + 0.5 * t + 0.1 * t**2 + rng.normal(0, 0.2, t.size)
     flt = EACFilter(
         "c0 + c1*t + c2*t**2", "t", p0=[0.0, 0.0, 0.0], window_size=15,
-        q_diag=[1e-2, 1e-2, 1e-2], r=0.5, n_sub=2, adapt_r=True,
+        q_diag=[1e-2, 1e-2, 1e-2], order=3,
     )
     assert np.isnan(flt.last_residual_)  # nothing ingested yet
     seen_finite = False
@@ -359,7 +345,7 @@ def test_last_residual_is_the_forecast_innovation():
 def test_lsi_filter_exposes_last_residual():
     flt = LSIFilter(
         "c0 + c1*t", "t", p0=[0.0, 0.0], window_size=20, order=3,
-        q_diag=[1e-2, 1e-2], r=0.5,
+        q_diag=[1e-2, 1e-2],
     )
     assert np.isnan(flt.last_residual_)
     t = np.linspace(0, 5, 120)
@@ -375,10 +361,10 @@ def test_accumulative_window_acquires_before_full():
     rng = np.random.default_rng(0)
     t = np.linspace(0, 24, 1200)
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.05 * 3.0, t.size)
-    for cls, kw in [(EACFilter, dict(window_size=60, n_sub=2)),
+    for cls, kw in [(EACFilter, dict(window_size=60, order=2)),
                     (LSIFilter, dict(window_size=60, order=5))]:
         flt = cls("A*sin(w*t)", "t", p0=[1.0, 1.0], q_diag=[1e-3, 1e-3],
-                  r=0.5, adapt_r=True, **kw)
+                  adaptive_window=False, **kw)
         assert 0 < flt.min_window < flt.W
         mid = None
         for i, (ti, yi) in enumerate(zip(t, y)):
@@ -389,11 +375,13 @@ def test_accumulative_window_acquires_before_full():
         assert abs(flt.params_["A"] - 3.0) < 0.3
 
 
-def test_adaptive_window_auto_sizes_to_the_model():
-    """The adaptive window sizes itself from the data. A polynomial has global
-    parameters and grows a far wider window than a locally observable
-    oscillation. Neither needs per-model tuning to stay accurate."""
-    def run(expr, p0, true, T, n, seed):
+def test_static_models_grow_to_the_cap():
+    """The adaptive window sizes itself from the data: a model that fits
+    the window keeps growing to the cap whatever its shape, and the estimate
+    then carries the whole record. A polynomial and an oscillation both
+    reach it; the polynomial's cap is the record, so its intercept is fitted
+    from every sample."""
+    def run(expr, p0, true, T, n, seed, cap):
         ts = np.linspace(0, T, n)
         import sympy as sp
         sym = sp.Symbol("t")
@@ -403,18 +391,19 @@ def test_adaptive_window_auto_sizes_to_the_model():
         clean = f(ts, *[true[str(s)] for s in ps])
         y = clean + np.random.default_rng(seed).normal(
             0, 0.05 * (clean.std() + 1e-9), n)
-        flt = LSIFilter(expr, "t", p0=p0, window_size=300, adaptive_window=True,
-                        order=5, q_diag=[1e-4] * len(ps), r=0.5, adapt_r=True)
+        flt = LSIFilter(expr, "t", p0=p0, window_size=cap, order=5,
+                        q_diag=[1e-4] * len(ps))
         for ti, yi in zip(ts, y):
             flt.partial_fit(ti, yi)
         err = np.mean([abs(flt.params_[str(s)] - true[str(s)]) /
                        abs(true[str(s)]) for s in ps]) * 100
         return flt._W_eff, err
 
-    w_osc, e_osc = run("A*sin(w*t)", [1.0, 1.0], {"A": 3.0, "w": 1.5}, 24, 1200, 0)
+    w_osc, e_osc = run("A*sin(w*t)", [1.0, 1.0], {"A": 3.0, "w": 1.5},
+                       24, 1200, 0, 300)
     w_poly, e_poly = run("c0+c1*t+c2*t**2", [0.0, 0.0, 0.0],
-                         {"c0": 1.0, "c1": 2.0, "c2": 0.5}, 6, 600, 0)
-    assert w_poly > 2 * w_osc
+                         {"c0": 1.0, "c1": 2.0, "c2": 0.5}, 6, 600, 0, 600)
+    assert w_osc >= 270 and w_poly >= 540
     assert e_osc < 3.0 and e_poly < 6.0
 
 
@@ -428,7 +417,7 @@ def test_adaptive_window_collapses_and_regrows_on_drift():
     half = n // 2
     amp = np.where(np.arange(n) < half, 2.0, 3.5)
     y = amp * np.sin(1.8 * t) + rng.normal(0, 0.2, n)
-    flt = LSIFilter("A*sin(w*t)", "t", p0=[2.0, 1.8], window_size=300,
+    flt = LSIFilter("A*sin(w*t)", "t", p0=[2.0, 1.8], window_size=120,
                     adaptive_window=True, order=6, q_diag=[3e-3, 1e-4],
                     drift_reset="inflate")
     W = np.empty(n)
@@ -436,7 +425,7 @@ def test_adaptive_window_collapses_and_regrows_on_drift():
         flt.partial_fit(t[i], y[i])
         W[i] = flt._W_eff
     assert flt.n_drifts_ >= 1
-    assert W[:half].max() > 3 * flt.min_window      # grew wide before the change
+    assert W[:half].max() > 3 * flt.min_window  # grew wide before the change
     post_min = W[half:half + 60].min()
     assert post_min <= flt.min_window + 2      # collapsed back to min_window
     assert W[-1] > post_min + 5                # then re-grew past the collapse
@@ -444,24 +433,24 @@ def test_adaptive_window_collapses_and_regrows_on_drift():
 
 
 def test_adaptive_window_shrinks_on_maneuver():
-    """The window shrinks by itself once the model lags time-varying dynamics
-    and its forecast residual turns systematically same-sign. A static fit
-    keeps its wide window. The same model tracks a manoeuvring signal on a
-    shorter, more responsive window, with nothing tuned by hand."""
+    """The window shrinks while the model's residual over the window is
+    autocorrelated and grows while the model fits. A static fit keeps its
+    wide window. The same model tracks a manoeuvring signal on a shorter,
+    more responsive window, with nothing tuned by hand."""
     rng = np.random.default_rng(0)
     t = np.linspace(0, 40, 1500)
     # static: the line model matches the data, the residuals stay white and
     # the window grows wide
     y_static = 2.0 + 0.5 * t + rng.normal(0, 0.05, t.size)
     fs = LSIFilter("c0 + c1*t", "t", p0=[2.0, 0.5], window_size=120,
-                   adaptive_window=True, order=3, q_diag=[1e-3, 1e-3], adapt_noise=True)
+                   adaptive_window=True, order=3, q_diag=[1e-3, 1e-3])
     for ti, yi in zip(t, y_static):
         fs.partial_fit(ti, yi)
     # manoeuvring: the same line model must chase a curving signal. It lags,
     # the residual autocorrelates into runs of one sign and the window shrinks
     y_man = 3.0 * np.sin(0.4 * t) + rng.normal(0, 0.05, t.size)
     fm = LSIFilter("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=120,
-                   adaptive_window=True, order=3, q_diag=[1e-3, 1e-3], adapt_noise=True)
+                   adaptive_window=True, order=3, q_diag=[1e-3, 1e-3])
     for ti, yi in zip(t, y_man):
         fm.partial_fit(ti, yi)
     assert fm._W_eff < fs._W_eff // 2
@@ -469,26 +458,25 @@ def test_adaptive_window_shrinks_on_maneuver():
     assert fs._W_eff > 3 * fs.min_window        # the static fit stays wide
 
 
-def test_eac_adaptive_window_is_stable_and_finite():
-    """The area filter sizes its window by covariance reduction rather than by
-    the relative movement of the estimate, which is unstable for a scalar area
-    measurement. On an oscillation it must settle on a finite window short of
-    the cap, staying accurate there."""
+def test_block_adaptive_window_grows_to_the_cap_and_stays_accurate():
+    """The block filter's adaptive window on a static oscillation grows to
+    the cap like the Legendre filter's, and the estimate stays accurate
+    there: the cap is the memory bound the caller sets."""
     rng = np.random.default_rng(0)
     t = np.linspace(0, 12, 700)
     clean = 2.0 * np.sin(2.5 * t)
     y = clean + rng.normal(0, 0.05 * clean.std(), t.size)
     flt = EACFilter("A*sin(w*t)", "t", p0=[1.5, 2.0], window_size=300,
-                    adaptive_window=True, n_sub=2, q_diag=[1e-4, 1e-4],
-                    r=0.5, adapt_r=True)
+                    order=2, q_diag=[1e-4, 1e-4])
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
-    assert flt.min_window < flt._W_eff < flt.W   # settled short of the cap
+    assert flt._W_eff >= 0.9 * flt.W
     assert abs(flt.params_["A"] - 2.0) / 2.0 < 0.1
 
 
 def test_min_window_is_respected_and_clamped():
-    """``min_window`` controls when acquisition starts and is clamped sanely."""
+    """``min_window`` controls when acquisition starts and is clamped
+    sanely."""
     f = LSIFilter("A*sin(w*t)", "t", window_size=40, order=5, min_window=12)
     assert f.min_window == 12
     # below the floor of order + 2 it is clamped up, above window_size down
@@ -496,8 +484,10 @@ def test_min_window_is_respected_and_clamped():
                      min_window=1).min_window == 7        # order + 2
     assert LSIFilter("A*sin(w*t)", "t", window_size=40, order=5,
                      min_window=999).min_window == 40     # window_size
-    # the area filter defaults to half the window (a scalar area needs support).
-    assert EACFilter("A*sin(w*t)", "t", window_size=60, n_sub=2).min_window == 30
+    # the block filter needs two samples per window.
+    assert EACFilter(
+        "A*sin(w*t)", "t", window_size=60, order=2
+    ).min_window == 4
 
 
 def test_inflate_scales_covariance_for_both_filters():
@@ -509,7 +499,7 @@ def test_inflate_scales_covariance_for_both_filters():
         (LSIFilter, dict(window_size=20, order=3)),
     ]:
         flt = cls("c0 + c1*t", "t", p0=[0.0, 0.0],
-                  q_diag=[1e-2, 1e-2], r=0.5, drift_inflation=50.0, **kw)
+                  q_diag=[1e-2, 1e-2], drift_inflation=50.0, **kw)
         p0 = flt.P.copy()
         flt.inflate(7.0)
         assert np.allclose(flt.P, p0 * 7.0)
@@ -523,24 +513,30 @@ def _outlier_sine(seed, frac):
     t = np.linspace(0, 40, 1600)
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.15, t.size)
     mask = rng.random(t.size) < frac
-    y[mask] += rng.normal(0, 24.0, int(mask.sum()))  # gross spikes (~8x amplitude)
+    y[mask] += rng.normal(0, 24.0, int(mask.sum()))  # gross spikes (~8x)
     return t, y
 
 
 def test_robust_mode_resists_outliers_both_filters():
-    """With 10% gross outliers the robust filter must land far closer to the
-    truth than the plain one, for the area and the spectrum filter alike."""
-    for cls, kw in [(EACFilter, dict(window_size=60, n_sub=2)),
+    """With 10% gross outliers the robust filter's fit over its last window
+    stays far closer to the clean signal than the plain one's, for the block
+    and the Legendre filter alike. The fit is judged by its prediction on
+    that window: a 60-sample window of a sine cannot separate an aliased
+    amplitude and frequency pair that predicts the same samples, so
+    parameter identity is not the test."""
+    for cls, kw in [(EACFilter, dict(window_size=60, order=5)),
                     (LSIFilter, dict(window_size=60, order=5))]:
         t, y = _outlier_sine(0, 0.10)
+        clean = 3.0 * np.sin(1.5 * t)
 
         def err(robust):
             flt = cls("A*sin(w*t)", "t", p0=[1.0, 1.0],
-                      q_diag=[1e-3, 1e-3], adapt_r=True, robust=robust, **kw)
+                      q_diag=[1e-3, 1e-3], robust=robust, **kw)
             for ti, yi in zip(t, y):
                 flt.partial_fit(ti, yi)
-            p = flt.params_
-            return abs(p["A"] - 3.0) / 3.0 + abs(p["w"] - 1.5) / 1.5
+            tail = t[-60:]
+            return float(np.sqrt(np.mean(
+                (flt.predict(tail) - clean[-60:]) ** 2))) / 3.0
 
         assert err(True) < 0.5 * err(False)
         assert err(True) < 0.20
@@ -554,8 +550,8 @@ def test_robust_mode_clean_signal_matches_default():
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.15, t.size)
     out = {}
     for robust in (False, True):
-        flt = LSIFilter("A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=60, order=5,
-                        q_diag=[1e-3, 1e-3], robust=robust)
+        flt = LSIFilter("A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=60,
+                        order=5, q_diag=[1e-3, 1e-3], robust=robust)
         for ti, yi in zip(t, y):
             flt.partial_fit(ti, yi)
         out[robust] = abs(flt.params_["A"] - 3.0)
@@ -567,10 +563,11 @@ def test_robust_mode_still_detects_drift():
     """Winsorizing the residual around its median preserves a sustained shift,
     which leaves a genuine regime change detectable under robust mode."""
     rng = np.random.default_rng(0)
-    levels = np.r_[np.full(120, 1.0), np.full(120, 3.0)] + rng.normal(0, 0.02, 240)
+    levels = (np.r_[np.full(120, 1.0), np.full(120, 3.0)]
+              + rng.normal(0, 0.02, 240))
     x = np.linspace(0, 1.0, levels.size)
     flt = EACFilter("a*exp(b*x)", "x", p0=[1.0, 0.0], window_size=20,
-                    q_diag=[1e-3, 1e-3], r=0.2, robust=True)
+                    q_diag=[1e-3, 1e-3], robust=True, adaptive_window=False)
     direction = 0
     for xi, yi in zip(x, levels):
         flt.partial_fit(xi, yi)
@@ -584,23 +581,25 @@ def test_robust_mode_still_detects_drift():
 # side-channels as well as t, while the measurement stays integral or
 # spectral.
 def test_external_regressor_recovers_and_improves_both_filters():
-    """A model ``c0 + c1*t + Sx`` carries a measured basis ``Sx`` as an external
-    regressor. Both filters recover (c0, c1). The richer model fuses through
-    the integral update well enough to beat the raw measurement."""
+    """A model ``c0 + c1*t + Sx`` carries a measured basis ``Sx`` as an
+    external regressor. Both filters recover (c0, c1). The richer model
+    fuses through the integral update well enough to beat the raw
+    measurement."""
     rng = np.random.default_rng(0)
     t = np.linspace(0, 20, 500)
-    Sx = 0.5 * t**2 * np.sin(0.3 * t)              # an arbitrary measured side-channel
+    Sx = 0.5 * t**2 * np.sin(0.3 * t)      # an arbitrary measured channel
     truth = 3.0 - 0.8 * t + Sx
     y = truth + rng.normal(0, 0.3, t.size)
     raw = float(np.sqrt(np.mean((y - truth) ** 2)))
     for cls, kw in [(LSIFilter, dict(order=4)),
-                    (EACFilter, dict(n_sub=2, adapt_r=True))]:
+                    (EACFilter, dict(order=2))]:
         flt = cls("c0 + c1*t + Sx", "t", regressors="Sx", p0=[0.0, 0.0],
-                  window_size=20, q_diag=[1e-3, 1e-3], r=0.5, **kw)
+                  window_size=20, q_diag=[1e-3, 1e-3], **kw)
         sm = np.zeros_like(t)
         for i in range(t.size):
             flt.partial_fit(t[i], y[i], regressors={"Sx": Sx[i]})
-            sm[i] = float(flt.predict(np.array([t[i]]), regressors={"Sx": Sx[i]})[0])
+            sm[i] = float(flt.predict(np.array([t[i]]),
+                                       regressors={"Sx": Sx[i]})[0])
         p = flt.params_
         assert abs(p["c0"] - 3.0) < 0.4
         assert abs(p["c1"] + 0.8) < 0.1
@@ -611,9 +610,9 @@ def test_external_regressor_recovers_and_improves_both_filters():
 def test_external_regressor_accepts_sequence_and_missing_raises():
     flt = LSIFilter("a*u + b*v", "t", regressors=["u", "v"], p0=[1.0, 1.0],
                     window_size=10, order=3)
-    flt.partial_fit(0.0, 1.0, regressors=[2.0, 3.0])  # positional sequence form
+    flt.partial_fit(0.0, 1.0, regressors=[2.0, 3.0])  # positional sequence
     with pytest.raises(ValueError):
-        flt.partial_fit(0.1, 1.0)                     # regressors required but omitted
+        flt.partial_fit(0.1, 1.0)  # regressors required but omitted
 
 
 def test_external_regressor_name_clashing_with_sympy_singleton():
@@ -621,17 +620,19 @@ def test_external_regressor_name_clashing_with_sympy_singleton():
     usable: the parser binds regressor names to plain Symbols."""
     for cls in (LSIFilter, EACFilter):
         flt = cls("c0 + S", "t", regressors="S", p0=[0.0], window_size=10)
-        assert "S" not in flt.params_           # S is the regressor, not a parameter
+        assert "S" not in flt.params_  # S is the regressor, not a parameter
         for ti in np.linspace(0, 1, 25):
             flt.partial_fit(ti, 2.0 + ti, regressors={"S": ti})
         assert abs(flt.params_["c0"] - 2.0) < 0.2
 
 
 def test_external_regressor_predict_needs_regressors():
-    flt = EACFilter("a*u + b", "t", regressors="u", p0=[1.0, 0.0], window_size=8)
+    flt = EACFilter("a*u + b", "t", regressors="u", p0=[1.0, 0.0],
+                    window_size=8)
     for ti in np.linspace(0, 1, 20):
         flt.partial_fit(ti, 2.0 * ti, regressors={"u": ti})
-    out = flt.predict(np.array([0.0, 1.0]), regressors={"u": np.array([0.0, 1.0])})
+    out = flt.predict(np.array([0.0, 1.0]),
+                      regressors={"u": np.array([0.0, 1.0])})
     assert out.shape == (2,)
     with pytest.raises(ValueError):
         flt.predict(np.array([0.0]))                  # no regressors supplied
@@ -650,12 +651,9 @@ def test_filter_presets_configure_and_track():
     g = EACFilter.robust("A*sin(w*x)", "x")
     assert g._robust is True and g.drift_reset == "inflate"
 
-    h = LSIFilter.robust("A*sin(w*x)", "x", adapt_noise=False)
-    assert h.adapt_noise is False
-
 
 @pytest.mark.parametrize("cls,kw", [
-    (EACFilter, dict(window_size=20, n_sub=2)),
+    (EACFilter, dict(window_size=20, order=2)),
     (LSIFilter, dict(window_size=20, order=4)),
 ])
 def test_nonfinite_sample_skipped_at_entry(cls, kw):
@@ -670,7 +668,7 @@ def test_nonfinite_sample_skipped_at_entry(cls, kw):
 
     def make():
         return cls("c0 + c1*t", "t", p0=[1.0, 1.0],
-                   q_diag=[1e-3, 1e-3], r=0.5, **kw)
+                   q_diag=[1e-3, 1e-3], **kw)
 
     clean, dirty = make(), make()
     mid = 80
@@ -719,16 +717,17 @@ def test_drift_reset_validated_at_construction(cls):
 
 # Callable models: the filters accept a plain Python f(t, *params) in place of
 # a SymPy-expression string and evaluate it numerically. The whole
-# partial_fit/predict/params_/stderr_ path works. Only coast() and coast_cov()
-# are unavailable, needing symbolic time-derivatives a callable cannot give.
+# partial_fit/predict/params_/predict_cov path works. Only coast() and
+# coast_cov() are unavailable, needing symbolic time-derivatives a callable
+# cannot give.
 def _sine_callable(t, A, w):
     """A plain callable twin of the ``"A*sin(w*t)"`` expression string."""
     return A * np.sin(w * t)
 
 
 @pytest.mark.parametrize("cls,kw", [
-    (EACFilter, dict(window_size=50, q_diag=[0.05, 0.001], r=20.0)),
-    (LSIFilter, dict(window_size=50, order=5, q_diag=[1e-3, 5e-4], r=5.0)),
+    (EACFilter, dict(window_size=50, q_diag=[0.05, 0.001])),
+    (LSIFilter, dict(window_size=50, order=5, q_diag=[1e-3, 5e-4])),
 ])
 def test_callable_model_tracks_like_string(cls, kw):
     """A filter built from a callable ``f(t, A, w)`` recovers the sine about as
@@ -739,7 +738,7 @@ def test_callable_model_tracks_like_string(cls, kw):
 
     def err(model):
         flt = cls(model, "t", p0=[1.0, 1.0], **kw)
-        assert flt._symbolic_model is isinstance(model, str)
+        assert flt.model.symbolic is isinstance(model, str)
         for ti, yi in zip(t, y):
             flt.partial_fit(ti, yi)
         p = flt.params_
@@ -752,8 +751,8 @@ def test_callable_model_tracks_like_string(cls, kw):
 
 
 @pytest.mark.parametrize("cls,kw", [
-    (EACFilter, dict(window_size=40, q_diag=[5e-3], r=0.5, n_sub=2, adapt_r=True)),
-    (LSIFilter, dict(window_size=40, order=4, q_diag=[5e-3], r=0.5)),
+    (EACFilter, dict(window_size=40, q_diag=[5e-3, 5e-3], order=2)),
+    (LSIFilter, dict(window_size=40, order=4, q_diag=[5e-3, 5e-3])),
 ])
 def test_callable_model_tracks_drifting_parameter(cls, kw):
     """A callable-backed filter tracks a drifting parameter as well as the
@@ -761,7 +760,7 @@ def test_callable_model_tracks_drifting_parameter(cls, kw):
     linearly ramping amplitude; both follow it with comparable RMS error."""
     rng = np.random.default_rng(1)
     t = np.linspace(0, 30, 1500)
-    amp = 2.0 + 0.05 * t                       # amplitude drifts from 2.0 to 3.5
+    amp = 2.0 + 0.05 * t          # amplitude drifts from 2.0 to 3.5
     y = amp * np.sin(1.2 * t) + rng.normal(0, 0.1, t.size)
 
     def track_rms(model):
@@ -834,9 +833,8 @@ def test_callable_model_rejects_regressors(cls):
 
 
 @pytest.mark.parametrize("cls", [EACFilter, LSIFilter])
-def test_callable_model_stderr_and_predict_cov(cls):
-    """The running uncertainty read-out works for a callable model too. stderr_
-    is a finite per-parameter mapping; predict_cov contracts as data
+def test_callable_model_predict_cov(cls):
+    """predict_cov works for a callable model too, contracting as data
     arrives."""
     rng = np.random.default_rng(2)
     t = np.linspace(0, 20, 800)
@@ -850,8 +848,92 @@ def test_callable_model_stderr_and_predict_cov(cls):
     early = float(flt.predict_cov(np.array([10.0]))[0])
     for ti, yi in zip(t[1:], y[1:]):
         flt.partial_fit(ti, yi)
-    assert set(flt.stderr_) == {"c0", "c1"}
-    assert all(np.isfinite(v) and v >= 0 for v in flt.stderr_.values())
     assert float(flt.predict_cov(np.array([10.0]))[0]) < early
     p = flt.params_
     assert abs(p["c0"] - 2.0) < 0.3 and abs(p["c1"] - 0.5) < 0.1
+
+
+def test_aliases_fix_the_basis():
+    assert LSIFilter("a*t", "t").basis.name == "legendre"
+    assert EACFilter("a*t", "t", order=3).basis.name == "block"
+    assert EACFilter("a*t", "t", order=3).order == 3
+    with pytest.raises(TypeError, match="basis"):
+        LSIFilter("a*t", "t", basis="block")
+    f = ImageFilter("a*t", "t", basis="block", order=4)
+    assert isinstance(f, ImageFilter) and not isinstance(f, EACFilter)
+
+
+def test_retired_keywords_are_rejected():
+    for kw in (dict(r=1.0), dict(adapt_r=True), dict(adapt_noise=True),
+               dict(n_sub=2)):
+        with pytest.raises(TypeError):
+            LSIFilter("a*t", "t", **kw)
+    assert not hasattr(LSIFilter("a*t", "t"), "param_cov_")
+    assert not hasattr(LSIFilter("a*t", "t"), "stderr_")
+
+
+def test_order_and_window_are_validated():
+    with pytest.raises(ValueError):
+        LSIFilter("a*t + b", "t", window_size=5, order=5)  # no room
+    with pytest.raises(ValueError):
+        EACFilter("a*t + b", "t", order=1)  # fewer coefficients than params
+    with pytest.raises(ValueError):
+        LSIFilter("a*t", "t", window_size=2)
+
+
+def test_innovation_and_nis_are_whitened():
+    """On a static line with white noise the whitened innovation has
+    ``order + 1`` components and, once the estimate has settled, the
+    normalized innovation squared averages near its degrees of freedom."""
+    rng = np.random.default_rng(4)
+    t = np.linspace(0, 30, 1500)
+    y = 2.0 + 0.5 * t + rng.normal(0, 0.1, t.size)
+    flt = LSIFilter("c0 + c1*t", "t", p0=[2.0, 0.5], window_size=40, order=4,
+                    q_diag=[1e-6, 1e-6], adaptive_window=False)
+    assert np.all(np.isnan(flt.innovation_)) and np.isnan(flt.nis_)
+    nis = []
+    for i, (ti, yi) in enumerate(zip(t, y)):
+        flt.partial_fit(ti, yi)
+        if i > 300:
+            nis.append(flt.nis_)
+    assert flt.innovation_.shape == (5,)
+    assert 0.5 * 5 < float(np.mean(nis)) < 2.0 * 5
+
+
+def test_drift_runs_through_the_shared_detector():
+    from dtfit.streaming import DriftDetector
+    flt, _ = _feed_step(1.0, 3.0)
+    assert isinstance(flt.detector, DriftDetector)
+    assert flt.detector.dim == flt.basis.n_coef
+    assert flt.n_drifts_ == flt.detector.n_drifts_ >= 1
+
+
+def test_noise_var_fixed_is_used_verbatim():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0, 10, 300)
+    y = 1.0 + 0.3 * t + rng.normal(0, 0.05, t.size)
+    fixed = LSIFilter("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=20, order=3,
+                      noise_var=0.05 ** 2, adaptive_window=False)
+    free = LSIFilter("c0 + c1*t", "t", p0=[0.0, 0.0], window_size=20, order=3,
+                     adaptive_window=False)
+    for ti, yi in zip(t, y):
+        fixed.partial_fit(ti, yi)
+        free.partial_fit(ti, yi)
+    assert fixed.noise_var == 0.05 ** 2 and free.noise_var is None
+    assert abs(fixed.params_["c1"] - 0.3) < 0.02
+    assert abs(free.params_["c1"] - 0.3) < 0.02
+
+
+def test_irregular_sampling_is_imaged_at_the_actual_positions():
+    """The window image is built on the samples' own positions: a jittered
+    grid recovers the parameters as well as a uniform one."""
+    rng = np.random.default_rng(5)
+    n = 600
+    t = np.sort(np.cumsum(rng.uniform(0.02, 0.08, n)))
+    y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.1, n)
+    flt = LSIFilter("A*sin(w*t)", "t", p0=[2.0, 1.4], window_size=50, order=5,
+                    q_diag=[1e-3, 1e-4], adaptive_window=False)
+    for ti, yi in zip(t, y):
+        flt.partial_fit(ti, yi)
+    assert abs(flt.params_["A"] - 3.0) < 0.3
+    assert abs(flt.params_["w"] - 1.5) < 0.1

@@ -121,7 +121,7 @@ def test_equal_areas_filter_backend_agnostic(force_fallback):
     def run() -> np.ndarray:
         flt = EACFilter(
             "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
-            q_diag=[0.05, 0.001], r=20.0,
+            q_diag=[0.05, 0.001],
         )
         for ti, yi in zip(t, y):
             flt.partial_fit(ti, yi)
@@ -141,7 +141,7 @@ def test_legendre_filter_backend_agnostic(force_fallback):
     def run() -> np.ndarray:
         flt = LSIFilter(
             "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
-            q_diag=[1e-3, 5e-4], r=5.0,
+            q_diag=[1e-3, 5e-4],
         )
         for ti, yi in zip(t, y):
             flt.partial_fit(ti, yi)

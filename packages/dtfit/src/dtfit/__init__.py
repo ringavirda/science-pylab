@@ -24,9 +24,9 @@ High level:
     recommender for picking structure rather than sympy strings.
 
 Streaming:
-    EACFilter and LSIFilter track parameters online through ``partial_fit``;
-    start from their ``.tracking()`` / ``.robust()`` presets. FilterBank and
-    FusedChiSquareDetector drive many streams at once.
+    ImageFilter tracks parameters online on the window image; LSIFilter and
+    EACFilter fix its basis; start from ``.tracking()`` / ``.robust()``;
+    ``result()`` returns a FittingResult with the calibrated covariance.
 
 Scale:
     ImageStream accumulates a signal in fixed memory as it arrives. Its
@@ -66,10 +66,9 @@ from dtfit.methods import (
 from dtfit.image import Original, Image, ImageStream, fit, order_for
 from dtfit.estimators import NonlineRegressor
 from dtfit.streaming import (
-    EACFilter,
+    ImageFilter,
     LSIFilter,
-    FilterBank,
-    FusedChiSquareDetector,
+    EACFilter,
 )
 from dtfit.image.parallel import fit_many, FittingProblem
 from dtfit.auto import auto_estimate, auto_forecast, ForecastResult
@@ -98,10 +97,9 @@ __all__ = [
     "fit_stochastic",
     "StochasticModel",
     "StochasticFilter",
+    "ImageFilter",
     "EACFilter",
     "LSIFilter",
-    "FilterBank",
-    "FusedChiSquareDetector",
     "fit_lsi",
     "fft_frequency_seed",
     "fit_eac",

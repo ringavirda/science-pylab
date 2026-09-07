@@ -1,12 +1,10 @@
-"""The EAC block preset, the LSI oscillatory recipe and the fused detector.
+"""The EAC block preset and the LSI oscillatory recipe.
 
 * ``fit_eac``, the uniform-window block preset, aimed at concentrated
   transients;
 * the ``fit_lsi`` oscillatory recipe (``oscillatory=`` / ``freq_param=`` with
   ``fft_frequency_seed``), which recovers a sinusoid the default order at
-  p0 does not resolve;
-* ``FusedChiSquareDetector``, the multi-axis fault detector on a
-  ``FilterBank``.
+  p0 does not resolve.
 """
 
 import numpy as np
@@ -16,9 +14,6 @@ from dtfit import (
     fit_lsi,
     fit_eac,
     fft_frequency_seed,
-    FilterBank,
-    FusedChiSquareDetector,
-    LSIFilter,
 )
 
 
@@ -71,48 +66,3 @@ def test_freq_param_unknown_raises():
     t = np.linspace(0, 1, 20)
     with pytest.raises(ValueError, match="freq_param"):
         fit_lsi(t, np.sin(t), "A*sin(w*x)", "x", freq_param="omega")
-
-
-OSC = "A*exp(-z*w*t)*sin(w*sqrt(1-z**2)*t)"
-
-
-def _multiaxis(rng, n=600, fault_at=None, noise=0.03):
-    fault_at = n // 2 if fault_at is None else fault_at
-    t = np.linspace(0, 18, n)
-    A = np.array([2.0, 1.5, 2.5])
-    w = np.array([2.5, 2.0, 3.0])
-    z1 = np.array([0.08, 0.10, 0.06])
-    z2 = np.array([0.30, 0.28, 0.25])
-    dtt = np.diff(t, prepend=t[0])
-    Y = np.zeros((n, 3))
-    for d in range(3):
-        z = np.where(np.arange(n) < fault_at, z1[d], z2[d])
-        wd = w[d] * np.sqrt(1 - z ** 2)
-        Y[:, d] = A[d] * np.exp(-z * w[d] * t) * np.sin(np.cumsum(wd * dtt))
-    return t, Y + rng.normal(0, noise, Y.shape), fault_at
-
-
-def test_fused_detector_flags_multiaxis_fault():
-    rng = np.random.default_rng(0)
-    t, Y, fault_at = _multiaxis(rng, n=600)
-    bank = FilterBank.from_model(
-        OSC, "t", 3, filter_cls=LSIFilter, p0=[2.0, 2.5, 0.1],
-        window_size=60, order=5, q_diag=[1e-3] * 3, r=0.5, adapt_r=True,
-        cusum_h=np.inf)
-    det = bank.fused_detector(alpha=1e-4, inflate=4.0)
-    for i in range(Y.shape[0]):
-        det.update(float(t[i]), Y[i])
-    post = [i for i in det.flags_ if i >= fault_at]
-    pre = [i for i in det.flags_ if i < fault_at]
-    assert post, "fault after the regime change was not flagged"
-    assert len(pre) == 0  # no false alarm before the fault
-    assert det.threshold_ > 0 and det.n_flags_ == len(det.flags_)
-
-
-def test_fused_detector_factory_matches_class():
-    bank = FilterBank.from_model(
-        OSC, "t", 2, filter_cls=LSIFilter, p0=[2.0, 2.5, 0.1],
-        window_size=40, order=4)
-    det = bank.fused_detector(alpha=1e-3)
-    assert isinstance(det, FusedChiSquareDetector)
-    assert det.k == 2
