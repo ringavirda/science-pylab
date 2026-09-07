@@ -17,7 +17,9 @@ class DriftDetector:
 
     Args:
         dim: innovation length, at least 1.
-        alpha: significance of the jump test; the energy ratio threshold is
+        alpha: nominal significance of the jump test before the 1.6 safety
+            factor, which makes the realised false-positive rate an order
+            of magnitude lower; the energy ratio threshold is
             ``1.6 * chi2.ppf(1 - alpha, dim) / dim``.
         cusum_k: CUSUM slack in standard deviations, non-negative.
         cusum_h: CUSUM decision threshold in accumulated standard
@@ -38,9 +40,9 @@ class DriftDetector:
         threshold: the energy ratio threshold.
 
     Raises:
-        ValueError: ``dim < 1``, ``alpha`` outside ``(0, 1)``,
-            ``cusum_k < 0``, ``cusum_h <= 0``, ``ewma`` outside ``(0, 1]``
-            or ``warmup < 0``.
+        ValueError: ``dim`` not a positive integer, ``alpha`` outside
+            ``(0, 1)``, ``cusum_k < 0``, ``cusum_h <= 0``, ``ewma`` outside
+            ``(0, 1]`` or ``warmup < 0``.
     """
 
     def __init__(
@@ -53,8 +55,8 @@ class DriftDetector:
         ewma: float = 0.15,
         warmup: int = 20,
     ) -> None:
-        if dim < 1:
-            raise ValueError(f"dim must be at least 1, got {dim}")
+        if dim != int(dim) or dim < 1:
+            raise ValueError(f"dim must be a positive integer, got {dim}")
         if not 0.0 < alpha < 1.0:
             raise ValueError(f"alpha must be in (0, 1), got {alpha}")
         if cusum_k < 0.0 or cusum_h <= 0.0:
@@ -75,8 +77,9 @@ class DriftDetector:
         self.reset()
 
     def reset(self) -> None:
-        """Forget the baselines and the CUSUM sums; the next ``warmup``
-        innovations build them again."""
+        """Forget the baselines, the CUSUM sums, ``flag_`` and
+        ``n_tests_``; the next ``warmup`` innovations build them again.
+        ``n_drifts_`` and ``last_direction_`` are left untouched."""
         self._s_scale = 0.0
         self._e0_scale2 = 0.0
         self._g_hi = 0.0
@@ -85,16 +88,18 @@ class DriftDetector:
         self.flag_ = False
 
     def update(self, innovation: Any) -> bool:
-        """Test one whitened innovation. Returns True on a detection, after
-        which the detector has reset itself.
+        """Test one whitened innovation, given as an array-like of any
+        shape that flattens to length ``dim``. Returns True on a
+        detection, after which the detector has reset itself.
 
         Raises:
-            ValueError: wrong length or a non-finite entry.
+            ValueError: wrong number of elements or a non-finite entry.
         """
         e = np.asarray(innovation, dtype=float).reshape(-1)
         if e.size != self.dim:
             raise ValueError(
-                f"innovation has length {e.size}, expected {self.dim}"
+                f"innovation has {e.size} elements after flattening, "
+                f"expected {self.dim}"
             )
         if not np.all(np.isfinite(e)):
             raise ValueError("innovation must be finite")
@@ -113,8 +118,8 @@ class DriftDetector:
         self._e0_scale2 = (1.0 - lam) * self._e0_scale2 + lam * e0 * e0
         if self.n_tests_ <= self.warmup:
             return False
-        self._g_hi = max(0.0, self._g_hi + z0 - self.cusum_k)
-        self._g_lo = max(0.0, self._g_lo - z0 - self.cusum_k)
+        self._g_hi = float(max(0.0, self._g_hi + z0 - self.cusum_k))
+        self._g_lo = float(max(0.0, self._g_lo - z0 - self.cusum_k))
         jump = s_ratio > self.threshold
         up = self._g_hi > self.cusum_h
         down = self._g_lo > self.cusum_h
