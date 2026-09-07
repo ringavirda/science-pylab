@@ -10,7 +10,7 @@ measurement dropouts.
 ```python
 from dtfit import LSIFilter
 
-flt = LSIFilter.tracking("a*exp(b*x)", "x", param_names=("a", "b"))
+flt = LSIFilter.tracking("a*exp(b*x)", "x")
 for xi, yi in zip(x, y):
     flt.partial_fit(xi, yi)
 print(flt.params_)      # latest estimate

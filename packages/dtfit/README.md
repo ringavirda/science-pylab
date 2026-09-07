@@ -41,24 +41,24 @@ MKL-linked numpy only loads its LAPACK DLLs when the env is *activated*, so
 tools that call the interpreter directly - VS Code, `pytest` - crash with a
 delay-load error.)
 
-### Optional compiled kernels (faster fitting)
+### Optional compiled kernels
 
-The integral-based methods have an optional C backend (`dtfit._core._native`)
-for their hot numeric loops - the window image projections (block sums and
-Gauss-Legendre spectra) that every batch fit and streaming filter reduces to.
-Build it with clang (needs LLVM and, on Windows, the Visual Studio Build
-Tools C++ workload):
+`dtfit._core._native` is an optional C extension for two window-projection
+loops (block sums and Gauss-Legendre spectra), with NumPy/SciPy fallbacks
+(`dtfit._core._kernels.HAVE_NATIVE` reports the active backend). Build it
+with clang (needs LLVM and, on Windows, the Visual Studio Build Tools C++
+workload):
 
 ```bash
 python build_native.py            # compile into src/dtfit/_core/
 python build_native.py --clean    # remove the build artifacts
 ```
 
-It is entirely optional: without it the package falls back to NumPy/SciPy with
-identical results (`dtfit._core._kernels.HAVE_NATIVE` reports the active backend).
-Building it speeds up the area-based methods substantially - the streaming
-`EACFilter` by roughly 6-13x and batch `EAC` by ~3x - while the
-already-vectorized Legendre/LSI paths are largely unchanged.
+It is entirely optional and, at present, has no production caller: batch
+fits and the streaming `ImageFilter` (and its `LSIFilter`/`EACFilter`
+aliases) go through `dtfit.image`, which dispatches its array ops to
+`dtfit._core._backend` (NumPy, optional CuPy/torch), not to these kernels.
+Building it currently changes nothing observable.
 
 ## Quick start
 

@@ -303,6 +303,27 @@ def load_sample(col: int = 4) -> tuple[np.ndarray, np.ndarray]:
     return (t_ms - t_ms[0]) / 1000.0, np.asarray(y)
 
 
+def load_testvec(path: Path | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Parse the checked-in ``lsi_testvec.h`` back into ``(t, y)``.
+
+    The C hot path compiles this header directly, so it -- not
+    :func:`load_sample`, which falls back to a synthetic ramp on a
+    checkout with no recorded BLE CSV -- is the ground truth a golden
+    reference must be built from to compare against the compiled C.
+
+    Raises:
+        FileNotFoundError: the header is missing.
+    """
+    hdr = path or (FIRMWARE / "nano_lsi_onboard" / "lsi_testvec.h")
+    text = hdr.read_text(encoding="utf-8")
+
+    def _row(name: str) -> np.ndarray:
+        body = text.split(f"LSI_{name}[LSI_NT] = {{", 1)[1].split("}", 1)[0]
+        return np.array([float(v.rstrip("f")) for v in body.split(",")])
+
+    return _row("T"), _row("Y")
+
+
 def emit_testvec(t: np.ndarray, y: np.ndarray, path: Path | None = None) -> Path:
     """Emit ``lsi_testvec.h``, the on-boot self-validation vector."""
     out = path or (FIRMWARE / "nano_lsi_onboard" / "lsi_testvec.h")

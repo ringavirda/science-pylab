@@ -13,11 +13,13 @@ rest on, neither needing a board.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from dtfit_hardware.tools import embed_lsi
 
@@ -48,9 +50,14 @@ def test_golden_diverges_on_jittered_grid() -> None:
 
 def test_c_hot_path_matches_golden() -> None:
     # Compiles and runs the real C header (not a reimplementation) over the
-    # recorded BLE sample vector, and checks its float32 output against the
-    # float64 golden on the same (t, y).
-    t, y = embed_lsi.load_sample()
+    # checked-in test vector, and checks its float32 output against the
+    # float64 golden on the same (t, y). The vector is read back from
+    # lsi_testvec.h, the file the C actually compiles, not load_sample(),
+    # which falls back to a synthetic ramp on a checkout with no recorded
+    # BLE CSV.
+    if shutil.which("g++") is None:
+        pytest.skip("g++ not available")
+    t, y = embed_lsi.load_testvec()
     p0 = np.array([y[0]] + [0.0] * (embed_lsi.N - 1))
     golden = embed_lsi.golden_run(t, y, p0)
 

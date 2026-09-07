@@ -28,7 +28,6 @@ right variant automatically.
 | **batch** | **Ensemble** -- overlapping-window aggregation | [ensemble.md](Methods-Ensemble) | numeric (offline) | **outlier-robust** bagging over EAC/LSI window fits (median + spread) |
 | **streaming** | **EACFilter** -- recursive EAC | [equal_areas_filter.md](Methods-Equal-Areas-Filter) | numeric (online) | real-time tracking via an **area** measurement + drift detection |
 | **streaming** | **LSIFilter** -- recursive LSI | [legendre_filter.md](Methods-Legendre-Filter) | numeric (online) | real-time tracking via a **spectrum** measurement (oscillatory plants) |
-| **streaming** | **FilterBank / Fusedchi^2** -- multi-stream | [filter_bank.md](Methods-Filter-Bank) | numeric (online) | many streams in lockstep + pooled multi-axis fault detection |
 | **scale** | **ImageStream** -- streams, blocks, channels | [scaling.md](Methods-Scaling) | numeric (offline/online) | one-pass / block / many-channel image map-reduce |
 | **compose** | **auto_estimate / auto_forecast** | [auto.md](Methods-Auto) | numeric (offline) | shape-routed estimation and structured forecasting |
 | **stochastic** | **Stochastic series** -- fit the functionals of a *random* process | [stochastic.md](Methods-Stochastic) | numeric (offline + online) | characterize / forecast / generate / track random (economic, financial) data |
@@ -121,8 +120,8 @@ methods go further and replace the monomial spectrum with a better-conditioned
                   |               |
           run recursively, one sample at a time
                   |               |
-              LSIFilter        EACFilter -- FilterBank -- FusedChiSquareDetector
-           (spectrum meas.)  (area meas.)   (K streams)   (pooled fault test)
+              LSIFilter        EACFilter
+           (spectrum meas.)  (area meas.)
 ```
 
 - **DSB** sets the empirical spectrum (from a polynomial pre-fit) equal to the
@@ -135,9 +134,10 @@ methods go further and replace the monomial spectrum with a better-conditioned
   spectra -- integration smooths noise, so it is the most robust; the robust
   image is its outlier defense.
 - **EACFilter / LSIFilter** run EAC / LSI **recursively**, one sample at a time,
-  with a Kalman-style update and drift detection -- the real-time path; a
-  **FilterBank** runs many in lockstep and the **FusedChiSquareDetector** pools
-  their innovations.
+  through a shared `ImageFilter`, with drift detection and a calibrated
+  `result()`; summing several filters' `nis_` pools their innovations into
+  one fused fault test (`FilterBank` and `FusedChiSquareDetector` are the
+  experimental multi-stream harness, not part of this table).
 - **ImageStream** exploits that the image is **additive** (so a stream reduces
   chunk-by-chunk, and blocks assemble through the basis transfer) and
   **linear across channels** (so many channels share one Gram) -- exact

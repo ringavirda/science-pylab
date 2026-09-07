@@ -46,7 +46,6 @@
 - [Ensemble](Methods-Ensemble)
 - [ImageFilter](Methods-Legendre-Filter)
 - [EACFilter](Methods-Equal-Areas-Filter)
-- [Filter bank](Methods-Filter-Bank)
 - [Streams](Methods-Scaling)
 - [Auto](Methods-Auto)
 - [Stochastic](Methods-Stochastic)
@@ -56,6 +55,7 @@
 - [Overview](Experimental)
 - [Adaptations API](Experimental-Adaptations-API)
 - [Baselines](Experimental-Baselines)
+- [Filter bank](Methods-Filter-Bank)
 
 **Validation**
 

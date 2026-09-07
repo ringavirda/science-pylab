@@ -21,16 +21,6 @@ robust winsorization, `result()`'s calibrated covariance and coasting --
 is `ImageFilter`'s and is described once, on
 [its method page](Methods-Legendre-Filter).
 
-## Worked example
-
-USD/UAH official daily rate, NBU, 2014-2015 hryvnia crisis (~=8 -> 24).
-**Left:** the filter tracks the depreciation online and flags the
-**Feb-2015 free-float** as a structural break (dashed line). **Right:**
-the tracked growth parameter `b` -- it climbs with the depreciation,
-jumps at the detected break, and re-adapts after the drift reset.
-
-![EACFilter tracking and drift detection on USD/UAH](figures/filter_tracking.png)
-
 ## Where it is best applied
 
 Use `EACFilter` for monotone or saturating plants where the block image's

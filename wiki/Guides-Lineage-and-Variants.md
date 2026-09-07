@@ -166,8 +166,7 @@ the complete list across the stable API.
 | **EACFilter** | `EACFilter(...)` | streaming EAC (area measurement) |
 | **LSIFilter** | `LSIFilter(...)` | streaming LSI (spectrum measurement) -- for oscillatory plants |
 | **Gap coasting** | `filter.coast(...)`, `coast_cov(...)` | dead-reckon a streaming fit through measurement dropouts (uncertainty grows with the gap) |
-| **Filter bank** | `FilterBank.from_model(...)` | many streams in lockstep |
-| **Fused detector** | `bank.fused_detector(...)` | pool stream innovations for a shared-fault test |
+| **Fused detection** | `sum(f.nis_ for f in filters)` | several filters' `nis_` sum to a chi-square with the summed degrees of freedom, pooling their innovations into a shared-fault test |
 | **Stochastic fit** | `fit_stochastic(...)` -> `StochasticModel` | detect the regime of a *random* series (long-memory / mean-reversion / GARCH / cycle), forecast it, and `.simulate` it -- by fitting its functionals |
 | **Stochastic streaming** | `StochasticFilter(...)` | per-sample regime tracking + change detection |
 | **Stochastic estimators** | `hurst_aggvar`, `hurst_spectral`, `ar1_reversion`, `garch_persistence`, `cycle_period`, `ar_order`, `fit_ar`, `fractional_difference` | read one process parameter from a functional (all in `dtfit.stochastic`) |
@@ -198,7 +197,6 @@ kept experimental until it proves itself. Here is the complete list with status.
 | **#1** | one-pass / distributed map-reduce | `ImageStream` accumulator | the image is **additive over the domain** (a sum of per-chunk projections), so a dataset too big for memory is reduced chunk-by-chunk in one pass, and distributed workers' partial images `merge()` exactly on contiguous chunks of a uniform grid (or `grid="explicit"` for other sample sets); the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
 | **--** | GEMM-batched projection | `ImageStream(channels=B)` | the image is **linear across channels**, so `B` channels' projections are one matrix multiply over one shared Gram, on CPU/GPU by swapping only the backend; the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
 | **--** | LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` | high order + FFT-seeded frequency, so a cycle isn't erased. -> [../api/fitting.md#fit_lsi](API-Fitting#fit_lsi) |
-| **--** | fused multi-axis detection | `FusedChiSquareDetector` | pool a filter bank's per-stream innovations into one `chi2(K)` statistic to catch a fault too weak in any single stream. -> [../api/streaming.md#fused](API-Streaming#fused) |
 | **#3** | overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` | fit on many overlapping sub-windows and take the **median** of the per-window estimates -- bagging over time; rejects outlier windows and yields a spread. Outlier-robust with no scale to tune. -> [../methods/ensemble.md](Methods-Ensemble) |
 
 ### Still experimental (in `dtfit-experimental`)
@@ -209,8 +207,9 @@ kept experimental until it proves itself. Here is the complete list with status.
 | **#4** | joint shared-parameter fit | `fit_joint` | stack several channels' area equations into one system with **shared** parameters (a common frequency/rate) plus per-channel **private** ones -- more equations per shared unknown |
 | **#5** | stage-wise residual boosting | `boosted_fit` | fit stage 1 (e.g. an LSI trend), subtract it, fit stage 2 (e.g. an EAC cycle) on the residual; the sum is more expressive than either alone (the fingerprint is linear, so component fits add up) |
 | **--** | inverse-covariance fusion primitive | `InformationFilter` | information-form (inverse-covariance) recursive linear estimator: additive updates, exact/associative `fuse()` for sensor fusion and streaming map-reduce. Shares **no code** with the nonlinear EAC/LSI filters (they run the covariance form directly); exercised by no domain study, so it has **not cleared the >=2-domain promotion gate** and was moved out of stable `dtfit` |
+| **--** | multi-stream filter bank | `FilterBank`, `FusedChiSquareDetector` | run many `ImageFilter` instances in lockstep and pool their per-stream innovations into one `chi2(K)` statistic; the stable equivalent for one filter type is summing several `ImageFilter.nis_` values directly. -> [Methods-Filter-Bank](Methods-Filter-Bank) |
 
-Full signatures and usage for the experimental four:
+Full signatures and usage for the experimental five:
 [../experimental/adaptations-api.md](Experimental-Adaptations-API). The
 conceptual write-up and the math each rests on:
 [../experimental/README.md](Experimental).
@@ -237,7 +236,7 @@ dtfit (stable, public)
 +-- sklearn estimator      NonlineRegressor
 +-- one-call entry points  auto_estimate . auto_forecast
 +-- model framework        models.<family> . Model . suggest_models
-+-- streaming / online     EACFilter . LSIFilter . FilterBank . FusedChiSquareDetector
++-- streaming / online     EACFilter . LSIFilter
 |                          (coast/coast_cov dead-reckon through gaps)
 +-- stochastic (random)    fit_stochastic . StochasticModel . StochasticFilter . Stochastic
 |                          estimators: hurst_aggvar/spectral . ar1_reversion . garch_persistence

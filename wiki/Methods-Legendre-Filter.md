@@ -108,10 +108,12 @@ regardless of how well the parameters actually match the plant.
 on the current window, in the filter's own basis and order, started from
 the current estimate -- the window's parameters, covariance, standard
 errors and prediction band in the same type a batch fit returns, imaged
-robustly when the filter is robust. Measured in tracking: the
-covariance's nominal interval covers the actual filter error 70 to 96
-percent of the time, and is conservative (wider than needed) whenever
-the process noise `q_diag` is small relative to the true drift rate.
+robustly when the filter is robust. Measured (RMS parameter error over
+reported stderr, static and tracking): at the default `q_diag` the
+ratio is 0.99 either way, matching the actual error; with a small
+`q_diag` the two cases move in opposite directions, 0.40 static
+(conservative) but 1.80 under drift, where the reported error
+understates the actual error rather than covering it.
 
 ## Coasting
 

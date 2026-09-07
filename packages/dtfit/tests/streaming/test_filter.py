@@ -128,16 +128,23 @@ def test_predict_cov_is_nonneg_shaped_and_contracts(cls):
 
 
 def test_no_false_drift_on_stable_signal():
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 40, 2000)
-    y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
-    flt = EACFilter(
-        "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
-        q_diag=[0.05, 0.001], adaptive_window=False,
-    )
-    for ti, yi in zip(t, y):
-        flt.partial_fit(ti, yi)
-    assert flt.n_drifts_ == 0
+    # A single seed at the detector's own false-alarm rate (ruling 7: one
+    # run in twenty-four) is a lottery in both directions, so this runs
+    # the whole batch and bounds the total at that measured rate rather
+    # than demanding zero.
+    n_false = 0
+    for seed in range(24):
+        rng = np.random.default_rng(seed)
+        t = np.linspace(0, 40, 2000)
+        y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
+        flt = EACFilter(
+            "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
+            q_diag=[0.05, 0.001], adaptive_window=False,
+        )
+        for ti, yi in zip(t, y):
+            flt.partial_fit(ti, yi)
+        n_false += flt.n_drifts_ > 0
+    assert n_false <= 1
 
 
 def test_block_order_tracks():
@@ -255,16 +262,21 @@ def test_lsi_filter_partial_fit_returns_self():
 
 
 def test_lsi_filter_no_false_drift_on_stable_signal():
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 40, 2000)
-    y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
-    flt = LSIFilter(
-        "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
-        q_diag=[1e-3, 5e-4], adaptive_window=False,
-    )
-    for ti, yi in zip(t, y):
-        flt.partial_fit(ti, yi)
-    assert flt.n_drifts_ == 0
+    # See test_no_false_drift_on_stable_signal: bounded at the measured
+    # rate over the same batch of seeds, not asserted zero on one.
+    n_false = 0
+    for seed in range(24):
+        rng = np.random.default_rng(seed)
+        t = np.linspace(0, 40, 2000)
+        y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
+        flt = LSIFilter(
+            "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
+            q_diag=[1e-3, 5e-4], adaptive_window=False,
+        )
+        for ti, yi in zip(t, y):
+            flt.partial_fit(ti, yi)
+        n_false += flt.n_drifts_ > 0
+    assert n_false <= 1
 
 
 def test_lsi_filter_detects_level_step():
@@ -1082,9 +1094,11 @@ def test_result_covariance_covers_the_filter_error():
     """Over replicates the ratio of the filter's RMS parameter error to
     the mean standard error ``result()`` reports lies within a factor of
     two at the default process noise, static and tracking alike (the
-    spec's uncertainty gate); with a small process noise the filter
-    integrates information across overlapping windows and the reported
-    error is conservative."""
+    spec's uncertainty gate). With a small process noise the filter
+    integrates information across overlapping windows: on the static
+    case the reported error is conservative, but under drift it is
+    anti-conservative, bounded here rather than shrunk to the measured
+    ratio."""
     def ratio(drift, q, seeds=12):
         errs, ses = [], []
         for seed in range(seeds):
@@ -1110,6 +1124,7 @@ def test_result_covariance_covers_the_filter_error():
         r = ratio(drift, None)
         assert 0.5 < r < 2.0, (drift, r)
     assert ratio(False, 1e-4) < 1.0
+    assert ratio(True, 1e-4) < 2.0
 
 
 def test_stream_hook_accumulates_every_sample():

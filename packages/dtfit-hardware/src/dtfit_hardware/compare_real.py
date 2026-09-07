@@ -357,7 +357,7 @@ def _cv_replay(t, fixes_en, rest=None):
     m = len(t)
     flts = [G.LSIFilter("c0 + c1*t", "t", p0=[float(fixes_en[0, ax]), 0.0],
                         window_size=15, order=4, q_diag=[1e-2, 1e-2],
-                        adapt_noise=True, drift_reset="inflate") for ax in range(2)]
+                        drift_reset="inflate") for ax in range(2)]
     out = np.zeros((m, 2))
     for i in range(m):
         for ax in range(2):

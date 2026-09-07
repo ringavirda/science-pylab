@@ -232,7 +232,7 @@ class ImageFilter:
         self.P: np.ndarray = self._p_init.copy()
         self.Q: np.ndarray = np.diag(
             np.full(n, 0.01) if q_diag is None
-            else np.asarray(q_diag, dtype=float)
+            else np.atleast_1d(np.asarray(q_diag, dtype=float))
         )
         if self.Q.shape != (n, n):
             raise ValueError(f"q_diag must hold {n} values")
@@ -255,14 +255,15 @@ class ImageFilter:
         self._v_est: float | None = None
         self._v_lambda = 0.05
         self._n_full = 0
-        # A single cached window length: at steady state (fixed window, or
-        # an adaptive one that has settled) every call repeats it, and
-        # while the window is still growing no length repeats anyway, so
-        # a dict keyed by length would only grow without ever evicting.
-        self._cache_len: int | None = None
-        self._cache_entry: tuple[
-            np.ndarray, np.ndarray, np.ndarray, np.ndarray
-        ] | None = None
+        # Cached per window length: at steady state (fixed window, or an
+        # adaptive one that has settled) every call repeats one length,
+        # and while the window is still growing no length repeats anyway.
+        # Two entries cover an adaptive window oscillating between W and
+        # W-1 (reachable through the residual-autocorrelation rule);
+        # capped so it does not grow without bound.
+        self._cache: dict[
+            int, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        ] = {}
         self._t: list[float] = []
         self._y: list[float] = []
         self._rbuf: list[tuple] = []
@@ -311,9 +312,8 @@ class ImageFilter:
         block window holds no sample, which leaves the Gram singular."""
         k = t_arr.size
         u = u_of(t_arr, float(t_arr[0]), float(t_arr[-1]))
-        hit = self._cache_entry
-        if (self._cache_len == k and hit is not None
-                and np.allclose(u, hit[0], rtol=0.0, atol=1e-9)):
+        hit = self._cache.get(k)
+        if hit is not None and np.allclose(u, hit[0], rtol=0.0, atol=1e-9):
             return hit[1], hit[2], hit[3]
         Phi = self.basis.evaluate(u)
         G = Phi.T @ Phi
@@ -339,8 +339,9 @@ class ImageFilter:
             if vn < 1e-24
             else np.eye(n_coef) - 2.0 * np.outer(v, v) / vn
         )
-        self._cache_len = k
-        self._cache_entry = (u, Phi, L, Q)
+        self._cache[k] = (u, Phi, L, Q)
+        if len(self._cache) > 2:
+            del self._cache[next(iter(self._cache))]
         return Phi, L, Q
 
     def _grow_on_skip(self) -> None:
@@ -426,12 +427,6 @@ class ImageFilter:
         self.last_residual_ = float(resid[-1])
         self.innovation_ = e
 
-        if full:
-            self._n_full += 1
-            if self._n_full % cap == 0 and self.detector.update(Q @ e):
-                self._on_drift(self.detector.last_direction_ >= 0)
-                return self
-
         A = H.T @ H / s2
         b = H.T @ e / s2
         try:
@@ -439,6 +434,17 @@ class ImageFilter:
         except np.linalg.LinAlgError:
             self._grow_on_skip()
             return self
+        # nis_ is set here, against the pre-update state, so it always
+        # matches the innovation and residual just recorded above even
+        # when the detector diverts or the damping loop below rejects.
+        self.nis_ = float(e @ e) / s2 - float(b @ (P_post @ b))
+
+        if full:
+            self._n_full += 1
+            if self._n_full % cap == 0 and self.detector.update(Q @ e):
+                self._on_drift(self.detector.last_direction_ >= 0)
+                return self
+
         step = P_post @ b
         # Damped update: the linearization can overshoot on a nonlinear
         # model, so the step is halved until the window's whitened misfit
@@ -465,7 +471,6 @@ class ImageFilter:
         if not (np.all(np.isfinite(p_new)) and np.all(np.isfinite(P_new))):
             self._grow_on_skip()
             return self
-        self.nis_ = float(e @ e) / s2 - float(b @ (P_post @ b))
         self.p = p_new
         self.P = P_new
 

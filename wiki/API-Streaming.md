@@ -142,8 +142,14 @@ window grid the fit runs on. `kwargs` go to [`fit`](API-Fitting#fit)
 (`bounds`, `solver_options`). Raises `ValueError` for fewer than
 `min_window` samples ingested.
 
-Measured in tracking: the covariance covers the filter error at 0.7 to
-0.96, conservative with small process noise.
+Measured (RMS parameter error over reported stderr, static and
+tracking): at the default `q_diag` the ratio is 0.99 either way, matching
+the actual error. A small `q_diag` moves the two cases in opposite
+directions: 0.40 static (the reported error is conservative, since the
+window's own least squares already outperforms the filter's slow gain),
+but 1.80 under drift, where the reported error understates the actual
+error and the interval is anti-conservative -- shrinking `q_diag` for a
+smoother track does not make the reported uncertainty safe to trust.
 
 ```python
 flt = ImageFilter("a*exp(b*t)", "t", p0=[1.0, 0.1], window_size=40)
@@ -236,7 +242,13 @@ print(det.update(rng.normal(0, 1, 2)), det.n_tests_)
 `nis_` is chi-square under the model, so several filters' `nis_` sum to a
 chi-square with the summed degrees of freedom, giving the pooled test
 more degrees of freedom and power than any one filter's innovation
-alone.
+alone. This treats successive `nis_` values from one filter as
+independent draws at each sample; they are not, since consecutive
+windows overlap by `W - 1` samples. Measured for the regime below (order
+4, dof 5, static): mean `nis_` 4.08 against the nominal 5, median 3.63,
+p95 8.8 -- close enough that the pooled test above is defensible, but
+the realised per-run false-alarm rate is not exactly the nominal
+`alpha`.
 
 ```python
 from scipy.stats import chi2
