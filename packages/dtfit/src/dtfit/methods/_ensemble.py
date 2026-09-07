@@ -24,8 +24,7 @@ from typing import Callable
 import numpy as np
 
 from dtfit.types import FittingResult, InitialGuess
-from ._lsi import fit_lsi
-from ._eac import fit_eac
+from dtfit.image.fit import fit_lsi, fit_eac
 
 _FITTERS: dict[str, Callable[..., FittingResult]] = {"lsi": fit_lsi, "eac": fit_eac}
 

@@ -57,19 +57,16 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
             forbids validating in ``__init__``, and forwarded to the fitter.
         method: ``"lsi"``, ``"eac"`` or ``"dsb"``.
         k_star: (LSI) number of spectral discretes to match.
-        alpha: (LSI) extra exponential down-weight ``exp(-alpha*i)`` on
-            high-order discretes. ``0.0``, the :func:`dtfit.fit_lsi` default,
-            relies on the built-in orthonormal weighting alone.
-        filter_data: (LSI) apply a Savitzky-Golay pre-filter. Off by default,
-            matching :func:`dtfit.fit_lsi`: a fitter must not silently modify
-            the user's data.
+        alpha: Retained for ``get_params``/``set_params`` and ``clone``; the
+            image core has no equivalent and ignores it.
+        filter_data: Retained for ``get_params``/``set_params`` and
+            ``clone``; the image core has no equivalent and ignores it.
         bounds: (LSI/EAC) optional parameter bounds, either a per-parameter
             ``(min, max)`` pair list in sorted-name order or a partial
             ``{name: (min, max)}`` dict. Passed to the fitter untouched. For
             LSI, fully finite bounds enable a global search.
-        active_ratio: (EAC) leading fraction of data used for window
-            placement. Defaults to ``1.0``, all samples, matching
-            :func:`dtfit.fit_eac`.
+        active_ratio: Retained for ``get_params``/``set_params`` and
+            ``clone``; the image core has no equivalent and ignores it.
         poly_degree: (DSB) polynomial degree for the required pre-fit;
             ``None`` selects it automatically by BIC.
         p0: Optional initial guess for the parameters, a sequence in
@@ -79,17 +76,18 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
             (differential-evolution) search that runs when ``bounds`` are
             given, keeping a bounded fit reproducible under ``GridSearchCV``
             and ``clone``. ``None`` uses the global RNG.
-        robust: (LSI/EAC) robustify the fit by IRLS winsorization of sample
-            residuals within ``huber_c`` robust sigmas (see the fitters).
-        huber_c: (LSI/EAC) winsorization threshold in residual sigmas for
-            ``robust=True``.
+        robust: (LSI/EAC) Huber-reweight the image built from the samples
+            (see the fitters). For EAC, also set when ``loss`` is not
+            ``"linear"``.
+        huber_c: Retained for ``get_params``/``set_params`` and ``clone``;
+            the image core has no equivalent and ignores it.
         nan_policy: (LSI/EAC) ``"raise"`` (default) rejects non-finite
             samples; ``"omit"`` drops NaN/inf ``(x, y)`` pairs before
             fitting.
-        loss: (EAC) least-squares loss on the window-area residuals, e.g.
-            ``"soft_l1"`` for outlier robustness.
-        window_mode: (EAC) window placement, ``"uniform"`` or
-            ``"curvature"``.
+        loss: (EAC) a value other than ``"linear"`` selects the robust
+            image (``robust=True``) instead of a scipy robust loss.
+        window_mode: Retained for ``get_params``/``set_params`` and
+            ``clone``; the image core has no equivalent and ignores it.
 
     Fitted attributes:
         coef_: Fitted coefficients, ordered by parameter name.
@@ -332,14 +330,11 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
                 self.var,
                 param_names=self.param_names,
                 k_star=self.k_star,
-                alpha=self.alpha,
-                filter_data=self.filter_data,
                 bounds=self.bounds,
                 p0=self.p0,
                 sigma=sigma,
                 random_state=self.random_state,
                 robust=self.robust,
-                huber_c=self.huber_c,
                 nan_policy=self.nan_policy,
             )
         elif self.method == "eac":
@@ -349,12 +344,8 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
                 self.expr,
                 self.var,
                 param_names=self.param_names,
-                active_ratio=self.active_ratio,
-                window_mode=self.window_mode,
                 bounds=self.bounds,
-                loss=self.loss,
-                robust=self.robust,
-                huber_c=self.huber_c,
+                robust=bool(self.robust or self.loss != "linear"),
                 p0=self.p0,
                 sigma=sigma,
                 nan_policy=self.nan_policy,

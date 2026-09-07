@@ -158,9 +158,10 @@ def test_nan_policy_forwarded(arctan_data):
 
 
 def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
-    """Constructor kwargs reach ``fit_eac`` verbatim. Behaviour alone cannot
-    catch a dropped kwarg here: ``robust=True`` and ``loss="soft_l1"`` each
-    rescue the outlier case on their own. Hence the spy."""
+    """Constructor kwargs reach ``fit_eac`` verbatim, apart from the retired
+    ones the image core has no equivalent for. Behaviour alone cannot catch
+    a dropped kwarg here: ``robust=True`` and ``loss="soft_l1"`` each rescue
+    the outlier case on their own. Hence the spy."""
     x, y, _ = arctan_data
     captured = {}
 
@@ -178,12 +179,12 @@ def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
         robust=True, huber_c=2.5, loss="soft_l1", window_mode="curvature",
         nan_policy="omit", active_ratio=0.9,
     ).fit(x, y)
-    assert captured["loss"] == "soft_l1"
-    assert captured["window_mode"] == "curvature"
-    assert captured["huber_c"] == 2.5
     assert captured["robust"] is True
     assert captured["nan_policy"] == "omit"
-    assert captured["active_ratio"] == 0.9
+    assert "loss" not in captured
+    assert "window_mode" not in captured
+    assert "huber_c" not in captured
+    assert "active_ratio" not in captured
 
 
 def test_robust_loss_window_mode_forwarded(arctan_data):

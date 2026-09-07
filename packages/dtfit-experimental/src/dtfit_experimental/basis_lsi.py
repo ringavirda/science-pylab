@@ -11,10 +11,22 @@ becomes the caller's choice.
 from __future__ import annotations
 
 import numpy as np
+from scipy.signal import savgol_filter
 
 from dtfit.types import FittingResult, InitialGuess
 from dtfit._core._spectral import make_basis, solve_spectral
-from dtfit.methods._common import _savgol_prefilter
+
+
+def _savgol_prefilter(y: np.ndarray) -> np.ndarray:
+    """Savitzky-Golay pre-smoother for an LSI spectral projection: window
+    <= 11, cubic polyorder, and a no-op below 5 samples.
+    """
+    y = np.asarray(y, dtype=float)
+    if y.size >= 5:
+        window = min(11, y.size if y.size % 2 == 1 else y.size - 1)
+        if window > 3:
+            return np.asarray(savgol_filter(y, window, polyorder=3), dtype=float)
+    return y
 
 
 def fit_lsi_basis(

@@ -232,8 +232,8 @@ class Model:
         """Fit this model to ``(x, y)``.
 
         ``method="auto"`` (default) routes by :attr:`shape` through
-        :func:`dtfit.auto_estimate`; ``"lsi"``, ``"eac"`` and ``"adaptive"``
-        force a specific engine. Seeds and bounds come from the model's seeder
+        :func:`dtfit.auto_estimate`; ``"lsi"`` and ``"eac"`` force a
+        specific engine. Seeds and bounds come from the model's seeder
         unless overridden. A callable model is passed straight through to the
         fitters, which resolve it via :func:`dtfit.methods.resolve_model`.
         """
@@ -260,15 +260,14 @@ class Model:
         if method == "lsi":
             return fit_lsi(x, y, model, self.var, p0=p0, bounds=bounds,
                            freq_param=self.freq_param, param_names=pnames)
-        if method in ("eac", "adaptive"):
-            wm = "curvature" if method == "adaptive" else "uniform"
+        if method == "eac":
             # Bounds go as a pair list, fit_eac's canonical form. Converting to
             # a scipy 2-tuple would be ambiguous for a 2-parameter model and
             # lossy for partially-infinite bounds.
-            return fit_eac(x, y, model, self.var, window_mode=wm,
+            return fit_eac(x, y, model, self.var,
                            p0=p0, bounds=bounds, param_names=pnames)
         raise ValueError(
-            f"unknown method {method!r}; expected auto/lsi/eac/adaptive"
+            f"unknown method {method!r}; expected auto/lsi/eac"
         )
 
     def __add__(self, other: "Model") -> "Model":

@@ -202,7 +202,7 @@ def test_coast_cov_grows_with_gap():
     assert cov[-1] > cov[0], "coast_cov must grow across a gap"
 
 
-def test_model_adaptive_forwards_bounds(monkeypatch):
+def test_model_eac_forwards_bounds(monkeypatch):
     import dtfit.models._model as _mod
     from dtfit.models._catalog import CATALOG
 
@@ -214,12 +214,9 @@ def test_model_adaptive_forwards_bounds(monkeypatch):
         return orig(*args, **kwargs)
 
     monkeypatch.setattr(_mod, "fit_eac", spy)
-    # a logistic self-seeds bounds; both eac and adaptive must forward them
+    # a logistic self-seeds bounds; the eac path must forward them
     m = CATALOG["logistic"]()
     x = np.linspace(0.0, 10.0, 160)
     y = 5.0 / (1.0 + np.exp(-0.8 * (x - 5.0)))
     m.fit(x, y, method="eac")
-    m.fit(x, y, method="adaptive")
-    assert len(seen["bounds"]) == 2
     assert seen["bounds"][0] is not None, "eac path lost the seeded bounds"
-    assert seen["bounds"][1] is not None, "adaptive path dropped the seeded bounds"

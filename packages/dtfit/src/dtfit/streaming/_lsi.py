@@ -1,7 +1,7 @@
 """Recursive Legendre-spectrum filter, the streaming counterpart of LSI.
 
 The online analogue of the batch integral-least-squares method
-(:func:`dtfit.methods._lsi.fit_lsi`), and structurally a sibling of
+(:func:`dtfit.image.fit.fit_lsi`), and structurally a sibling of
 :class:`dtfit.streaming._eac.EACFilter`: a Kalman-style recursive estimator
 whose "measurement" is an innovation between an experimental quantity and the
 model's prediction of it, with a measurement Jacobian of integrated parameter

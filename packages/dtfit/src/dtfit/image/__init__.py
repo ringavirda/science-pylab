@@ -4,7 +4,10 @@ from .grid import Grid
 from .bases import Basis, LegendreBasis, BlockBasis, make_basis, u_of
 from .original import Original
 from .image import Image, huber_weights
-from .fit import fit, order_for, coverage, osc_order, fft_frequency_seed
+from .fit import (
+    fit, order_for, coverage, osc_order, fft_frequency_seed, fit_lsi,
+    fit_eac,
+)
 
 __all__ = [
     "Grid",
@@ -21,4 +24,6 @@ __all__ = [
     "coverage",
     "osc_order",
     "fft_frequency_seed",
+    "fit_lsi",
+    "fit_eac",
 ]

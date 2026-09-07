@@ -9,9 +9,9 @@ The public interface is layered, from choosing the engine yourself to letting
 it choose.
 
 Batch fitters:
-    fit_lsi, fit_eac, fit_dsb. ``fit_eac`` places its windows uniformly or by
-    curvature (``window_mode=``) and takes a robust ``loss=``. ensemble_fit is
-    the overlapping-window ensemble for densely contaminated data, and
+    fit on an Original or an Image; fit_lsi and fit_eac are its Legendre and
+    block presets; fit_dsb is the symbolic reference. ensemble_fit is the
+    overlapping-window ensemble for densely contaminated data, and
     find_degree selects the polynomial degree for DSB.
 
 Estimator:
@@ -63,6 +63,7 @@ from dtfit.methods import (
     EnsembleResult,
     find_degree,
 )
+from dtfit.image import Original, Image, fit, order_for
 from dtfit.estimators import NonlineRegressor
 from dtfit.streaming import (
     EACFilter,
@@ -80,6 +81,10 @@ from dtfit import stochastic
 from dtfit.stochastic import fit_stochastic, StochasticModel, StochasticFilter
 
 __all__ = [
+    "Original",
+    "Image",
+    "fit",
+    "order_for",
     "NonlineRegressor",
     "auto_estimate",
     "auto_forecast",

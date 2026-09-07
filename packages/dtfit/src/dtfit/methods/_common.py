@@ -12,21 +12,8 @@ from typing import Any, cast
 
 import numpy as np
 import sympy as sp
-from scipy.signal import savgol_filter
 
 from dtfit.log import echo
-
-
-def _savgol_prefilter(y: np.ndarray) -> np.ndarray:
-    """Savitzky-Golay pre-smoother for an LSI spectral projection: window
-    <= 11, cubic polyorder, and a no-op below 5 samples.
-    """
-    y = np.asarray(y, dtype=float)
-    if y.size >= 5:
-        window = min(11, y.size if y.size % 2 == 1 else y.size - 1)
-        if window > 3:
-            return np.asarray(savgol_filter(y, window, polyorder=3), dtype=float)
-    return y
 
 
 # symbolic (Taylor / Maclaurin) spectrum helpers

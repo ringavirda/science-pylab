@@ -432,7 +432,7 @@ def fit_stochastic(
     # explains almost none; the r2 gate rejects it.
     has_trend = (tstat > trend_t) and (trend_r2 > 0.10)
     if has_trend:
-        rt = fit_lsi(t, y, "a0 + a1*x", "x", k_star=1, filter_data=True)
+        rt = fit_lsi(t, y, "a0 + a1*x", "x", k_star=1)
         a0, a1 = float(rt.coeffs[0]), float(rt.coeffs[1])
         trend = a0 + a1 * t
         slope = a1

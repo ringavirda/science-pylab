@@ -112,12 +112,11 @@ def auto_estimate(
     if shape in ("transient", "peak"):
         # Peak and saturating families need their bounds for the positivity
         # and width guards, a Gaussian's sigma > 0 being the obvious one.
-        return fit_eac(x, y, expr, var, window_mode="curvature", p0=p0,
-                       bounds=bounds, param_names=param_names)
+        return fit_eac(x, y, expr, var, p0=p0, bounds=bounds,
+                       param_names=param_names)
     if shape == "robust":
-        # active_ratio=0.8 is this pipeline's recipe; fit_eac defaults to 1.0.
         return fit_eac(x, y, expr, var, p0=p0, bounds=bounds, loss="soft_l1",
-                       active_ratio=0.8, param_names=param_names)
+                       param_names=param_names)
     if shape != "bulk":
         raise ValueError(
             f"unknown shape {shape!r}; expected auto/oscillatory/transient/peak/"
@@ -131,9 +130,8 @@ def auto_estimate(
     for name, fitter in (
         ("fit_lsi", lambda: fit_lsi(x, y, expr, var, p0=p0, bounds=bounds,
                                     param_names=param_names)),
-        # active_ratio=0.8 as above.
         ("fit_eac", lambda: fit_eac(x, y, expr, var, p0=p0, bounds=bounds,
-                                    active_ratio=0.8, param_names=param_names)),
+                                    param_names=param_names)),
     ):
         try:
             res = fitter()

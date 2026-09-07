@@ -15,8 +15,6 @@ from ._common import (
 )
 from ._modelinput import resolve_model, ModelSpec, result_kwargs
 from ._dsb import fit_dsb
-from ._lsi import fit_lsi, fft_frequency_seed
-from ._eac import fit_eac
 from ._ensemble import ensemble_fit, EnsembleResult
 
 __all__ = [
@@ -35,3 +33,7 @@ __all__ = [
     "ModelSpec",
     "result_kwargs",
 ]
+
+# The presets live in the image core and import this package's helpers, so
+# they are bound after everything above is defined.
+from dtfit.image.fit import fit_lsi, fit_eac, fft_frequency_seed  # noqa: E402

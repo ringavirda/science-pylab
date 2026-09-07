@@ -563,7 +563,15 @@ def fit(
         return solve_triangular(Lc, image.S - S_f, lower=True)
 
     def jacobian(theta: np.ndarray) -> np.ndarray:
-        cols = [Phi.T @ (w * d) for d in spec.param_derivs(x, theta)]
+        # A transcendental sensitivity can be singular at an isolated sample
+        # while its projection is finite elsewhere: d/dn of x**n is
+        # x**n*log(x), NaN at x=0 with limit 0 there. Zeroing that sample
+        # before the projection keeps it from poisoning every basis
+        # coefficient through 0*nan = nan in the matrix product below.
+        cols = [
+            Phi.T @ (w * np.where(np.isfinite(d), d, 0.0))
+            for d in spec.param_derivs(x, theta)
+        ]
         J = -np.column_stack(cols)
         J = np.where(np.isfinite(J), J, 0.0)
         return solve_triangular(Lc, J, lower=True)
@@ -614,3 +622,193 @@ def fit(
     result.image_order = image.order
     result.basis_name = image.basis.name
     return result
+
+
+_LEGACY_LSI = ("filter_data", "alpha", "huber_c")
+_LEGACY_EAC = ("active_ratio", "window_mode", "f_scale", "huber_c")
+
+
+def _drop_legacy(
+    legacy: dict[str, Any], allowed: tuple[str, ...], preset: str
+) -> None:
+    """Reject an unknown keyword and warn on every recognized-but-dead one
+    in ``legacy``, the ``**legacy`` catch-all of a preset."""
+    for key in legacy:
+        if key not in allowed:
+            raise TypeError(
+                f"{preset}() got an unexpected keyword argument {key!r}"
+            )
+        warnings.warn(
+            f"{preset}(): {key} is no longer used and is ignored; the "
+            "image core has no equivalent (see the changelog)",
+            DeprecationWarning, stacklevel=3,
+        )
+
+
+def fit_lsi(
+    data_x: Any, data_y: Any, expr: Any, var: str | None = None, *,
+    k_star: Any = None, p0: Any = None, bounds: Any = None, sigma: Any = None,
+    absolute_sigma: bool = False, oscillatory: bool = False,
+    freq_param: str | None = None, random_state: int | None = 0,
+    robust: bool = False, solver_options: dict[str, Any] | None = None,
+    nan_policy: str = "raise", param_names: Any = None, **legacy: Any,
+) -> FittingResult:
+    """LSI: :func:`fit` in the Legendre basis. ``k_star`` is the order;
+    ``None`` or ``"auto"`` takes the default from :func:`order_for`.
+
+    Builds an :class:`Original` from ``(data_x, data_y, sigma, nan_policy)``
+    and calls :func:`fit` on it with ``basis="legendre"``; every parameter
+    below not listed here (``model``, canonical parameter order, the
+    covariance and coverage rules) behaves exactly as documented there.
+
+    Parameters:
+        data_x, data_y: Observed samples. A pandas ``Series`` or single-
+            column ``DataFrame`` is accepted (:class:`Original`).
+        expr: A SymPy expression string, a ``sympy.Expr``, or a callable
+            ``f(x, *params)``; see :func:`fit`.
+        var: The main variable name, required for a symbolic model.
+        k_star: The Legendre order. ``None`` or ``"auto"`` both take the
+            order-rule default (:func:`order_for`, raised for
+            ``oscillatory`` per :func:`osc_order`); an int sets it
+            explicitly and must leave at least as many coefficients as
+            parameters.
+        p0: Initial guess, positional in canonical parameter order or a
+            ``{name: value}`` mapping; ``None`` defaults to ones.
+        bounds: Per-parameter bounds; see :func:`fit`.
+        sigma: Per-sample standard deviations, the same length as
+            ``data_y``; builds the Original's weights. ``None`` weights
+            every sample equally.
+        absolute_sigma: If ``False`` (default) the covariance is scaled by
+            the residual variance; if ``True``, not, as in
+            ``scipy.optimize.curve_fit``.
+        oscillatory: Raises the default order to :func:`osc_order` when
+            that exceeds :func:`order_for`; implied by ``freq_param``.
+        freq_param: Name of the frequency parameter to seed from the data's
+            FFT peak (:func:`fft_frequency_seed`) before the solve; implies
+            ``oscillatory=True``.
+        random_state: Seed for the bounded global stage's differential
+            evolution; ``None`` is nondeterministic between calls.
+        robust: Huber-reweight the image when it is built from the
+            samples.
+        solver_options: Forwarded to the least-squares stage; see
+            :func:`fit`.
+        nan_policy: ``"raise"`` (default) rejects a non-finite sample;
+            ``"omit"`` drops it before fitting (:class:`Original`).
+        param_names: Parameter names for a callable model, in signature
+            order; cross-checked for a symbolic model.
+        **legacy: Retired keywords accepted for source compatibility and
+            ignored: ``filter_data``, ``alpha``, ``huber_c``. Any other
+            keyword raises ``TypeError``.
+
+    Returns:
+        A :class:`~dtfit.types.FittingResult`; see :func:`fit`.
+
+    Raises:
+        TypeError: an unrecognized keyword in ``**legacy``.
+        ValueError: ``freq_param`` names no parameter of the model; the
+            image has fewer coefficients than parameters; the model is not
+            finite at ``p0``; a malformed ``p0``, ``bounds`` or ``sigma``;
+            multivariate ``data_x`` or ``data_y`` (:class:`Original`).
+        RuntimeError: the model has no free parameters.
+
+    Warns:
+        DeprecationWarning: a recognized legacy keyword was passed (see
+            ``**legacy``).
+        UserWarning: the image's coverage of the model's sensitivities at
+            ``p0`` is poor, or the order is too low to identify the model;
+            see :func:`fit`.
+    """
+    _drop_legacy(legacy, _LEGACY_LSI, "fit_lsi")
+    order = None if k_star is None or k_star == "auto" else int(k_star)
+    original = Original(data_x, data_y, sigma=sigma, nan_policy=nan_policy)
+    return fit(
+        expr, original, var, basis="legendre", order=order, p0=p0,
+        bounds=bounds, absolute_sigma=absolute_sigma, robust=robust,
+        oscillatory=oscillatory, freq_param=freq_param,
+        param_names=param_names, solver_options=solver_options,
+        random_state=random_state,
+    )
+
+
+def fit_eac(
+    data_x: Any, data_y: Any, expr: Any, var: str | None = None, *,
+    n_windows: int | None = None, p0: Any = None, bounds: Any = None,
+    sigma: Any = None, absolute_sigma: bool = False, robust: bool = False,
+    loss: str = "linear", solver_options: dict[str, Any] | None = None,
+    nan_policy: str = "raise", param_names: Any = None, **legacy: Any,
+) -> FittingResult:
+    """EAC: :func:`fit` in the block basis with ``n_windows`` windows
+    (default four per parameter). A ``loss`` other than ``"linear"``
+    selects the robust image, the one outlier defence that remains.
+
+    Builds an :class:`Original` from ``(data_x, data_y, sigma, nan_policy)``
+    and calls :func:`fit` on it with ``basis="block"``; every parameter
+    below not listed here behaves exactly as documented there.
+
+    Parameters:
+        data_x, data_y: Observed samples. A pandas ``Series`` or single-
+            column ``DataFrame`` is accepted (:class:`Original`).
+        expr: A SymPy expression string, a ``sympy.Expr``, or a callable
+            ``f(x, *params)``; see :func:`fit`.
+        var: The main variable name, required for a symbolic model.
+        n_windows: Number of block windows. ``None`` defaults to
+            ``4 * n_params``; an int sets it explicitly and must leave at
+            least as many coefficients as parameters.
+        p0: Initial guess, positional in canonical parameter order or a
+            ``{name: value}`` mapping; ``None`` defaults to ones.
+        bounds: Per-parameter bounds; see :func:`fit`.
+        sigma: Per-sample standard deviations, the same length as
+            ``data_y``; builds the Original's weights. ``None`` weights
+            every sample equally.
+        absolute_sigma: If ``False`` (default) the covariance is scaled by
+            the residual variance; if ``True``, not, as in
+            ``scipy.optimize.curve_fit``.
+        robust: Huber-reweight the image when it is built from the
+            samples. Also set to ``True`` when ``loss`` is not
+            ``"linear"``.
+        loss: ``"linear"`` (default) leaves ``robust`` as given; any other
+            value is the retired robust-loss selector and now sets
+            ``robust=True`` instead, with a warning.
+        solver_options: Forwarded to the least-squares stage; see
+            :func:`fit`.
+        nan_policy: ``"raise"`` (default) rejects a non-finite sample;
+            ``"omit"`` drops it before fitting (:class:`Original`).
+        param_names: Parameter names for a callable model, in signature
+            order; cross-checked for a symbolic model.
+        **legacy: Retired keywords accepted for source compatibility and
+            ignored: ``active_ratio``, ``window_mode``, ``f_scale``,
+            ``huber_c``. Any other keyword raises ``TypeError``.
+
+    Returns:
+        A :class:`~dtfit.types.FittingResult`; see :func:`fit`.
+
+    Raises:
+        TypeError: an unrecognized keyword in ``**legacy``.
+        ValueError: the image has fewer coefficients than parameters; the
+            model is not finite at ``p0``; a malformed ``p0``, ``bounds``
+            or ``sigma``; multivariate ``data_x`` or ``data_y``
+            (:class:`Original`).
+        RuntimeError: the model has no free parameters.
+
+    Warns:
+        DeprecationWarning: a recognized legacy keyword was passed, or
+            ``loss`` is not ``"linear"`` (see ``loss``).
+        UserWarning: the image's coverage of the model's sensitivities at
+            ``p0`` is poor, or the order is too low to identify the model;
+            see :func:`fit`.
+    """
+    _drop_legacy(legacy, _LEGACY_EAC, "fit_eac")
+    if loss != "linear":
+        warnings.warn(
+            "fit_eac(): loss is replaced by robust=True (a robust "
+            "image); using it",
+            DeprecationWarning, stacklevel=2,
+        )
+        robust = True
+    original = Original(data_x, data_y, sigma=sigma, nan_policy=nan_policy)
+    order = None if n_windows is None else int(n_windows)
+    return fit(
+        expr, original, var, basis="block", order=order, p0=p0,
+        bounds=bounds, absolute_sigma=absolute_sigma, robust=robust,
+        param_names=param_names, solver_options=solver_options,
+    )

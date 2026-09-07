@@ -83,8 +83,7 @@ def _trend_fit_extrap(series: np.ndarray, h: int,
     zf = (seg.size - 1) + steps
     if seg.size >= 12:
         try:
-            r = fit_lsi(z, seg, "a0 + a1*z + a2*z**2", "z",
-                        k_star=2, filter_data=True)
+            r = fit_lsi(z, seg, "a0 + a1*z + a2*z**2", "z", k_star=2)
             a0, a1, a2 = (float(r.coeffs[0]), float(r.coeffs[1]),
                           float(r.coeffs[2]))
             pred = a0 + a1 * zf + a2 * zf ** 2
@@ -117,8 +116,7 @@ def _trend_anchored_extrap(tr: np.ndarray, h: int,
     if seg.size >= 12:
         z = np.arange(seg.size, dtype=float)
         try:
-            r = fit_lsi(z, seg, "a0 + a1*z + a2*z**2", "z",
-                        k_star=2, filter_data=True)
+            r = fit_lsi(z, seg, "a0 + a1*z + a2*z**2", "z", k_star=2)
             a0, a1, a2 = (float(r.coeffs[0]), float(r.coeffs[1]),
                           float(r.coeffs[2]))
             last = float(seg.size - 1)

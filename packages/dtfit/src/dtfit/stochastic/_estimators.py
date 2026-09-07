@@ -53,7 +53,7 @@ def _loglog_slope(lx: np.ndarray, ly: np.ndarray, *, method: str) -> float:
     """
     if method == "ols":
         return float(np.polyfit(lx, ly, 1)[0])
-    r = fit_lsi(lx, ly, "a + b*m", "m", k_star=1, filter_data=False)
+    r = fit_lsi(lx, ly, "a + b*m", "m", k_star=1)
     # sympy name-sorted order -> [a, b]
     return float(r.coeffs[1])
 
@@ -163,8 +163,7 @@ def hurst_spectral(
     if method == "ols":
         slope = float(np.polyfit(lf, lp, 1)[0])
     else:
-        # denoise the log-periodogram before reading the slope
-        r = fit_lsi(lf, lp, "a + b*m", "m", k_star=1, filter_data=True)
+        r = fit_lsi(lf, lp, "a + b*m", "m", k_star=1)
         slope = float(r.coeffs[1])
     d = -slope / 2.0
     H = d + 0.5
@@ -463,7 +462,7 @@ def decompose_trend_cycle(
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
     terms = " + ".join(f"a{i}*x**{i}" for i in range(trend_deg + 1))
-    rt = fit_lsi(t, y, terms, "x", k_star=max(2, trend_deg), filter_data=True)
+    rt = fit_lsi(t, y, terms, "x", k_star=max(2, trend_deg))
     trend = np.asarray(rt.model(t), dtype=float)
     if np.ndim(trend) == 0:
         trend = np.full_like(t, float(trend))
