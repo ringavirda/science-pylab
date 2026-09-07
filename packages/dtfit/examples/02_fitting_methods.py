@@ -39,9 +39,9 @@ def lsi_oscillatory(rng) -> None:
 
 
 def eac_robust(rng) -> None:
-    # Equal-areas integrates over windows, so it averages over sparse outliers;
-    # robust=True adds a per-window IRLS reweighting under heavier
-    # contamination.
+    # robust=True builds the image with per-sample Huber weights from an
+    # IRLS regression on the basis, so outliers are down-weighted before
+    # any model is involved.
     x = np.linspace(0, 5, 250)
     y = 3.0 * np.arctan(1.5 * x) + rng.normal(0, 0.1, x.size)  # truth a=3, w=1.5
     idx = rng.choice(x.size, 12, replace=False)

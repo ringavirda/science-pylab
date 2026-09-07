@@ -43,7 +43,7 @@ def test_auto_estimate_transient_uses_block_basis():
     y = (2.0 * (1.0 - np.exp(-x / 1.5))
          + 0.02 * np.random.default_rng(0).standard_normal(300))
     r = auto_estimate(x, y, "K*(1 - exp(-x/tau))", "x", shape="transient",
-                       p0=[1.0, 1.0])
+                      p0=[1.0, 1.0])
     assert abs(r.params["K"] - 2.0) < 0.05 and abs(r.params["tau"] - 1.5) < 0.1
 
 

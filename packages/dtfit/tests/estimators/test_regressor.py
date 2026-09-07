@@ -195,8 +195,8 @@ def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
 
 
 def test_robust_levers_rescue_outliers(arctan_data):
-    """The robust levers rescue an outlier-contaminated fit end to end, on both
-    the EAC and LSI routes. Per-kwarg forwarding is the spy test above."""
+    """The robust image rescues an outlier-contaminated fit end to end, on
+    both the EAC and LSI routes. Per-kwarg forwarding is the spy test above."""
     x, y, truth = arctan_data
     y_out = y.copy()
     y_out[50] += 60.0  # gross outlier
@@ -207,9 +207,6 @@ def test_robust_levers_rescue_outliers(arctan_data):
         method="eac",
         p0=[1.0, 1.0],
         robust=True,
-        huber_c=2.5,
-        loss="soft_l1",
-        window_mode="curvature",
     ).fit(x, y_out)
     assert np.allclose(robust.coef_, expected, rtol=0.15)
     plain = _reg().fit(x, y_out)

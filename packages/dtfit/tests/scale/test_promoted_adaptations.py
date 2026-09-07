@@ -3,8 +3,8 @@
 * ``fit_eac``, the uniform-window block preset, aimed at concentrated
   transients;
 * the ``fit_lsi`` oscillatory recipe (``oscillatory=`` / ``freq_param=`` with
-  ``fft_frequency_seed``), which recovers a sinusoid the smoothed default
-  erases;
+  ``fft_frequency_seed``), which recovers a sinusoid the default order at
+  p0 does not resolve;
 * ``FusedChiSquareDetector``, the multi-axis fault detector on a
   ``FilterBank``.
 """

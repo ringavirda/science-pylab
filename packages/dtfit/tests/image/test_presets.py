@@ -59,6 +59,12 @@ def test_k_star_auto_and_dict_inputs():
         fit_lsi(x, y, "a*exp(-b*x)", "x", p0={"a": 1.0})
     with pytest.raises(ValueError):
         fit_eac(x, y, "a*exp(-b*x)", "x", bounds=[(0.0, 1.0), (2.0, 1.0)])
+    for fn in (fit_lsi, fit_eac):
+        bounds = {"b": (0.0, 5.0)}
+        r_dict = fn(x, y, "a*exp(-b*x)", "x", p0={"a": 1.0, "b": 1.0},
+                    bounds=bounds)
+        r_pos = fn(x, y, "a*exp(-b*x)", "x", p0=[1.0, 1.0], bounds=bounds)
+        assert np.allclose(r_dict.coeffs, r_pos.coeffs)
 
 
 def test_callable_models_keep_signature_order_and_predict():
@@ -91,6 +97,14 @@ def test_sigma_semantics_and_validation():
         fit_lsi(x, y, "a*exp(-b*x)", "x", sigma=np.full(x.size - 1, 1.0))
     with pytest.raises(ValueError):
         fit_eac(x, y, "a*exp(-b*x)", "x", sigma=np.full(x.size, 0.0))
+    y2 = y.copy()
+    y2[10] = np.nan
+    r = fit_lsi(x, y2, "a*exp(-b*x)", "x", p0=[1.0, 1.0],
+                sigma=np.full(x.size, 1.0), nan_policy="omit")
+    assert r.n_obs == 199
+    with pytest.raises(ValueError):
+        fit_lsi(x, y2, "a*exp(-b*x)", "x", p0=[1.0, 1.0],
+                sigma=np.full(199, 1.0), nan_policy="omit")
 
 
 def test_nan_policy_and_multivariate_rejection():

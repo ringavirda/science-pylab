@@ -40,9 +40,10 @@ def test_svd_covariance_finite_for_illconditioned_model():
 
 
 @pytest.mark.parametrize("fitter", [fit_eac, fit_lsi])
-def test_robust_integral_beats_nonrobust_under_dense_outliers(fitter):
-    """``robust=True`` applies per-sample IRLS winsorization to the integrand.
-    That is what survives outliers dense enough to drag the plain integral."""
+def test_robust_image_beats_plain_under_dense_outliers(fitter):
+    """``robust=True`` builds the image with per-sample Huber weights from an
+    IRLS regression on the basis. That is what survives outliers dense
+    enough to drag the plain image."""
     rng = np.random.default_rng(3)
     x = np.linspace(0.1, 4.0, 240)
     true = (2.5, -0.6)
@@ -62,23 +63,6 @@ def test_robust_integral_beats_nonrobust_under_dense_outliers(fitter):
     # clean data: robust must not materially hurt
     yc = base + 0.02 * rng.standard_normal(x.size)
     assert relerr(fitter(x, yc, "a*exp(b*t)", "t", robust=True)) < 0.05
-
-
-def test_robust_image_beats_plain_under_dense_outliers():
-    rng = np.random.default_rng(0)
-    x = np.linspace(0.0, 4.0, 300)
-    truth = 2.5 * np.exp(-0.9 * x)
-    y = truth + 0.03 * rng.standard_normal(300)
-    idx = rng.choice(300, 30, replace=False)
-    y[idx] += rng.choice([-1.0, 1.0], 30) * 1.5
-    plain = fit_lsi(x, y, "a*exp(-b*x)", "x", p0=[2.0, 1.0])
-    rob = fit_lsi(x, y, "a*exp(-b*x)", "x", p0=[2.0, 1.0], robust=True)
-
-    def err(r):
-        return max(abs(r.params["a"] - 2.5) / 2.5,
-                    abs(r.params["b"] - 0.9) / 0.9)
-
-    assert err(rob) < 0.5 * err(plain)
 
 
 def test_single_member_ensemble_not_overconfident():
