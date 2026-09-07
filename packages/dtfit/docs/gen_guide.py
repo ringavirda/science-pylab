@@ -61,7 +61,9 @@ def rewrite(text, page, target):
             return "]({}{})".format(rel, anchor)
         return "]({}{}{})".format(WIKI_URL, name, anchor)
 
-    lines = [l for l in text.splitlines() if not l.startswith(WIKI_ONLY)]
+    lines = [
+        line for line in text.splitlines() if not line.startswith(WIKI_ONLY)
+    ]
     body = LINK.sub(sub, "\n".join(lines))
     body = body.replace("(" + REPO_URL + "packages/dtfit/docs/gen_comparison.py)",
                         "(gen_comparison.py)")
