@@ -1,14 +1,10 @@
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 from scipy.optimize import curve_fit
 
 from dtfit.image import Original, Image, fit
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from accuracy.scenarios import SCENARIOS_BY_NAME  # noqa: E402
+from accuracy.scenarios import SCENARIOS_BY_NAME
 
 
 def _case(name):
@@ -173,6 +169,74 @@ def test_robust_flag_needs_an_original_and_helps_under_outliers():
             expr, Image.of(Original(x, y), "legendre", 12), var, p0=pt,
             robust=True,
         )
+
+
+def test_input_type_errors():
+    x = np.linspace(0, 3, 60)
+    y = 2.0 * np.exp(-1.1 * x)
+    o = Original(x, y)
+    img = Image.of(o, "legendre", 8)
+    with pytest.raises(TypeError):
+        fit("a*exp(-b*x)", img, "x", sigma=np.ones(x.size), p0=[1.0, 1.0])
+    with pytest.raises(TypeError):
+        fit("a*exp(-b*x)", img, "x", basis="auto", p0=[1.0, 1.0])
+    with pytest.raises(TypeError):
+        fit("a*exp(-b*x)", (x, y), "x", order=8, p0=[1.0, 1.0])
+    with pytest.raises(ValueError):
+        fit("a*exp(-b*x)", o, "x", p0=[1.0, 1.0])
+
+
+def test_unidentified_parameter_reports_infinite_stderr():
+    x = np.linspace(0, 1, 100)
+    y = 6.0 * x + 1e-6 * np.random.default_rng(3).standard_normal(100)
+    r = fit("a*b*x", Original(x, y), "x", order=4, p0=[2.0, 3.0])
+    assert r.converged
+    assert abs(r.params["a"] * r.params["b"] - 6.0) < 0.1
+    assert np.isinf(np.diag(r.cov)).all()
+
+
+def test_non_finite_model_at_p0_raises():
+    t = np.linspace(0, 1000, 400)
+    y = np.exp(-0.01 * t)
+    with pytest.raises(ValueError, match="not finite"):
+        fit(
+            "a*exp(b*t)", Original(t, y), "t", order=12,
+            p0=[1.0, 1.0],
+        )
+
+
+def test_no_global_fallback_from_a_good_start():
+    x = np.linspace(0, 10, 300)
+    y = (
+        2.0 * np.sin(1.5 * x + 0.3)
+        + 0.1 * np.random.default_rng(2).standard_normal(300)
+    )
+    kw = dict(
+        order=24,
+        bounds={"A": (0.1, 5.0), "w": (0.5, 3.0), "p": (-3.2, 3.2)},
+    )
+    r = fit(
+        "A*sin(w*x + p)", Original(x, y), "x",
+        p0={"A": 2.0, "p": 0.3, "w": 1.5}, **kw,
+    )
+    assert r.nfev < 60
+    assert abs(r.params["w"] - 1.5) < 0.02
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "exp_decay_offset", "logistic", "michaelis_menten", "gompertz",
+        "gaussian",
+    ],
+)
+def test_noise_free_fit_converges_from_a_perturbed_start(name):
+    expr, var, fn, pt, scn = _case(name)
+    x = _grids(scn, "uniform")
+    res = fit(
+        expr, Original(x, fn(x, *pt)), var, order=12, p0=0.9 * pt
+    )
+    assert np.max(np.abs(res.coeffs / pt - 1.0)) < 1e-7
 
 
 def test_callable_model_and_input_errors():

@@ -31,11 +31,19 @@ def _solve(
     bounds: list[tuple[float, float]] | None,
     solver_options: dict[str, Any] | None,
     random_state: int | None,
+    poor_cost: float = np.inf,
 ) -> tuple[np.ndarray, np.ndarray, bool, str, int]:
-    """Levenberg-Marquardt without bounds; trust-region with bounds, and a
-    differential-evolution search polished by L-BFGS-B when every bound is
-    finite and the local solve did not converge or left a relative residual
-    above 0.5. Returns ``(coeffs, jacobian, converged, message, nfev)``."""
+    """Levenberg-Marquardt without bounds; trust-region with bounds.
+
+    With bounds, a second, global stage runs when every bound is finite and
+    the local trust-region solve is poor: it did not report success, its
+    whitened residual energy ``sol.fun @ sol.fun`` is non-finite, or that
+    energy exceeds ``poor_cost``. The global stage is a differential-
+    evolution search polished by L-BFGS-B; its candidate replaces the local
+    one only if its cost is strictly lower, so the local solution wins ties.
+    Returns ``(coeffs, jacobian, converged, message, nfev)``, with ``nfev``
+    the sum over every stage run.
+    """
     opts = dict(solver_options or {})
     ls_opts = {
         k: opts[k] for k in ("xtol", "ftol", "gtol", "max_nfev") if k in opts
@@ -52,10 +60,14 @@ def _solve(
         residual, np.clip(guess, lo, hi), jac=jac, bounds=(lo, hi),
         method="trf", **ls_opts,
     )
-    scale = float(np.linalg.norm(residual(np.clip(guess, lo, hi)))) + 1e-30
-    good = sol.success and float(np.linalg.norm(sol.fun)) / scale < 0.5
+    local_cost = float(sol.fun @ sol.fun)
     finite = bool(np.all(np.isfinite(lo)) and np.all(np.isfinite(hi)))
-    if good or not finite:
+    poor = (
+        (not sol.success)
+        or (not np.isfinite(local_cost))
+        or local_cost > poor_cost
+    )
+    if not (poor and finite):
         return (
             sol.x, sol.jac, bool(sol.success), str(sol.message),
             int(sol.nfev),
@@ -76,16 +88,21 @@ def _solve(
         cost, res_g.x, method="L-BFGS-B", bounds=list(zip(lo, hi)),
         options=min_opts or None,
     )
-    return (
-        np.asarray(res.x, dtype=float), jac(np.asarray(res.x, dtype=float)),
-        bool(res.success), str(res.message),
-        int(getattr(res_g, "nfev", 0)) + int(getattr(res, "nfev", 0)),
+    xg = np.asarray(res.x, dtype=float)
+    global_cost = cost(xg)
+    nfev = (
+        int(sol.nfev) + int(getattr(res_g, "nfev", 0))
+        + int(getattr(res, "nfev", 0))
     )
+    if not global_cost < local_cost:
+        return sol.x, sol.jac, bool(sol.success), str(sol.message), nfev
+    return xg, jac(xg), bool(res.success), str(res.message), nfev
 
 
 def _covariance(jac: np.ndarray, s2: float) -> np.ndarray | None:
-    """``s2 (J^T J)^-1`` from the SVD of ``J``; null directions are
-    dropped."""
+    """``s2 (J^T J)^-1`` from the SVD of ``J``. A parameter with a
+    component in a null direction of ``J`` is not identified: its diagonal
+    entry is ``inf`` and its off-diagonal entries are ``nan``."""
     try:
         _, s, vt = np.linalg.svd(jac, full_matrices=False)
     except np.linalg.LinAlgError:
@@ -93,8 +110,16 @@ def _covariance(jac: np.ndarray, s2: float) -> np.ndarray | None:
     if s.size == 0 or s[0] == 0.0:
         return None
     tol = s[0] * max(jac.shape) * float(np.finfo(float).eps)
-    inv_s2 = np.where(s > tol, 1.0 / (s * s), 0.0)
-    return s2 * ((vt.T * inv_s2) @ vt)
+    keep = s > tol
+    inv_s2 = np.where(keep, 1.0 / np.where(keep, s, 1.0) ** 2, 0.0)
+    cov = s2 * ((vt.T * inv_s2) @ vt)
+    if not keep.all():
+        null = np.abs(vt[~keep]).max(axis=0) > 1e-8
+        idx = np.flatnonzero(null)
+        cov[idx, :] = np.nan
+        cov[:, idx] = np.nan
+        cov[idx, idx] = np.inf
+    return cov
 
 
 def _rss_from_image(image: Image, S_f: np.ndarray) -> float:
@@ -138,10 +163,82 @@ def fit(
     variance ``rss / (n - p)``; with ``True`` it is not, as in
     ``scipy.optimize.curve_fit``.
 
-    Returns a :class:`~dtfit.types.FittingResult` whose ``rss`` is the
-    weighted residual sum of squares over the samples when an Original was
-    given, and the image identity ``sumsq - S^T G^-1 S + d^T G^-1 d`` when
-    an Image was given; ``rss_source`` records which.
+    Parameters:
+        model: A SymPy expression string, a ``sympy.Expr``, or a callable
+            ``f(x, *params)``.
+        data: An :class:`Original` (imaged here) or an :class:`Image`
+            (used as given).
+        var: The main variable name, required for a symbolic model; a
+            label only for a callable.
+        basis: The basis to image an Original in, ``"legendre"``,
+            ``"block"``, or a :class:`~dtfit.image.Basis` instance.
+            ``"auto"`` is rejected here (``TypeError``); it needs the
+            samples an Image no longer carries.
+        order: The basis order (polynomial degree for Legendre, window
+            count for block). Required when ``data`` is an Original.
+        p0: Initial guess, a positional sequence in canonical parameter
+            order or a ``{name: value}`` mapping; ``None`` defaults to
+            ones.
+        bounds: Per-parameter bounds, a sequence of ``(lo, hi)`` pairs, a
+            ``{name: (lo, hi)}`` mapping, or the ``(lo, hi)`` scipy
+            convention; see :func:`dtfit.methods._common.normalize_bounds`.
+        sigma: Per-sample standard deviations for an Original; builds the
+            weights ``w = 1/sigma**2``. Raises ``TypeError`` with an Image
+            and ``ValueError`` if the Original already carries weights.
+        absolute_sigma: If ``False`` (default) the covariance is scaled by
+            the residual variance ``rss / (n - p)``, as when ``sigma`` is
+            only relative; if ``True`` it is not, as in
+            ``scipy.optimize.curve_fit`` with true absolute uncertainties.
+        robust: Huber-reweight the image when building it from an
+            Original; raises ``TypeError`` with an Image (already built).
+        oscillatory: Declares the model has a dominant frequency;
+            validated here and used by the order rule and the frequency
+            seed added in a later task. No effect yet.
+        freq_param: The name of the frequency parameter when
+            ``oscillatory=True``; likewise validated here for the later
+            task.
+        param_names: Parameter names for a callable model, in signature
+            order after ``x``; introspected from the signature when
+            omitted. Optional and cross-checked for a symbolic model.
+        solver_options: Forwarded to the least-squares stage: ``xtol``,
+            ``ftol``, ``gtol`` and ``max_nfev`` go to
+            ``scipy.optimize.least_squares``; ``ftol`` and ``gtol`` also
+            go to the polishing ``scipy.optimize.minimize`` call
+            (``max_nfev`` becomes its ``maxfun``) when the bounded global
+            stage runs.
+        random_state: Seed for the bounded global stage's differential
+            evolution. ``None`` makes that stage nondeterministic between
+            calls; unused when the fit is unbounded or the local solve is
+            not poor.
+
+    Returns:
+        A :class:`~dtfit.types.FittingResult` with ``coeffs``, ``cov``,
+        ``converged``, ``message``, ``x_range`` (the domain), ``n_obs``,
+        ``nfev`` and:
+
+        - ``rss``: the weighted residual sum of squares over the samples
+          when an Original was given, and the image identity
+          ``sumsq - S^T G^-1 S + d^T G^-1 d`` when an Image was given;
+          ``rss_source`` records which (``"samples"`` or ``"image"``).
+        - ``tss``: the image's total weighted sum of squares about its
+          weighted mean, ``sumsq - sumy**2 / wsum``.
+        - ``cost``: the final optimizer cost ``0.5 * ||r||^2`` on the
+          whitened image residual, not ``0.5 * rss``.
+        - ``cov``: ``None`` when the degrees of freedom are exhausted
+          (``n_obs <= len(names)``); otherwise a parameter with a
+          component in a null direction of the Jacobian is unidentified,
+          reported with an ``inf`` diagonal entry and ``nan``
+          off-diagonal entries rather than a spuriously small variance.
+
+    Raises:
+        TypeError: ``robust=True``, ``sigma`` given, or ``basis="auto"``
+            with an Image; ``data`` is neither an Original nor an Image.
+        ValueError: ``order`` missing with an Original; the image has
+            fewer coefficients than parameters; the model is not finite
+            at ``p0`` on the data's grid; ``sigma`` given for an Original
+            that already carries weights; a malformed ``p0`` or
+            ``bounds`` (from the normalizers).
+        RuntimeError: the model has no free parameters.
     """
     spec: ModelSpec = resolve_model(model, var, param_names=param_names)
     names = list(spec.names)
@@ -173,6 +270,11 @@ def fit(
                 f"data must be an Original or an Image, got "
                 f"{type(data).__name__}"
             )
+        if sigma is not None and data.weighted:
+            raise ValueError(
+                "the Original already carries weights; build it with "
+                "sigma instead of passing sigma to fit"
+            )
         original = (
             data if sigma is None
             else Original(data.x, data.y, sigma=sigma, domain=data.domain)
@@ -183,8 +285,8 @@ def fit(
     if image.n_coef < len(names):
         raise ValueError(
             f"an image with {image.n_coef} coefficients cannot identify "
-            f"{len(names)} parameters; raise the order to at least "
-            f"{len(names) - 1}"
+            f"{len(names)} parameters; raise the order so the image has "
+            f"at least {len(names)} coefficients"
         )
 
     Phi = image.phi()
@@ -195,10 +297,10 @@ def fit(
     def model_image(theta: np.ndarray) -> np.ndarray:
         return Phi.T @ (w * spec.eval(x, theta))
 
-    def residual(theta: np.ndarray) -> np.ndarray:
+    def residual_at(theta: np.ndarray) -> np.ndarray | None:
         S_f = model_image(theta)
         if not np.all(np.isfinite(S_f)):
-            return np.full(image.n_coef, 1e6)
+            return None
         return solve_triangular(Lc, image.S - S_f, lower=True)
 
     def jacobian(theta: np.ndarray) -> np.ndarray:
@@ -207,8 +309,28 @@ def fit(
         J = np.where(np.isfinite(J), J, 0.0)
         return solve_triangular(Lc, J, lower=True)
 
+    tss = float(image.sumsq - image.sumy ** 2 / image.wsum)
+    if bounds_list is not None:
+        lo = np.array([b[0] for b in bounds_list])
+        hi = np.array([b[1] for b in bounds_list])
+        guess = np.clip(guess, lo, hi)
+    r0 = residual_at(guess)
+    if r0 is None:
+        raise ValueError(
+            "the model is not finite at p0 on the data's grid; "
+            "rescale x or change p0"
+        )
+    sentinel = np.full(
+        image.n_coef, max(1e6, 10.0 * float(np.linalg.norm(r0)))
+    )
+
+    def residual(theta: np.ndarray) -> np.ndarray:
+        r = residual_at(theta)
+        return sentinel if r is None else r
+
     coeffs, jac, converged, message, nfev = _solve(
-        residual, jacobian, guess, bounds_list, solver_options, random_state
+        residual, jacobian, guess, bounds_list, solver_options,
+        random_state, poor_cost=0.5 * tss,
     )
 
     S_f = model_image(coeffs)
@@ -219,7 +341,7 @@ def fit(
     else:
         rss = max(_rss_from_image(image, S_f), 0.0)
         rss_source = "image"
-    tss = float(image.sumsq - image.sumy ** 2 / image.wsum)
+    converged = bool(converged and np.isfinite(rss))
     dof = image.n - len(names)
     s2 = 1.0 if absolute_sigma else (rss / dof if dof > 0 else float("nan"))
     cov = _covariance(jac, s2) if dof > 0 else None
