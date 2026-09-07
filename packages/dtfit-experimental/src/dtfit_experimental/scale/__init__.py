@@ -1,7 +1,7 @@
 """The old map-reduce and GEMM-batched estimators on the integral operator.
 
-Kept for the experiment notebooks until they rerun on ``ImageStream`` in
-step 7, then deleted.
+Kept for the experiment notebooks until they rerun on ``ImageStream``,
+then removed.
 """
 
 from ._partitioned import PartitionedLSI, PartitionedEAC, PartitionedBatchLSI

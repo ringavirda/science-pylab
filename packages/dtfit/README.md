@@ -152,7 +152,7 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 ### Scaling out
 
 - **`ImageStream`** accumulates a signal in fixed `O(order)` memory as it
-  arrives; its blocks checkpoint and `assemble` merges them into one
+  arrives; its blocks are retained and `assemble` merges them into one
   `Image`, and a channel axis batches many signals through the same
   accumulator:
 

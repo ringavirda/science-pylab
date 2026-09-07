@@ -159,7 +159,7 @@ static PyObject *py_simpson_windows(PyObject *self, PyObject *args)
     }
     /* The integral loop is pure C over borrowed buffers and touches no Python
      * object, so the GIL can be dropped. A thread pool can then run many such
-     * kernels concurrently (see dtfit.scale._parallel). */
+     * kernels concurrently (see dtfit.image.parallel). */
     Py_BEGIN_ALLOW_THREADS
     for (npy_intp k = 0; k < m; ++k) {
         ap[k] = simpson_1d(yp + sp[k], xp + sp[k], ep[k] - sp[k]);

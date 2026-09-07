@@ -30,7 +30,7 @@ Streaming:
 
 Scale:
     ImageStream accumulates a signal in fixed memory as it arrives. Its
-    blocks checkpoint and assemble merges them into one Image; a channel
+    blocks are retained and assemble merges them into one Image; a channel
     axis batches many signals through the same accumulator. fit_many fans
     independent fits across processes or threads.
 

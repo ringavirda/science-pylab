@@ -274,12 +274,12 @@ class PartitionedBatchLSI:
     """Fused map-reduce and GEMM-batched LSI for many channels in one pass.
 
     Combines the two big-data levers that :class:`PartitionedLSI` and
-    :func:`dtfit.project_spectra` provide separately:
+    :func:`dtfit_experimental.scale.project_spectra` provide separately:
 
     * the volume partition of :class:`PartitionedLSI`, reducing a stream of
       arbitrary length in fixed ``O(channels x order)`` memory;
-    * the channel batch of :func:`dtfit.project_spectra`, projecting the
-      ``B`` channels that share the sampling grid in one GEMM
+    * the channel batch of :func:`dtfit_experimental.scale.project_spectra`,
+      projecting the ``B`` channels that share the sampling grid in one GEMM
       ``S = Dᵀ·(w⊙Y)`` per chunk, through a pluggable array backend
       (NumPy/BLAS, or cupy/torch on a GPU).
 

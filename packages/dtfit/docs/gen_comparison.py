@@ -36,7 +36,8 @@ from accuracy.harness import (  # noqa: E402
 )
 from accuracy.scenarios import SCENARIOS_BY_NAME  # noqa: E402
 
-from dtfit import EACFilter, PartitionedLSI  # noqa: E402
+from dtfit import EACFilter  # noqa: E402
+from dtfit_experimental.scale import PartitionedLSI  # noqa: E402
 
 REPEATS = 7
 

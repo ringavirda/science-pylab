@@ -10,6 +10,7 @@ from .fit import (
     fit, order_for, coverage, osc_order, fft_frequency_seed, fit_lsi,
     fit_eac,
 )
+from .parallel import FittingProblem, fit_many
 
 __all__ = [
     "Grid",
@@ -33,4 +34,6 @@ __all__ = [
     "fft_frequency_seed",
     "fit_lsi",
     "fit_eac",
+    "FittingProblem",
+    "fit_many",
 ]

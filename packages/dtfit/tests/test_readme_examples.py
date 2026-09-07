@@ -40,6 +40,24 @@ def test_readme_streaming():
     assert set(flt.params_) == {"A", "w"}
 
 
+def test_readme_image_stream():
+    import dtfit as dt
+
+    rng = np.random.default_rng(3)
+    x = np.linspace(0, 10, 1000)
+    y = 2.0 * np.sin(1.5 * x) + rng.normal(0, 0.02, x.size)
+
+    def chunks_of_the_stream():
+        for xi, yi in zip(np.array_split(x, 5), np.array_split(y, 5)):
+            yield xi, yi
+
+    s = dt.ImageStream("legendre", 6, domain=(0, 10), block=200)
+    for xc, yc in chunks_of_the_stream():
+        s.update(xc, yc)
+    img = s.assemble(0, 10)
+    assert img.domain == (0.0, 10.0)
+
+
 def test_readme_model_framework(series):
     from dtfit import models, suggest_models
 

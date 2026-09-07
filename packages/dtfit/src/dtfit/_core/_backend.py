@@ -1,8 +1,9 @@
 """Pluggable array backend for the GEMM-batched projection.
 
 The batched LSI/EAC projection is a single matrix product ``Dᵀ·(w⊙Y)`` (see
-:mod:`dtfit.scale._batched`). It is written with plain ``@``, ``*`` and
-``.T``. A :class:`Backend` only has to move arrays to and from a device:
+:mod:`dtfit_experimental.scale._batched`). It is written with plain
+``@``, ``*`` and ``.T``. A :class:`Backend` only has to move arrays to
+and from a device:
 
 * ``numpy``: always available, multithreaded BLAS GEMM on the CPU.
 * ``cupy``: NumPy-API GPU arrays on cuBLAS, given an install and a GPU.

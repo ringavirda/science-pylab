@@ -2,6 +2,7 @@
 
 import importlib
 import pkgutil
+import sys
 
 import pytest
 
@@ -36,6 +37,7 @@ def test_all_submodules_import():
         # Hand-written differential-transform tables replaced by generic Taylor.
         "dtfit.methods.discretes",
         "dtfit.methods.spectrum",
+        "dtfit.scale",
     ],
 )
 def test_removed_methods_are_gone(mod):
@@ -44,12 +46,8 @@ def test_removed_methods_are_gone(mod):
 
 
 def test_scale_names_left_the_library():
-    import dtfit
-
     for name in ("PartitionedLSI", "PartitionedEAC", "PartitionedBatchLSI",
                  "fit_lsi_batched"):
         assert not hasattr(dtfit, name)
     assert callable(dtfit.fit_many) and dtfit.ImageStream is not None
-    import dtfit_experimental.scale as legacy
-
-    assert legacy.PartitionedLSI is not None
+    assert "dtfit.scale" not in sys.modules

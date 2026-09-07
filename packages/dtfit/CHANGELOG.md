@@ -51,6 +51,7 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
 - `PartitionedLSI`, `PartitionedEAC`, `PartitionedBatchLSI`,
   `fit_lsi_batched` and `project_spectra`, parked in
   `dtfit_experimental.scale` until the notebooks rerun on `ImageStream`.
+- The public module `dtfit.scale` itself.
 
 ## [0.4.0] — 2026-07-09
 

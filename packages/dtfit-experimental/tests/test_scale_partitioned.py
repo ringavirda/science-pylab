@@ -6,6 +6,10 @@ import pytest
 from dtfit_experimental.scale import PartitionedLSI, PartitionedEAC
 
 
+def test_scale_exports_partitioned_lsi():
+    assert PartitionedLSI is not None
+
+
 @pytest.fixture
 def exp_stream():
     rng = np.random.default_rng(0)

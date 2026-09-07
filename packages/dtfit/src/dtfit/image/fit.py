@@ -106,7 +106,7 @@ def _solve(
 
 
 # Serves fit() only; methods/_common.py has the whitened-residual variant
-# for scale/_partitioned.py and _core/_spectral.py.
+# for dtfit_experimental.scale._partitioned and _core/_spectral.py.
 def _covariance(jac: np.ndarray, s2: float) -> np.ndarray | None:
     """``s2 (J^T J)^-1`` from the SVD of ``J``. A parameter with a
     component in a null direction of ``J`` is not identified: its diagonal

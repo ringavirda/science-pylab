@@ -106,7 +106,7 @@ def fit_many(
         problems: Independent :class:`FittingProblem` specs.
         n_jobs: Worker count (``-1`` = all cores; ``1`` = serial, no pool).
         backend: ``"loky"`` (processes, default), ``"threading"`` (threads,
-            riding the GIL-released native kernels), or
+            sharing memory and avoiding pickling, nothing more), or
             ``"multiprocessing"``.
         verbose: Forwarded to :class:`joblib.Parallel` for progress
             reporting.

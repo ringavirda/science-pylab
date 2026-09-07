@@ -31,7 +31,7 @@ Once the API is declared stable at `1.0.0`, standard SemVer applies:
 The public API is what you can reach without a leading underscore:
 
 - names exported from `dtfit` (see `dtfit.__all__`) and its public submodules
-  (`dtfit.methods`, `dtfit.models`, `dtfit.streaming`, `dtfit.scale`,
+  (`dtfit.methods`, `dtfit.models`, `dtfit.streaming`, `dtfit.image`,
   `dtfit.stochastic`, `dtfit.diagnostics`);
 - their documented parameters, attributes and return types.
 
