@@ -18,15 +18,20 @@ name, keeping one method discoverable across execution modes:
 Both accept optional external regressors. The integral measurement can then
 score a model that also depends on measured side-channels, an IMU-derived
 motion basis for instance, rather than on sample position alone.
+
+:class:`DriftDetector` is the shared change-detection logic on a whitened
+innovation, usable on its own or as a building block for a filter.
 """
 
 from ._eac import EACFilter
 from ._lsi import LSIFilter
 from ._bank import FilterBank, FusedChiSquareDetector
+from .detect import DriftDetector
 
 __all__ = [
     "EACFilter",
     "LSIFilter",
     "FilterBank",
     "FusedChiSquareDetector",
+    "DriftDetector",
 ]
