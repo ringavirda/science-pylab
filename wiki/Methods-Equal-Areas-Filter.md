@@ -11,9 +11,8 @@ measurement is the block image: window sums against a diagonal Gram, the
 cheapest per-sample statistic of the two bases and the one an embedded
 target runs (see [the embedded tool](Domain-Embedded-Control)). Its
 sibling [`LSIFilter`](Methods-Legendre-Filter) fixes the Legendre basis
-instead, whose richer spectral measurement resolves an oscillatory
-plant's frequency where the block image's window sum nearly cancels over
-a cycle.
+instead, whose spectral measurement resolves an oscillatory plant's
+shape and frequency directly.
 
 Everything else -- the whitened window-image measurement, the
 information-form update, drift detection through the shared
@@ -28,7 +27,7 @@ USD/UAH official daily rate, NBU, 2014-2015 hryvnia crisis (~=8 -> 24).
 **Left:** the filter tracks the depreciation online and flags the
 **Feb-2015 free-float** as a structural break (dashed line). **Right:**
 the tracked growth parameter `b` -- it climbs with the depreciation,
-jumps at the detected break, and re-adapts after the covariance reset.
+jumps at the detected break, and re-adapts after the drift reset.
 
 ![EACFilter tracking and drift detection on USD/UAH](figures/filter_tracking.png)
 

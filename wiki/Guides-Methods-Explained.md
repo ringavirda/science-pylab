@@ -331,14 +331,14 @@ it re-adapts to the new regime instead of stubbornly averaging across the break.
 - `cusum_k` / `cusum_h` -- drift-detector sensitivity vs false-alarm rate.
 - **`LSIFilter` vs `EACFilter`:** `ImageFilter` with `basis="legendre"` or
   `basis="block"` fixed. Use `LSIFilter` (spectrum measurement) for
-  **oscillatory** plants -- the block sum partly cancels oscillations, so the
-  spectrum is the right fingerprint there; use the cheaper `EACFilter` for
-  monotone/saturating signals, or for the smallest embedded footprint.
+  **oscillatory** plants, where the shape and frequency come straight out
+  of the spectrum; use the cheaper `EACFilter` for monotone/saturating
+  signals, or for the smallest embedded footprint.
 - `result()` -- the current window as a batch fit, with a calibrated
   covariance; `P` itself is a gain state, not a confidence measure.
 - **Pooling several streams** -- summing several filters' `nis_` is a fused
-  fault test: a change that hits every stream is weak in any one innovation
-  and strong in the pooled statistic.
+  fault test with more degrees of freedom and power than any one filter's
+  innovation alone.
   -> [api/streaming.md#several-streams](API-Streaming#several-streams)
 - **Coasting through gaps** (`filter.coast(x, order=)`, `coast_cov`) -- when
   measurements drop out, roll the current parameter model forward

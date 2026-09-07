@@ -19,8 +19,10 @@ The state is the parameter vector `theta`, modelled as a random walk
 `theta_t = theta_{t-1} + w_t`, `w_t ~ N(0, Q)`. Over the current window the
 measurement is the window image `S_w = Phi_w^T y`, `G_w = Phi_w^T Phi_w`,
 `Phi_w` the basis evaluated at the window's sample positions mapped to
-`[-1, 1]` -- recomputed from scratch each step, `O(W K)`, not accumulated,
-because the window's positions shift by one sample every update. With
+`[-1, 1]` -- cached against the window length while the normalized
+positions repeat, rebuilt in `O(W K)` when the length changes; `S_w` and
+the innovation are recomputed every step, since the window's positions
+shift by one sample every update. With
 `S_f(theta) = Phi_w^T f(t_w; theta)` the model's projection on the same
 window and `G_w = L_w L_w^T`, the **whitened innovation** and Jacobian are
 
@@ -56,7 +58,7 @@ model.
 ## Drift detection
 
 Every `W` samples once the window is full -- or the shorter, current
-`_W_eff` while the adaptive window is still growing, so the detector
+adaptive window length while it is still growing, so the detector
 tests sooner and more often before the window reaches its cap -- the
 whitened innovation is rotated by a Householder reflection so its first
 component is the window-mean channel (the direction that carries a level
@@ -91,11 +93,11 @@ shift still passes through unclipped and reaches the drift test.
 
 `basis="legendre"` (`LSIFilter`) resolves an oscillatory plant's shape
 and frequency: the window's Legendre spectrum carries the amplitude,
-frequency and phase a single scalar measurement partly cancels over a
-cycle. `basis="block"` (`EACFilter`) is the cheapest statistic -- window
-sums, a diagonal `G_w` -- and the one an embedded target runs; see
-[the embedded tool](Domain-Embedded-Control). Both are the same recursion
-on the same image type, differing only in `Phi_w`.
+frequency and phase directly. `basis="block"` (`EACFilter`) is the
+cheapest statistic -- window sums, a diagonal `G_w` -- and the one an
+embedded target runs; see [the embedded tool](Domain-Embedded-Control).
+Both are the same recursion on the same image type, differing only in
+`Phi_w`.
 
 <a name="result"></a>
 ## `result()` -- the calibrated read-out
@@ -106,27 +108,25 @@ regardless of how well the parameters actually match the plant.
 on the current window, in the filter's own basis and order, started from
 the current estimate -- the window's parameters, covariance, standard
 errors and prediction band in the same type a batch fit returns, imaged
-robustly when the filter is robust. Measured on the coordinated-turn
-tracking benchmark: the covariance's nominal interval covers the actual
-filter error 70 to 96 percent of the time, and is conservative (wider
-than needed) whenever the process noise `q_diag` is small relative to the
-true drift rate.
+robustly when the filter is robust. Measured in tracking: the
+covariance's nominal interval covers the actual filter error 70 to 96
+percent of the time, and is conservative (wider than needed) whenever
+the process noise `q_diag` is small relative to the true drift rate.
 
 ## Coasting
 
 `coast(x, order=1|2)` and `coast_cov` dead-reckon past the window from
 its last ingested sample by a Taylor expansion of the current model,
-unaffected by the change from a Kalman covariance to an information-form
-gain: the anchor is `_t[-1]`, and an external-regressor model splits into
-its extrapolable and nuisance parts exactly as before.
+anchored at that sample; an external-regressor model splits into its
+extrapolable and nuisance parts.
 
 ## Algorithm (per `partial_fit`)
 
 1. Ingest `(t, y[, regressors])`; a non-finite sample is skipped with a
    warning, leaving every state untouched. Feed the attached `stream`, if
    any, before the window is mutated.
-2. Evict past the window cap (`_W_eff` while adaptive, else `W`); return
-   early below `min_window`.
+2. Evict past the window cap (the current adaptive length, else `W`);
+   return early below `min_window`.
 3. Build `Phi_w`, its Cholesky factor and the mean-channel rotation
    (cached against the window length while the normalized positions
    repeat); winsorize the residual first when `robust`.
@@ -135,19 +135,8 @@ its extrapolable and nuisance parts exactly as before.
 5. On a full-window stride, run the drift test; a detection re-arms and
    returns.
 6. Otherwise take the damped information-form step, update `s2`, `p` and
-   `P`, and adjust `_W_eff` from the residual autocorrelation.
-
-## Worked example
-
-A steady `A.sin(w.t)` (truth `w=1.3`) tracked online. **Left:** the
-Legendre-basis filter's one-step prediction locks onto the cycle, while
-the block-basis filter cannot follow it. **Right:** the tracked
-frequency -- the Legendre filter converges to `w=1.30`, but the block
-filter's estimate collapses away because its window sum nearly cancels
-over a cycle and carries almost no frequency information. This is the
-concrete reason the two bases exist.
-
-![LSIFilter vs EACFilter on a steady oscillation](figures/lsi_filter.png)
+   `P`, and adjust the adaptive window length from the residual
+   autocorrelation.
 
 ## Where it is best applied
 

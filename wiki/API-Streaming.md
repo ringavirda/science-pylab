@@ -48,7 +48,7 @@ only pass overrides:
 
 | name | default | meaning |
 |---|---|---|
-| `model`, `var` | -- | a SymPy-expression string, a `sympy.Expr` or a callable `f(t, *params)`; a symbolic model may reference [`regressors`](#regressors). A callable has no time derivatives, so `coast` / `coast_cov` raise for it and it accepts no regressors. `var` is a label only for a callable |
+| `model`, `var` | -- | a SymPy-expression string, a `sympy.Expr` or a callable `f(t, *params)`; a symbolic model may reference `regressors`. A callable has no time derivatives, so `coast` / `coast_cov` raise for it and it accepts no regressors. `var` is a label only for a callable |
 | `basis` | `"legendre"` | `"legendre"`, `"block"`, or a `Basis` instance (which fixes `order`) |
 | `order` | `None` | the Legendre order, or the window count of the block basis, default 5; the image needs at least as many coefficients as the model has parameters. A `Basis` instance carries its own order |
 | `window_size` | `50` | the window cap `W` (samples), at least the image's coefficient count plus one |
@@ -85,9 +85,11 @@ only pass overrides:
 - `coast(x, *, order=1, regressors=None) -> ndarray` -- dead-reckon past the
   window from its last sample; `order=1` is constant-velocity, `order=2`
   adds constant acceleration. Reduces to `predict` at and before the
-  anchor. Raises for a callable model.
+  anchor. Raises for a callable model, or for a regressor model without
+  `regressors`.
 - `coast_cov(x, *, order=1) -> ndarray` -- the variance of `coast(x)` from
-  `P`, growing with the gap length.
+  `P`, growing with the gap length. Raises for a callable model or a
+  regressor model.
 - `inflate(factor=None) -> None` -- multiply `P` by `factor` (default
   `drift_inflation`); the hook for an external change detector.
 
@@ -115,7 +117,7 @@ from dtfit import ImageFilter
 
 flt = ImageFilter.tracking("a*exp(b*t)", "t", window_size=40)
 t = np.linspace(0, 8, 200)
-b_true = np.where(t < 4, 0.30, 0.55)
+b_true = np.where(t < 4, 0.30, 0.90)
 y = np.exp(b_true * t) + rng.normal(0, 0.05, t.size)
 for ti, yi in zip(t, y):
     flt.partial_fit(ti, yi)
@@ -133,12 +135,15 @@ A batch fit of the model on the current window, with the filter's basis
 and order, started from the current estimate: the window's parameters,
 covariance, standard errors and prediction band in the same
 [`FittingResult`](API-Types) a batch fit returns. The window is imaged
-robustly when the filter is robust. `kwargs` go to [`fit`](API-Fitting#fit)
+robustly when the filter is robust. A regressor model is fitted as a
+callable closed over the window's regressor columns, interpolated
+linearly onto whatever grid a diagnostic evaluates and exact on the
+window grid the fit runs on. `kwargs` go to [`fit`](API-Fitting#fit)
 (`bounds`, `solver_options`). Raises `ValueError` for fewer than
 `min_window` samples ingested.
 
-Measured on the coordinated-turn tracking benchmark: the covariance covers
-the filter error at 0.7 to 0.96, conservative with small process noise.
+Measured in tracking: the covariance covers the filter error at 0.7 to
+0.96, conservative with small process noise.
 
 ```python
 flt = ImageFilter("a*exp(b*t)", "t", p0=[1.0, 0.1], window_size=40)
@@ -229,9 +234,9 @@ print(det.update(rng.normal(0, 1, 2)), det.n_tests_)
 ## Several streams
 
 `nis_` is chi-square under the model, so several filters' `nis_` sum to a
-chi-square with the summed degrees of freedom: a fault that moves every
-stream is weak in any one filter's innovation and strong in the pooled
-statistic.
+chi-square with the summed degrees of freedom, giving the pooled test
+more degrees of freedom and power than any one filter's innovation
+alone.
 
 ```python
 from scipy.stats import chi2
@@ -239,7 +244,8 @@ from scipy.stats import chi2
 K = 3
 flts = [LSIFilter("A*sin(1.2*t + p)", "t", p0=[1.0, 0.0], window_size=40,
                   order=4, adaptive_window=False, alpha=1e-15,
-                  cusum_k=float("inf")) for p in (0.0, 0.7, 1.4)]
+                  cusum_k=float("inf"))
+        for p in (0.7 * k for k in range(K))]
 dof = sum(f.basis.n_coef for f in flts)
 threshold = chi2.ppf(1 - 1e-4, dof)
 amp = np.where(t < 10, 1.0, 0.5)
