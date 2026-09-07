@@ -55,7 +55,6 @@ class Scenario:
     drift_idx: int
     p0: list[float]
     q_diag: list[float]
-    r: float
 
 
 def scenario_exponential(n: int = 800) -> Scenario:
@@ -76,7 +75,7 @@ def scenario_exponential(n: int = 800) -> Scenario:
     truth = np.column_stack([a_true, b_true])
     return Scenario(
         "exp growth (b: 0.6->1.1)", "a*exp(b*t)", "t", t, y, truth,
-        ["a", "b"], half, p0=[1.0, 0.3], q_diag=[1e-4, 1e-3], r=0.3,
+        ["a", "b"], half, p0=[1.0, 0.3], q_diag=[1e-4, 1e-3],
     )
 
 
@@ -96,7 +95,7 @@ def scenario_sine(n: int = 1200) -> Scenario:
     truth = np.column_stack([A_true, w_true])
     return Scenario(
         "sine (w: 1.5->2.5)", "A*sin(w*t)", "t", t, y, truth,
-        ["A", "w"], half, p0=[2.0, 1.5], q_diag=[1e-3, 5e-4], r=5.0,
+        ["A", "w"], half, p0=[2.0, 1.5], q_diag=[1e-3, 5e-4],
     )
 
 
@@ -186,17 +185,17 @@ def evaluate(res: dict, sc: Scenario) -> dict:
 
 
 def make_eac(sc: Scenario) -> EACFilter:
-    # n_sub=2 gives the area filter a vector measurement, its fairest config.
+    # order=2 gives the block image two windows, its fairest config.
     return EACFilter(
         sc.expr, sc.var, p0=sc.p0, window_size=50,
-        q_diag=sc.q_diag, r=sc.r, n_sub=2, adapt_r=True,
+        q_diag=sc.q_diag, order=2,
     )
 
 
 def make_lsi(sc: Scenario) -> LSIFilter:
     return LSIFilter(
         sc.expr, sc.var, p0=sc.p0, window_size=50, order=5,
-        q_diag=sc.q_diag, r=sc.r,
+        q_diag=sc.q_diag,
     )
 
 
@@ -213,7 +212,7 @@ def md_table(headers, rows) -> str:
 
 def main() -> None:
     scenarios = [scenario_exponential(), scenario_sine()]
-    filters = [("EAC (areas, n_sub=2)", make_eac),
+    filters = [("EAC (block image, order=2)", make_eac),
                ("LSI (Legendre, order=5)", make_lsi)]
 
     headers = ["scenario", "filter", "param RMSE", "1-step RMSE",

@@ -35,7 +35,9 @@ import time
 
 import numpy as np
 
-from dtfit.streaming import EACFilter, LSIFilter, FilterBank
+from dtfit.streaming import EACFilter, LSIFilter
+
+from dtfit_experimental.streaming import FilterBank
 
 from dtfit_experimental.experiments.common import EXPERIMENTS_DIR, metrics
 from dtfit_experimental.experiments.common import baselines as bl
@@ -129,8 +131,8 @@ class EAAd(_Ad):
 
     def __init__(self, plant, window=None):
         self.f = EACFilter(plant["expr"], "t", p0=list(plant["p0"]),
-                           window_size=window or plant["window"], n_sub=2,
-                           q_diag=list(plant["q"]), r=0.5, adapt_r=True)
+                           window_size=window or plant["window"], order=2,
+                           q_diag=list(plant["q"]))
 
     def step(self, t, y):
         self.f.partial_fit(t, y)
@@ -148,7 +150,7 @@ class LegAd(_Ad):
     def __init__(self, plant, window=None):
         self.f = LSIFilter(plant["expr"], "t", p0=list(plant["p0"]),
                            window_size=window or plant["window"],
-                           order=5, q_diag=list(plant["q"]), r=0.5, adapt_r=True)
+                           order=5, q_diag=list(plant["q"]))
 
     def step(self, t, y):
         self.f.partial_fit(t, y)
@@ -455,16 +457,18 @@ def make_multi(rng, n=900, noise=0.05):
 
 class MergedTracker:
     """A multi-axis oscillator tracker on dtfit's streaming API: a
-    :class:`~dtfit.FilterBank` of per-axis Legendre-spectrum filters driven by
-    :class:`~dtfit.FusedChiSquareDetector`, which pools the per-axis one-step
-    innovations into a fused chi^2(n_axes) fault statistic and re-arms the bank
-    through ``inflate`` on a detection."""
+    :class:`~dtfit_experimental.streaming.FilterBank` of per-axis
+    Legendre-spectrum filters driven by
+    :class:`~dtfit_experimental.streaming.FusedChiSquareDetector`, which
+    pools the per-axis one-step innovations into a fused chi^2(n_axes)
+    fault statistic and re-arms the bank through ``inflate`` on a
+    detection."""
 
     def __init__(self, n_axes, p0, *, window=60, fuse_alpha=1e-4, inflate=4.0):
         self.bank = FilterBank.from_model(
             OSC, "t", n_axes, filter_cls=LSIFilter, p0=list(p0),
-            window_size=window, order=5, q_diag=[1e-3] * len(p0), r=0.5,
-            adapt_r=True, cusum_h=np.inf)
+            window_size=window, order=5, q_diag=[1e-3] * len(p0),
+            cusum_h=np.inf)
         self.n_axes = n_axes
         self.detector = self.bank.fused_detector(alpha=fuse_alpha, inflate=inflate)
 
@@ -578,8 +582,8 @@ def fx_track(t, y):
     """Stream the FX series and track a local exponential ``a*exp(b*t)`` online,
     one step ahead, against the EKF, RLS and a random walk. Returns
     ``(actual, {method: predictions})``."""
-    ea = EACFilter("a*exp(b*t)", "t", p0=[1.0, 0.5], window_size=40, n_sub=2,
-                   q_diag=[1e-4, 1e-4], r=0.5, adapt_r=True)
+    ea = EACFilter("a*exp(b*t)", "t", p0=[1.0, 0.5], window_size=40, order=2,
+                   q_diag=[1e-4, 1e-4])
     ekf = EKFParam("a*exp(b*t)", "t", [1.0, 0.5], q=1e-5, r=0.1)
     rls = RLSPredictor(order=2, lam=1.0, delta=1e3)
     preds = {"dtfit EACFilter": [], "EKF": [], "RLS": [], "random walk": []}

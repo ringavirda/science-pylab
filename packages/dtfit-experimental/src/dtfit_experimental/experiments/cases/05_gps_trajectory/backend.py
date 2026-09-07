@@ -24,7 +24,9 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import least_squares
 
-from dtfit.streaming import EACFilter, FilterBank, LSIFilter
+from dtfit.streaming import EACFilter, LSIFilter
+
+from dtfit_experimental.streaming import FilterBank
 
 from dtfit_experimental.experiments.common import baselines as bl
 
@@ -143,7 +145,7 @@ def per_satellite_smoothing(t, rho, seed=0):
     nsat = rho.shape[1]
     bank = FilterBank.from_model(
         "a + b*t", "t", nsat, p0=[rho[0].mean(), 0.0],
-        window_size=20, q_diag=[1e-1, 1e-2], r=0.6, n_sub=2, adapt_r=True)
+        window_size=20, q_diag=[1e-1, 1e-2], order=2)
     out = bank.run(t, rho, n_jobs=1, track=True)
     smoothed = out["track"]
     # Solve from the smoothed ranges, falling back to the raw row wherever the
@@ -228,11 +230,11 @@ def _make_axis_filters(kind, fixes, off):
     if kind == "lsi":
         return [LSIFilter(
             model, "t", p0=[float(fixes[0, ax]), 0.0, 0.0], window_size=15,
-            order=3, q_diag=[1e-2, 1e-2, 1e-2], r=0.5, adapt_r=True,
+            order=3, q_diag=[1e-2, 1e-2, 1e-2],
             drift_reset="inflate", **off) for ax in range(3)]
     return [EACFilter(
         model, "t", p0=[float(fixes[0, ax]), 0.0, 0.0], window_size=15,
-        q_diag=[1e-2, 1e-2, 1e-2], r=0.5, n_sub=2, adapt_r=True,
+        q_diag=[1e-2, 1e-2, 1e-2], order=2,
         drift_reset="inflate", **off) for ax in range(3)]
 
 

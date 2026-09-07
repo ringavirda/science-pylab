@@ -1,7 +1,7 @@
 """Compiled-kernel parity: the C backend must match the pure-Python fallback.
 
 The kernels in ``dtfit._core._kernels`` are checked against
-``scipy.integrate.simpson`` and NumPy. The methods that consume them are then
+``scipy.integrate.simpson`` and NumPy. ``fit_eac`` and ``fit_lsi`` are then
 run twice, once with the native backend forced off. Both paths must agree to
 within roundoff; that is the contract of the optional extension.
 """
@@ -13,7 +13,7 @@ import pytest
 from scipy.integrate import simpson
 
 import dtfit._core._kernels as K
-from dtfit import EACFilter, LSIFilter, fit_eac, fit_lsi
+from dtfit import fit_eac, fit_lsi
 
 # The extension is optional and only built on the Linux CI job; tests that
 # need it skip elsewhere. Where the build is expected, CI sets
@@ -110,44 +110,4 @@ def test_fit_lsi_backend_agnostic(exp_data, force_fallback):
     fb = fit_lsi(x, y, "a*exp(b*x)", "x").coeffs
     K.HAVE_NATIVE = True
     nat = fit_lsi(x, y, "a*exp(b*x)", "x").coeffs
-    assert np.allclose(fb, nat, rtol=1e-9, atol=1e-9)
-
-
-def test_equal_areas_filter_backend_agnostic(force_fallback):
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 40, 600)
-    y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
-
-    def run() -> np.ndarray:
-        flt = EACFilter(
-            "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
-            q_diag=[0.05, 0.001],
-        )
-        for ti, yi in zip(t, y):
-            flt.partial_fit(ti, yi)
-        return flt.p
-
-    fb = run()
-    K.HAVE_NATIVE = True
-    nat = run()
-    assert np.allclose(fb, nat, rtol=1e-9, atol=1e-9)
-
-
-def test_legendre_filter_backend_agnostic(force_fallback):
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 40, 600)
-    y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
-
-    def run() -> np.ndarray:
-        flt = LSIFilter(
-            "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
-            q_diag=[1e-3, 5e-4],
-        )
-        for ti, yi in zip(t, y):
-            flt.partial_fit(ti, yi)
-        return flt.p
-
-    fb = run()
-    K.HAVE_NATIVE = True
-    nat = run()
     assert np.allclose(fb, nat, rtol=1e-9, atol=1e-9)

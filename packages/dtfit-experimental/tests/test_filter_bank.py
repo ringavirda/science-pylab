@@ -1,0 +1,147 @@
+"""FilterBank: a bank of independent streaming filters runs in parallel."""
+
+from typing import Any
+
+import numpy as np
+import pytest
+
+from dtfit.streaming import EACFilter, LSIFilter
+from dtfit_experimental.streaming import FilterBank, FusedChiSquareDetector
+
+
+def _streams(K=5, n=400, seed=0):
+    rng = np.random.default_rng(seed)
+    t = np.linspace(0, 4, n)
+    bs = np.linspace(0.5, 1.0, K)
+    Y = np.column_stack(
+        [1.0 * np.exp(b * t) + rng.normal(0, 0.02, n) for b in bs]
+    )
+    return t, Y, bs
+
+
+def test_filter_bank_recovers_per_stream_params():
+    t, Y, bs = _streams()
+    bank = FilterBank.from_model(
+        "a*exp(b*t)", "t", len(bs), p0=[1.0, 0.3], window_size=40,
+        q_diag=[1e-4, 1e-3],
+    )
+    out = bank.run(t, Y, n_jobs=1)
+    est_b = out["params"][:, 1]
+    np.testing.assert_allclose(est_b, bs, atol=0.1)
+
+
+def test_filter_bank_threaded_matches_serial():
+    t, Y, bs = _streams()
+    kw: dict[str, Any] = dict(
+        p0=[1.0, 0.3], window_size=40, q_diag=[1e-4, 1e-3]
+    )
+    a = FilterBank.from_model("a*exp(b*t)", "t", len(bs), **kw).run(t, Y, n_jobs=1)
+    b = FilterBank.from_model("a*exp(b*t)", "t", len(bs), **kw).run(t, Y, n_jobs=4)
+    np.testing.assert_allclose(a["params"], b["params"], rtol=1e-9, atol=1e-9)
+
+
+def test_filter_bank_process_backend_matches_serial():
+    """The process backend runs the filters in separate interpreters, free of
+    the GIL. It must still reproduce the serial driver to 1e-12, with the drift
+    counts exact and the tracking aligned."""
+    t, Y, bs = _streams(K=4, n=300)
+    kw: dict[str, Any] = dict(
+        p0=[1.0, 0.3], window_size=40, q_diag=[1e-4, 1e-3]
+    )
+    a = FilterBank.from_model("a*exp(b*t)", "t", len(bs), **kw).run(
+        t, Y, n_jobs=1, track=True)
+    b = FilterBank.from_model("a*exp(b*t)", "t", len(bs), **kw).run(
+        t, Y, n_jobs=2, backend="process", track=True)
+    np.testing.assert_allclose(a["params"], b["params"], rtol=1e-12, atol=1e-12)
+    np.testing.assert_array_equal(a["n_drifts"], b["n_drifts"])
+    np.testing.assert_allclose(
+        np.nan_to_num(a["track"]), np.nan_to_num(b["track"]), rtol=1e-12, atol=1e-12)
+
+
+def test_filter_bank_matches_standalone_filters():
+    t, Y, bs = _streams(K=3)
+    kw: dict[str, Any] = dict(
+        p0=[1.0, 0.3], window_size=40, q_diag=[1e-4, 1e-3]
+    )
+    bank = FilterBank.from_model("a*exp(b*t)", "t", 3, **kw)
+    bank.run(t, Y, n_jobs=1)
+    for k in range(3):
+        flt = EACFilter("a*exp(b*t)", "t", **kw)
+        for s in range(t.size):
+            flt.partial_fit(t[s], Y[s, k])
+        np.testing.assert_allclose(bank[k].p, flt.p, rtol=1e-9, atol=1e-9)
+
+
+def test_filter_bank_skips_nan_sample_without_shape_corruption():
+    """A NaN observation in one stream is skipped at ingestion, with a warning.
+    The readout shapes stay intact and the poisoned stream still recovers its
+    parameter, because the skipped step leaves its filter untouched."""
+    t, Y, bs = _streams(K=3, n=300)
+    Y[150, 1] = np.nan
+    kw: dict[str, Any] = dict(
+        p0=[1.0, 0.3], window_size=40, q_diag=[1e-4, 1e-3]
+    )
+    bank = FilterBank.from_model("a*exp(b*t)", "t", 3, **kw)
+    with pytest.warns(RuntimeWarning, match="non-finite sample skipped"):
+        out = bank.run(t, Y, n_jobs=1, track=True)
+    assert out["params"].shape == (3, 2)
+    assert out["n_drifts"].shape == (3,)
+    assert out["track"].shape == (300, 3)
+    assert np.all(np.isfinite(out["params"]))
+    np.testing.assert_allclose(out["params"][:, 1], bs, atol=0.1)
+
+
+def test_filter_bank_predict_and_readout_shapes():
+    t, Y, bs = _streams(K=4)
+    bank = FilterBank.from_model("a*exp(b*t)", "t", 4, p0=[1.0, 0.3],
+                                 window_size=40)
+    bank.run(t, Y, n_jobs=1)
+    assert bank.params_array().shape == (4, 2)
+    assert bank.predict(t[:6]).shape == (4, 6)
+    assert bank.predict(t[:1]).shape == (4,)
+    assert len(bank.params_) == 4
+
+
+OSC = "A*exp(-z*w*t)*sin(w*sqrt(1-z**2)*t)"
+
+
+def _multiaxis(rng, n=600, fault_at=None, noise=0.03):
+    fault_at = n // 2 if fault_at is None else fault_at
+    t = np.linspace(0, 18, n)
+    A = np.array([2.0, 1.5, 2.5])
+    w = np.array([2.5, 2.0, 3.0])
+    z1 = np.array([0.08, 0.10, 0.06])
+    z2 = np.array([0.30, 0.28, 0.25])
+    dtt = np.diff(t, prepend=t[0])
+    Y = np.zeros((n, 3))
+    for d in range(3):
+        z = np.where(np.arange(n) < fault_at, z1[d], z2[d])
+        wd = w[d] * np.sqrt(1 - z ** 2)
+        Y[:, d] = A[d] * np.exp(-z * w[d] * t) * np.sin(np.cumsum(wd * dtt))
+    return t, Y + rng.normal(0, noise, Y.shape), fault_at
+
+
+def test_fused_detector_flags_multiaxis_fault():
+    rng = np.random.default_rng(0)
+    t, Y, fault_at = _multiaxis(rng, n=600)
+    bank = FilterBank.from_model(
+        OSC, "t", 3, filter_cls=LSIFilter, p0=[2.0, 2.5, 0.1],
+        window_size=60, order=5, q_diag=[1e-3] * 3,
+        cusum_h=np.inf)
+    det = bank.fused_detector(alpha=1e-4, inflate=4.0)
+    for i in range(Y.shape[0]):
+        det.update(float(t[i]), Y[i])
+    post = [i for i in det.flags_ if i >= fault_at]
+    pre = [i for i in det.flags_ if i < fault_at]
+    assert post, "fault after the regime change was not flagged"
+    assert len(pre) == 0  # no false alarm before the fault
+    assert det.threshold_ > 0 and det.n_flags_ == len(det.flags_)
+
+
+def test_fused_detector_factory_matches_class():
+    bank = FilterBank.from_model(
+        OSC, "t", 2, filter_cls=LSIFilter, p0=[2.0, 2.5, 0.1],
+        window_size=40, order=4)
+    det = bank.fused_detector(alpha=1e-3)
+    assert isinstance(det, FusedChiSquareDetector)
+    assert det.k == 2

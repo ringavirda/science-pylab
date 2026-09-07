@@ -12,6 +12,7 @@ import dtfit
 def test_top_level_api():
     for name in [
         "NonlineRegressor",
+        "ImageFilter",
         "EACFilter",
         "fit_lsi",
         "fit_eac",
@@ -51,3 +52,8 @@ def test_scale_names_left_the_library():
         assert not hasattr(dtfit, name)
     assert callable(dtfit.fit_many) and dtfit.ImageStream is not None
     assert "dtfit.scale" not in sys.modules
+
+
+def test_filter_bank_names_left_the_library():
+    for name in ("FilterBank", "FusedChiSquareDetector"):
+        assert not hasattr(dtfit, name)

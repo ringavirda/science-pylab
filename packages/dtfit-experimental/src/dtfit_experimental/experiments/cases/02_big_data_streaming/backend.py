@@ -97,7 +97,7 @@ def online_track(n, *, seed=0, batch_sizes=(10_000, 50_000, 250_000)):
     y = 3.0 * np.sin(phase) + rng.normal(0, 0.3, n)
 
     flt = EACFilter("A*sin(w*t)", "t", p0=[2.0, 1.0], window_size=50,
-                    q_diag=[1e-3, 5e-4], r=5.0, n_sub=2, adapt_r=True)
+                    q_diag=[1e-3, 5e-4], order=2)
     tracemalloc.start()
     costs, track, w_hist, drift = [], [], [], []
     for i in range(n):

@@ -14,7 +14,7 @@ dissertation on mathematical models of nonlinear smoothing and prediction.
 Models can be a SymPy expression string **or** a plain Python callable
 `f(x, *params)`; batch fits accept per-point measurement `sigma` (or sklearn
 `sample_weight`); and every fit carries its own quality diagnostics (`R^2`,
-`AIC`/`BIC`). All are opt-in — left at their defaults, fits are numerically
+`AIC`/`BIC`). All are opt-in - left at their defaults, fits are numerically
 identical to before.
 
 ## Installation
@@ -38,15 +38,16 @@ pip install -e 'packages/dtfit-experimental[bench]'    # + the suite's baselines
 A plain `venv` with PyPI wheels is the reference environment and works
 identically on Windows and Linux. (Conda is not recommended on Windows: its
 MKL-linked numpy only loads its LAPACK DLLs when the env is *activated*, so
-tools that call the interpreter directly — VS Code, `pytest` — crash with a
+tools that call the interpreter directly - VS Code, `pytest` - crash with a
 delay-load error.)
 
 ### Optional compiled kernels (faster fitting)
 
-The integral-based methods have an optional C backend (`dtfit._core._native`) for
-their hot numeric loops — composite-Simpson window integrals and Gauss-Legendre
-projections. Build it with clang (needs LLVM and, on Windows, the Visual Studio
-Build Tools C++ workload):
+The integral-based methods have an optional C backend (`dtfit._core._native`)
+for their hot numeric loops - the window image projections (block sums and
+Gauss-Legendre spectra) that every batch fit and streaming filter reduces to.
+Build it with clang (needs LLVM and, on Windows, the Visual Studio Build
+Tools C++ workload):
 
 ```bash
 python build_native.py            # compile into src/dtfit/_core/
@@ -55,8 +56,8 @@ python build_native.py --clean    # remove the build artifacts
 
 It is entirely optional: without it the package falls back to NumPy/SciPy with
 identical results (`dtfit._core._kernels.HAVE_NATIVE` reports the active backend).
-Building it speeds up the area-based methods substantially — the streaming
-`EACFilter` by roughly 6–13× and batch `EAC` by ~3× — while the
+Building it speeds up the area-based methods substantially - the streaming
+`EACFilter` by roughly 6-13x and batch `EAC` by ~3x - while the
 already-vectorized Legendre/LSI paths are largely unchanged.
 
 ## Quick start
@@ -80,11 +81,15 @@ y_hat = reg.predict(x)
 
 ### Real-time / streaming
 
+`dt.ImageFilter` tracks parameters online on the sliding window's image;
+`LSIFilter` and `EACFilter` fix its basis to Legendre and block:
+
 ```python
 flt = dt.EACFilter("A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50)
 for t, y in stream:           # bounded-cost per-sample update
     flt.partial_fit(t, y)
 print(flt.params_)            # tracks time-varying parameters
+print(flt.result().stderr())  # the window as a calibrated batch fit
 ```
 
 ### Picking a model (the model framework)
@@ -105,7 +110,7 @@ for s in suggest_models(x, y)[:3]:           # infer the model from a scored sho
 
 ### Uncertainty & serialization
 
-A `FittingResult` is self-describing — named parameters, uncertainty, and a
+A `FittingResult` is self-describing - named parameters, uncertainty, and a
 JSON-friendly round-trip:
 
 ```python
@@ -124,7 +129,7 @@ r2 = dt.fit_eac(x, y, lambda x, a, b: a * np.exp(b * x),
 ### Diagnostics & visualization
 
 `dtfit.diagnostics` is **fit-aware** (it takes a `FittingResult`, not bare
-arrays) and does *not* reimplement `sklearn.metrics` — use those / `scipy.stats`
+arrays) and does *not* reimplement `sklearn.metrics` - use those / `scipy.stats`
 for plain scalar metrics. It adds what's specific to evaluating a DT fit:
 information criteria for model comparison and residual-structure tests, plus the
 `*Display` plot helpers (which never call `plt.show()`).
@@ -132,7 +137,7 @@ information criteria for model comparison and residual-structure tests, plus the
 ```python
 from dtfit.diagnostics import fit_report, residual_diagnostics, FitDisplay
 
-print(fit_report(r, x, y))            # n, rmse, r2, aic, bic, durbin_watson, params±se
+print(fit_report(r, x, y))            # n, rmse, r2, aic, bic, durbin_watson, params+-se
 print(residual_diagnostics(r, x, y)) # autocorrelation / normality of residuals
 
 FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra)
@@ -140,13 +145,14 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 
 ## Methods
 
-- **LSI** (`method="lsi"`) — least-squares integral; numeric integral-OLS in the
+- **LSI** (`method="lsi"`) - least-squares integral; numeric integral-OLS in the
   differential-transformation scheme (successor to DSBI).
-- **EAC** (`method="eac"`) — equal-areas criterion; numeric,
+- **EAC** (`method="eac"`) - equal-areas criterion; numeric,
   integration-based and noise-robust (successor to DSBE).
-- **EACFilter** — recursive/online EAC with NIS drift detection for
-  real-time tracking.
-- **DSB** (`method="dsb"`) — symbolic differential spectra balance; kept as the
+- **ImageFilter** - recursive/online tracker on the window image, with NIS
+  drift detection; **LSIFilter** and **EACFilter** fix its basis to Legendre
+  and block for real-time tracking.
+- **DSB** (`method="dsb"`) - symbolic differential spectra balance; kept as the
   analytical reference (requires a polynomial fit first in the pipeline).
 
 ### Scaling out
@@ -167,8 +173,6 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 - `dtfit.fit_many(problems, n_jobs=-1)` fans many independent fits across cores
   (process or threading backend); the threading backend shares memory and
   avoids pickling.
-- `dtfit.streaming.FilterBank` runs a bank of independent streaming filters
-  (one per channel / satellite / axis) for multi-stream real-time tracking.
 
 Further experimental adaptations (pluggable orthogonal bases, joint
 multi-channel fits, stage-wise boosting) live in the separate

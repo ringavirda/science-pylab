@@ -21,6 +21,12 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   channel-batch mode; `Image.transfer`, `assemble` (merging block images
   onto a coarse domain); `DriftDetector`, the shared change-detection logic
   behind the streaming filters.
+- `ImageFilter`, the streaming tracker on the window image; its `result()`
+  fits the current window with the batch machinery, returning a
+  `FittingResult` with a calibrated covariance; `innovation_` and `nis_`
+  expose the last whitened innovation and its normalized magnitude; a
+  `stream` hook (an `ImageStream`) can be fed alongside the filter;
+  `noise_var` sets the measurement variance directly.
 
 ### Changed
 
@@ -38,6 +44,11 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   lowest sample RSS.
 - The golden accuracy corpus was regenerated: values now sit at the scipy
   reference on the same draw.
+- `LSIFilter` and `EACFilter` are now aliases of `ImageFilter`, fixing its
+  basis to Legendre and block; the measurement is the window image
+  whitened by its Gram matrix; the adaptive window is the default;
+  `drift_reset` defaults to `"inflate"`; `order` is the block basis's
+  window count (was `n_sub`).
 
 ### Removed
 
@@ -52,6 +63,11 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   `fit_lsi_batched` and `project_spectra`, parked in
   `dtfit_experimental.scale` until the notebooks rerun on `ImageStream`.
 - The public module `dtfit.scale` itself.
+- The streaming filter keywords `r`, `adapt_r`, `adapt_noise` and `n_sub`,
+  and the attributes `param_cov_` and `stderr_`, superseded by `noise_var`,
+  `order` and `result()`.
+- `FilterBank` and `FusedChiSquareDetector`, moved to
+  `dtfit_experimental.streaming`.
 
 ## [0.4.0] — 2026-07-09
 

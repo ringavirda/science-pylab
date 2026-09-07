@@ -227,7 +227,7 @@ def table_real_data() -> str:
     r0 = rate[0]
     rs = rate / r0
     flt = EACFilter("a*exp(b*x)", "x", p0=[1.0, 0.0],
-                           window_size=30, q_diag=[5e-3, 5e-3], r=0.5)
+                           window_size=30, q_diag=[5e-3, 5e-3])
     track, truth, drifts = [], [], 0
     for i in range(n):
         flt.partial_fit(tt[i], rs[i])
@@ -340,7 +340,7 @@ def fig_filter() -> None:
     r0 = rate[0]
     rs = rate / r0
     flt = EACFilter("a*exp(b*x)", "x", p0=[1.0, 0.0],
-                           window_size=30, q_diag=[5e-3, 5e-3], r=0.5)
+                           window_size=30, q_diag=[5e-3, 5e-3])
     track, drift_idx = [], []
     b_hist = []
     for i in range(n):
@@ -522,9 +522,9 @@ def fig_lsi_filter() -> None:
         return np.array(wh), np.array(pr)
 
     w_lsi, p_lsi = run(LSIFilter("A*sin(w*t)", "t", p0=[1.0, 0.8],
-                                 window_size=120, order=6, q_diag=[1e-3, 1e-3], r=1.5))
+                                 window_size=120, order=6, q_diag=[1e-3, 1e-3]))
     w_eac, p_eac = run(EACFilter("A*sin(w*t)", "t", p0=[1.0, 0.8],
-                                 window_size=120, q_diag=[1e-3, 1e-3], r=1.5))
+                                 window_size=120, q_diag=[1e-3, 1e-3]))
 
     fig, ax = plt.subplots(1, 2, figsize=(10, 3.8))
     sl = slice(int(t.size * 0.62), int(t.size * 0.74))   # zoom for the overlay
@@ -547,8 +547,8 @@ def fig_lsi_filter() -> None:
 def fig_filter_bank() -> None:
     """FilterBank + fused χ²: a fault shared across 3 channels is weak per-axis but
     strong in the pooled statistic."""
-    from dtfit import FilterBank
     from dtfit.streaming import LSIFilter
+    from dtfit_experimental.streaming import FilterBank
 
     rng = np.random.default_rng(6)
     t = np.linspace(0, 50, 1500)
@@ -563,7 +563,7 @@ def fig_filter_bank() -> None:
 
     bank = FilterBank.from_model("A*sin(w*t)", "t", K, filter_cls=LSIFilter,
                                  p0=[2.0, 1.3], window_size=120, order=6,
-                                 q_diag=[2e-3, 5e-4], r=1.5)
+                                 q_diag=[2e-3, 5e-4])
     det = bank.fused_detector(alpha=1e-3, inflate=4.0, warmup=550, cooldown=700)
     stat, flags = [], []
     for i in range(t.size):

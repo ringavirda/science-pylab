@@ -160,7 +160,7 @@ def experiment_currency_streaming() -> None:
 
     flt = EACFilter(
         "a*exp(b*x)", "x", p0=[1.0, 0.0],
-        window_size=window, q_diag=[5e-3, 5e-3], r=0.5,
+        window_size=window, q_diag=[5e-3, 5e-3],
     )
 
     track, truth = [], []

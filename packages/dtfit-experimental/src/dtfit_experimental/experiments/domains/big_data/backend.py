@@ -574,7 +574,7 @@ def online_filter(n):
 
     # dtfit EACFilter, tracking the physical model A*sin(w*t)
     flt = EACFilter("A*sin(w*t)", "t", p0=[2.0, 1.0], window_size=50,
-                    q_diag=[1e-3, 5e-4], r=5.0, n_sub=2, adapt_r=True)
+                    q_diag=[1e-3, 5e-4], order=2)
     costs, w_hist, pred_eaf = [], [], np.full(n, np.nan)
     tracemalloc.start()
     for i in range(n):

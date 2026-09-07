@@ -190,16 +190,15 @@ def _axis_filters(fixes, kind="lsi", model="poly", robust=False, off=None):
         return [float(fixes[0, ax])] + list(m["rest"])
 
     if kind == "lsi":   # the Legendre spectrum, right for trajectories
-        # adapt_noise sets the measurement noise from the data itself (R = v *
-        # proj-diag, v an online residual-variance EWMA) instead of a fixed r.
-        # The gain then self-tunes to the local noise, staying responsive on
-        # clean fixes and damping automatically on the noisy, anomaly-heavy
-        # harsh stream, with no per-regime hand-tuning.
+        # The window image self-tunes to the local noise from the residual
+        # variance, staying responsive on clean fixes and damping
+        # automatically on the noisy, anomaly-heavy harsh stream, with no
+        # per-regime hand-tuning.
         return [LSIFilter(m["expr"], "t", p0=p0(ax), window_size=15, order=m["order"],
-                          q_diag=[1e-2] * nq, adapt_noise=True,
+                          q_diag=[1e-2] * nq,
                           robust=robust, drift_reset="inflate", **off) for ax in range(3)]
-    return [EACFilter(m["expr"], "t", p0=p0(ax), window_size=15, n_sub=2,
-                      q_diag=[1e-2] * nq, r=0.5, adapt_r=True,
+    return [EACFilter(m["expr"], "t", p0=p0(ax), window_size=15, order=2,
+                      q_diag=[1e-2] * nq,
                       robust=robust, drift_reset="inflate", **off) for ax in range(3)]
 
 
@@ -526,7 +525,7 @@ def imu_lsi_track(t, fixes, gyro, accel, R0, horizons=(10,), *, window=28,
 
     flts = [LSIFilter(expr(a), "tt", regressors=ax[a],
                       p0=[float(fixes[0, a])] + [0.0] * (nq - 1), window_size=window,
-                      order=6, q_diag=[1e-2] * nq, adapt_noise=True,
+                      order=6, q_diag=[1e-2] * nq,
                       drift_reset="inflate") for a in range(3)]
     pred = {h: np.full((n, 3), np.nan) for h in horizons}
     for i in range(n):
