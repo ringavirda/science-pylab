@@ -179,31 +179,47 @@ class ImageStream:
         domain: ``(x0, x1)`` the images are taken over; required unless
             ``block`` gives a domain length.
         block: ``None`` for the accumulator; an ``int`` for blocks of that
-            many samples, at least ``order + 2``; a ``float`` for blocks
-            of that domain length, counted from the domain's start.
-            Block mode needs ``channels == 1``.
+            many samples, at least ``order + 2`` (not with ``basis=
+            "block"``, whose count-block domain never aligns with the
+            hull windows retention and assembly need; use a length
+            block instead); a ``float`` for blocks of that domain
+            length, counted from the domain's start. A length block
+            that closes with fewer than ``order + 2`` samples is
+            dropped: no image is emitted and the block index still
+            advances. Block mode needs ``channels == 1``.
         channels: number of signals sharing the sample positions; ``y``
             passed to :meth:`update` then has shape ``(n, channels)``.
         grid: ``"uniform"`` tracks the positions as endpoints and spacing
             and requires evenly spaced, increasing chunks that continue
-            each other; ``"explicit"`` keeps every position (and weights).
-        keep_fine, fold: block retention: at most ``keep_fine`` fine
-            blocks are kept; when there are more, the oldest ``fold`` are
-            folded into one coarse block at the stream's order.
+            each other; ``"explicit"`` keeps every position (and
+            weights). Block mode always assumes sorted, increasing
+            positions within a chunk, on both grids.
+        keep_fine, fold: block retention, each at least 1: at most
+            ``keep_fine`` fine blocks are kept; when there are more,
+            the oldest ``fold`` are folded into one coarse block at the
+            stream's order. The fold bounds the number of blocks kept,
+            not the grid: with ``grid="explicit"`` the coarse block's
+            grid is the union of its fine blocks' positions, so an
+            irregular sample set is not compacted by folding.
         backend: ``"numpy"``, ``"cupy"`` or ``"torch"`` for the ``S``
             projection; the Gram update stays host numpy either way, and
             accumulation is float64 regardless of backend.
         detect: block-level drift detection, block mode only: ``None``
-            for none, ``"previous"`` to compare each finished block to
-            the one before it, or ``(model, params)`` / ``(model,
-            params, var)`` to compare it to that model's image.
+            for none, ``"previous"`` to compare each finished block's
+            coefficients to the one before it (no order limit: the
+            comparison stays in each block's own basis, not an
+            extrapolation onto the other block's positions), or
+            ``(model, params)`` / ``(model, params, var)`` to compare
+            it to that model's image.
 
     Raises:
         ValueError: missing domain, ``domain`` with ``x1 <= x0``,
             ``order < 1``, ``channels < 1``, an unknown grid, basis or
-            backend name; in block mode, ``channels != 1``, a ``block``
-            below ``order + 2`` samples or non-positive length, or an
-            unrecognised ``detect``; ``detect`` given without ``block``.
+            backend name, ``keep_fine < 1`` or ``fold < 1``; in block
+            mode, ``channels != 1``, a ``block`` below ``order + 2``
+            samples or non-positive length, ``basis="block"`` with a
+            count block, or an unrecognised ``detect``; ``detect``
+            given without ``block``.
     """
 
     def __init__(
@@ -233,6 +249,10 @@ class ImageStream:
             raise ValueError(
                 f"grid must be 'uniform' or 'explicit', got {grid!r}"
             )
+        if int(keep_fine) < 1:
+            raise ValueError(f"keep_fine must be at least 1, got {keep_fine}")
+        if int(fold) < 1:
+            raise ValueError(f"fold must be at least 1, got {fold}")
         self.basis: Basis = make_basis(basis, order)
         self.order = self.basis.order
         self.domain = (d0, d1)
@@ -255,6 +275,13 @@ class ImageStream:
                     raise ValueError(
                         f"a block needs at least order + 2 = "
                         f"{self.order + 2} samples, got {block}"
+                    )
+                if self.basis.name == "block":
+                    raise ValueError(
+                        "basis='block' needs a length block, not a "
+                        "count block: a count block's domain is its "
+                        "own sample span, so its fine windows will "
+                        "not align with the hull's coarse windows"
                     )
                 self._block_count = int(block)
             else:
@@ -279,7 +306,8 @@ class ImageStream:
 
     @property
     def n(self) -> int:
-        """Samples accumulated so far."""
+        """Samples accumulated so far in the accumulator; always 0 in
+        block mode, where samples live in the finished blocks instead."""
         return self._sums.n
 
     def _config(self) -> dict[str, Any]:
@@ -337,30 +365,34 @@ class ImageStream:
             self.coarse_.append(_assemble(old, order=self.order))
         return img
 
+    def _skip_block(self) -> None:
+        """Drop a length block whose fixed domain closed with fewer than
+        ``order + 2`` samples: the samples are discarded (too few to
+        image) and the stream moves on to the next block's domain."""
+        self._buf_x, self._buf_y, self._buf_w, self._buf_n = [], [], [], 0
+        self._block_index += 1
+
     def _check_drift(self, img: Image) -> None:
         if self._detector is None:
             return
-        xg = img.grid.positions()
         if self.detect == "previous":
             if self._prev is None:
                 self._prev = img
                 return
-            f = self._prev.reconstruct(xg)
+            # Predicted S from the previous block's coefficients, both
+            # sides in the same normalized basis: no extrapolation onto
+            # the other block's positions, and no order limit.
+            S_f = img.G @ self._prev.beta
+            self._prev = img
         else:
             model, params = self.detect[0], self.detect[1]
             var = self.detect[2] if len(self.detect) == 3 else None
-            f = Image.of_model(
+            S_f = Image.of_model(
                 model, params, img.grid, self.basis, self.order, var=var,
                 domain=img.domain, w=img.w,
             ).S
-        if self.detect == "previous":
-            w = img.w if img.w is not None else np.ones(img.n)
-            S_f = img.phi().T @ (w * f)
-        else:
-            S_f = f
         e = solve_triangular(gram_whitener(img.G), img.S - S_f, lower=True)
         flagged = self._detector.update(e)
-        self._prev = img
         if flagged:
             self.flags_.append((self._block_index, img.domain))
 
@@ -399,7 +431,10 @@ class ImageStream:
         """Add a chunk of samples. ``x`` has shape ``(m,)``, ``y`` shape
         ``(m,)`` or ``(m, channels)``, ``w`` optional positive weights
         (explicit grids only). Returns the block images finished by this
-        chunk, an empty list for the accumulator.
+        chunk, an empty list for the accumulator; in block mode, a
+        length block that a later chunk closes with fewer than
+        ``order + 2`` samples is dropped rather than imaged. Block mode
+        assumes ``x`` arrives sorted and increasing.
 
         Raises:
             ValueError: shape mismatch, non-finite input, positions outside
@@ -429,7 +464,10 @@ class ImageStream:
                     if self._buf_n == 0:
                         self._block_index += 1
                         continue
-                    finished.append(self._finish_block())
+                    if self._buf_n >= self.order + 2:
+                        finished.append(self._finish_block())
+                    else:
+                        self._skip_block()
                     continue
             sl = slice(start, start + take)
             self._buf_x.append(xa[sl])
@@ -444,13 +482,19 @@ class ImageStream:
             ):
                 finished.append(self._finish_block())
             elif self._block_len is not None and start < xa.size:
-                finished.append(self._finish_block())
+                if self._buf_n >= self.order + 2:
+                    finished.append(self._finish_block())
+                else:
+                    self._skip_block()
         return finished
 
     def close(self) -> list[Image]:
         """Finish the partial block if it holds at least ``order + 2``
-        samples and return it in a list, else return an empty list. A
-        length block closed early keeps its fixed domain.
+        samples and return it in a list, else return an empty list and
+        leave the partial block untouched. A length block closed early
+        keeps its fixed domain. Once a block is finished the stream
+        starts the next one; a further ``update`` cannot add samples
+        from the finished block's domain.
 
         Raises:
             ValueError: the stream is not in block mode.
@@ -508,11 +552,13 @@ class ImageStream:
         one spacing after the other ends).
 
         Raises:
-            ValueError: different configuration, or uniform streams that
-                are not contiguous.
+            ValueError: different configuration, block mode, or uniform
+                streams that are not contiguous.
         """
         if self._config() != other._config():
             raise ValueError("streams must have the same configuration")
+        if self.block is not None:
+            raise ValueError("merge does not support block mode")
         out = ImageStream(
             self.basis, domain=self.domain, channels=self.channels,
             grid=self.grid_kind, keep_fine=self.keep_fine, fold=self.fold,

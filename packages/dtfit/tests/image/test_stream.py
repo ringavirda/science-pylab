@@ -273,3 +273,87 @@ def test_block_mode_errors():
         s.assemble(0.0, 1.0)
     with pytest.raises(ValueError, match="detect"):
         ImageStream("legendre", 4, domain=(0.0, 1.0), block=10, detect=3)
+    with pytest.raises(ValueError, match="length"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), block=0.0)
+    with pytest.raises(ValueError, match="int or a float"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), block=True)
+    with pytest.raises(ValueError, match="detect needs block"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), detect="previous")
+    with pytest.raises(ValueError, match="keep_fine"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), keep_fine=0)
+    with pytest.raises(ValueError, match="fold"):
+        ImageStream("legendre", 4, domain=(0.0, 1.0), fold=0)
+
+
+def test_block_basis_rejects_count_blocks():
+    with pytest.raises(ValueError, match="length block"):
+        ImageStream("block", 4, domain=(0.0, 10.0), block=50)
+    s = ImageStream("block", 4, domain=(0.0, 8.0), block=2.0,
+                     keep_fine=2, fold=2)
+    x, y = _blocks_series(8, 25)
+    s.update(x, y)
+    s.close()
+    assert s.assemble(0.0, 8.0).n == 200
+
+
+def test_close_on_accumulator_raises():
+    s = ImageStream("legendre", 4, domain=(0.0, 1.0))
+    with pytest.raises(ValueError, match="block mode"):
+        s.close()
+
+
+def test_sparse_length_block_is_dropped_not_raised():
+    x, y = _blocks_series(8, 25)
+    gap = (x >= 2.0) & (x < 4.0)
+    keep = ~gap | (np.cumsum(gap) <= 1)
+    xs, ys = x[keep], y[keep]
+    s = ImageStream("legendre", 4, domain=(0.0, 8.0), block=2.0)
+    out = s.update(xs, ys)
+    out += s.close()
+    assert [img.domain for img in out] == [
+        (0.0, 2.0), (4.0, 6.0), (6.0, 8.0)]
+
+
+def test_merge_rejects_block_mode():
+    a = ImageStream("legendre", 4, domain=(0.0, 8.0), block=2.0)
+    b = ImageStream("legendre", 4, domain=(0.0, 8.0), block=2.0)
+    x, y = _blocks_series(8, 25)
+    a.update(x, y)
+    b.update(x, y)
+    with pytest.raises(ValueError, match="block mode"):
+        a.merge(b)
+
+
+def test_detect_previous_stays_accurate_above_order_four():
+    per, nb = 50, 80
+    x = np.linspace(0.0, float(nb), per * nb)
+    rng = np.random.default_rng(6)
+    y = 2.0 + 0.05 * rng.standard_normal(x.size)
+    y[per * 40:] += 3.0
+    for order in (6, 10):
+        s = ImageStream("legendre", order, domain=(0.0, float(nb)),
+                         block=per, detect="previous")
+        s.update(x, y)
+        assert [f[0] for f in s.flags_][:1] == [40]
+
+
+def test_block_checkpoint_resume_with_detector_matches():
+    per, nb = 50, 80
+    x = np.linspace(0.0, float(nb), per * nb)
+    rng = np.random.default_rng(6)
+    y = 2.0 + 0.05 * rng.standard_normal(x.size)
+    y[per * 40:] += 3.0
+    whole = ImageStream("legendre", 3, domain=(0.0, float(nb)), block=per,
+                         detect="previous")
+    whole.update(x, y)
+    s = ImageStream("legendre", 3, domain=(0.0, float(nb)), block=per,
+                     detect="previous")
+    s.update(x[:per * 45], y[:per * 45])
+    state = s.checkpoint()
+    import json
+    state = json.loads(json.dumps(state))
+    t = ImageStream("legendre", 3, domain=(0.0, float(nb)), block=per,
+                     detect="previous").resume(state)
+    t.update(x[per * 45:], y[per * 45:])
+    assert t.flags_ == whole.flags_
+    assert t._detector.n_tests_ == whole._detector.n_tests_
