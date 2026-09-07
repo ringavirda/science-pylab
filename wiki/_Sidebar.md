@@ -40,6 +40,7 @@
 
 - [Overview](Methods)
 - [DSB](Methods-DSB)
+- [Image](Methods-Image)
 - [LSI](Methods-LSI)
 - [EAC](Methods-EAC)
 - [Ensemble](Methods-Ensemble)

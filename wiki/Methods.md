@@ -13,25 +13,27 @@ real code on model *and* real data -- see
 
 ## The method catalog
 
-`dtfit` is organized as **one principle** (match a signal's differential
-spectrum) realized across **four execution tiers** -- symbolic reference, batch,
-streaming, and batch-at-scale -- plus a **high-level composition** layer that
-routes to the right variant automatically.
+`dtfit` is organized as **one principle** (match a signal's image, the
+discrete differential transform of its samples) realized across **four
+execution tiers** -- symbolic reference, batch, streaming, and
+batch-at-scale -- plus a **high-level composition** layer that routes to the
+right variant automatically.
 
 | tier | method | doc | runtime path | role |
 |------|--------|-----|--------------|------|
 | **reference** | **DSB** -- Differential Spectra Balance | [dsb.md](Methods-DSB) | symbolic (offline) | analytical ground truth / derivation |
-| **batch** | **LSI** -- Least-Squares Integral | [lsi.md](Methods-LSI) | numeric (offline) | accurate batch fit, model selection, pluggable basis, oscillatory recipe |
-| **batch** | **EAC** -- Equal-Areas Criterion | [eac.md](Methods-EAC) | numeric (offline) | noise-robust / fast batch fit; overdetermined & curvature-adaptive variants |
+| **core** | **Image** -- the discrete differential transform | [image.md](Methods-Image) | numeric (offline) | the statistic every batch method fits on |
+| **batch** | **LSI** -- Least-Squares Integral | [lsi.md](Methods-LSI) | numeric (offline) | accurate batch fit in the Legendre image, model selection, oscillatory recipe |
+| **batch** | **EAC** -- Equal-Areas Criterion | [eac.md](Methods-EAC) | numeric (offline) | fast batch fit in the block image, the robust image |
 | **batch** | **Ensemble** -- overlapping-window aggregation | [ensemble.md](Methods-Ensemble) | numeric (offline) | **outlier-robust** bagging over EAC/LSI window fits (median + spread) |
 | **streaming** | **EACFilter** -- recursive EAC | [equal_areas_filter.md](Methods-Equal-Areas-Filter) | numeric (online) | real-time tracking via an **area** measurement + drift detection |
 | **streaming** | **LSIFilter** -- recursive LSI | [legendre_filter.md](Methods-Legendre-Filter) | numeric (online) | real-time tracking via a **spectrum** measurement (oscillatory plants) |
 | **streaming** | **FilterBank / Fusedchi^2** -- multi-stream | [filter_bank.md](Methods-Filter-Bank) | numeric (online) | many streams in lockstep + pooled multi-axis fault detection |
-| **scale** | **Partitioned / Batched** -- map-reduce & GEMM | [scaling.md](Methods-Scaling) | numeric (offline) | one-pass / distributed / many-channel batch fitting |
+| **scale** | **ImageStream** -- streams, blocks, channels | [scaling.md](Methods-Scaling) | numeric (offline/online) | one-pass / block / many-channel image map-reduce |
 | **compose** | **auto_estimate / auto_forecast** | [auto.md](Methods-Auto) | numeric (offline) | shape-routed estimation and structured forecasting |
 | **stochastic** | **Stochastic series** -- fit the functionals of a *random* process | [stochastic.md](Methods-Stochastic) | numeric (offline + online) | characterize / forecast / generate / track random (economic, financial) data |
 
-The production methods (LSI, EAC, the filters, the scale backends) are **numeric
+The production methods (LSI, EAC, the filters, ImageStream) are **numeric
 successors** to the symbolic originals (DSBI -> LSI, DSBE -> EAC). DSB is kept as
 the analytical reference. The split follows the dissertation's hard requirement
 that the **runtime path carry no unbounded symbolic solve** -- SymPy is allowed
@@ -64,8 +66,14 @@ transform is a **linear bijection** between an analytic function and its spectru
 on the radius of convergence: two analytic functions are equal **iff** their
 spectra agree discrete-by-discrete. This is the identity every method below leans
 on -- matching spectra (DSB, LSI), matching integrals of spectra (EAC, the
-filters), or accumulating spectra additively (the scale backends) all recover the
+filters), or accumulating spectra additively (ImageStream) all recover the
 function and hence its parameters.
+
+The numeric methods compute this on the finite sample, not the infinite
+Taylor series above: the **image** ([Methods-Image](Methods-Image)) is the
+discrete differential transform of a signal in a basis at a finite order, a
+fixed-size statistic built directly from `(x, y)` that every batch method --
+LSI, EAC, the filters, ImageStream -- fits on.
 
 ### The non-Taylor base (and why a table is no longer needed)
 
@@ -107,9 +115,9 @@ methods go further and replace the monomial spectrum with a better-conditioned
  exact balance  weighted-L2    integral / area   additive over       compose /
  F(k;theta)=Z(k)    of spectra     matching          domain & channels   route
    |              |               |                |                  |
-  DSB            LSI             EAC            Partitioned* /        auto_estimate
- (symbolic     (integral recon.      (integral over          fit_lsi_batched       auto_forecast
-  solve)        error)         windows)         (map-reduce, GEMM)    (shape routing)
+  DSB            LSI             EAC              ImageStream          auto_estimate
+ (symbolic     (Legendre image      (block image           (streams, blocks,      auto_forecast
+  solve)        residual)        residual)         channels, map-reduce)  (shape routing)
                   |               |
           run recursively, one sample at a time
                   |               |
@@ -122,17 +130,18 @@ methods go further and replace the monomial spectrum with a better-conditioned
   system -- exact when well-posed, but symbolic and noise-sensitive.
 - **LSI** relaxes the exact balance to a **weighted integral least-squares**
   discrepancy of the two spectra on an orthogonal basis -- numeric, noise-tolerant,
-  accurate; with a pluggable basis and an oscillatory recipe.
+  accurate; with an oscillatory recipe.
 - **EAC** matches **integrals (areas)** of model and data over windows rather than
-  spectra -- integration smooths noise, so it is the most robust; overdetermined by
-  default and curvature-adaptive on demand.
+  spectra -- integration smooths noise, so it is the most robust; the robust
+  image is its outlier defense.
 - **EACFilter / LSIFilter** run EAC / LSI **recursively**, one sample at a time,
   with a Kalman-style update and drift detection -- the real-time path; a
   **FilterBank** runs many in lockstep and the **FusedChiSquareDetector** pools
   their innovations.
-- **Partitioned\* / batched** estimators exploit that the empirical spectrum is an
-  **additive integral** (so a stream reduces chunk-by-chunk) and **linear across
-  channels** (so many channels project in one GEMM) -- exact batch fitting at scale.
+- **ImageStream** exploits that the image is **additive** (so a stream reduces
+  chunk-by-chunk, and blocks assemble through the basis transfer) and
+  **linear across channels** (so many channels share one Gram) -- exact
+  batch fitting at scale.
 - **auto_estimate / auto_forecast** route a signal to the variant its shape calls
   for, composing only the validated levers.
 
@@ -147,7 +156,7 @@ one **weighted-residual (Galerkin) identification**:
 
 | dtfit method | classical identity | classical relatives (same goal, different route) |
 |---|---|---|
-| **EAC** (area matching) | Galerkin with piecewise-constant **Haar** test functions; the overdetermined $2m$-window form is an **over-identified method of moments (GMM)** | Prony / Matrix-Pencil / **ESPRIT** (algebraic pole recovery), variable projection |
+| **EAC** (area matching) | Galerkin with piecewise-constant **Haar** test functions; the overdetermined four-windows-per-parameter form is an **over-identified method of moments (GMM)** | Prony / Matrix-Pencil / **ESPRIT** (algebraic pole recovery), variable projection |
 | **LSI** (orthogonal-basis spectral match) | a **spectral ($p$-version) Galerkin** projection / weighted integral least-squares in a Legendre basis | classical **method of moments** (the monomial form is LSI's ill-conditioned ancestor), variable projection, Prony/ESPRIT for cycles |
 
 So EAC and LSI are the **$h$-version (local Haar)** and **$p$-version (global
