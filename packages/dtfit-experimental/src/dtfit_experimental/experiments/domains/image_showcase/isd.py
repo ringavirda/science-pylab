@@ -261,6 +261,48 @@ def station_year(
     return t, y, info
 
 
+def dropped_times(
+    path: Any, field: str = "TMP"
+) -> dict[str, np.ndarray]:
+    """When a station-year's rows failed the filters.
+
+    Returns ``{"quality": times, "missing": times}`` in days from the
+    year's start: the rows whose quality code is outside
+    :data:`GOOD_QUALITY` and the rows carrying the missing sentinel. The
+    reader itself only counts these; the filter leg needs their times to
+    ask whether a drift flag has an explanation. Every failing row is
+    reported, including one whose timestamp repeats an earlier row, so
+    these counts can exceed :func:`read_isd`'s by the number of repeats
+    (measured on one real station-year: 349 here against 348 there, with
+    4 repeats).
+    """
+    missing = ISD_FIELDS[field][0]
+    bad: list[float] = []
+    gone: list[float] = []
+    with open(path, newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, None)
+        if header is None:
+            return {"quality": np.zeros(0), "missing": np.zeros(0)}
+        i_date = header.index("DATE")
+        i_val = header.index(field)
+        leap = None
+        for row in reader:
+            if len(row) <= i_val:
+                continue
+            if leap is None:
+                leap = days_in_year(int(row[i_date][:4])) == 366
+            value, quality = parse_field(row[i_val], missing)
+            if quality and quality not in GOOD_QUALITY:
+                bad.append(iso_days(row[i_date], leap))
+            elif value is None:
+                gone.append(iso_days(row[i_date], leap))
+    return {
+        "quality": np.array(bad, dtype=float),
+        "missing": np.array(gone, dtype=float),
+    }
+
+
 def coordinate_changes(
     path: Any, field: str = "TMP"
 ) -> list[dict[str, Any]]:
