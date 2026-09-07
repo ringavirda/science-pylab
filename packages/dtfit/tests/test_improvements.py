@@ -25,7 +25,8 @@ def test_streaming_covariance_stays_symmetric_and_psd(Filter):
     assert np.allclose(P, P.T, atol=1e-9), "covariance drifted asymmetric"
     eig = np.linalg.eigvalsh(0.5 * (P + P.T))
     assert eig.min() >= -1e-9, f"covariance lost PD: min eig {eig.min():.2e}"
-    # a PSD gain state is what keeps result().cov real and finite
+    # result() is a separate batch fit on the window, not read off P;
+    # this only checks it still runs once the window has enough samples
     r = flt.result()
     assert np.all(np.isfinite(r.cov))
     assert all(np.isfinite(v) for v in r.stderr().values())

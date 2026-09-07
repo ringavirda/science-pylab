@@ -132,7 +132,8 @@ def test_no_false_drift_on_stable_signal():
     t = np.linspace(0, 40, 2000)
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
     flt = EACFilter(
-        "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50, q_diag=[0.05, 0.001]
+        "A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=50,
+        q_diag=[0.05, 0.001], adaptive_window=False,
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)
@@ -259,7 +260,7 @@ def test_lsi_filter_no_false_drift_on_stable_signal():
     y = 3.0 * np.sin(1.5 * t) + rng.normal(0, 0.3, t.size)
     flt = LSIFilter(
         "A*sin(w*t)", "t", p0=[2.0, 1.5], window_size=50, order=5,
-        q_diag=[1e-3, 5e-4],
+        q_diag=[1e-3, 5e-4], adaptive_window=False,
     )
     for ti, yi in zip(t, y):
         flt.partial_fit(ti, yi)

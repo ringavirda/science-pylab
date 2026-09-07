@@ -32,13 +32,16 @@ class ImageFilter:
     ``P`` is a gain state: the calibrated parameter covariance is
     :meth:`result`.
 
-    Drift: every ``W`` samples once the window is full, the whitened
-    innovation, rotated so its first component is the window-mean
-    channel, goes to a :class:`~dtfit.streaming.detect.DriftDetector` (a
-    jump test on its energy and a two-sided CUSUM on that first
-    component); a detection inflates or resets ``P`` and collapses the
-    adaptive window. The filter's adaptation is bounded by ``Q``, so a
-    change beyond it leaves a lagging estimate and a visible innovation.
+    Drift: every ``W`` samples once the window is full; while the adaptive
+    window is still growing, the stride is the shorter, current
+    ``_W_eff`` instead, so the detector tests sooner and more often than
+    it will once the window has reached its cap. The whitened innovation,
+    rotated so its first component is the window-mean channel, goes to a
+    :class:`~dtfit.streaming.detect.DriftDetector` (a jump test on its
+    energy and a two-sided CUSUM on that first component); a detection
+    inflates or resets ``P`` and collapses the adaptive window. The
+    filter's adaptation is bounded by ``Q``, so a change beyond it leaves
+    a lagging estimate and a visible innovation.
 
     Args:
         model: A SymPy-expression string, a ``sympy.Expr`` or a callable
@@ -116,7 +119,12 @@ class ImageFilter:
     Raises:
         ValueError: the image has fewer coefficients than the model has
             parameters; ``window_size`` cannot hold the image; an invalid
-            ``drift_reset``; a non-finite ``p0``.
+            ``drift_reset``; a non-finite ``p0``; ``q_diag`` or ``p0`` of
+            the wrong length; ``noise_var <= 0``; an ``order`` disagreeing
+            with a :class:`Basis` instance; ``regressors`` on a callable
+            model. :meth:`partial_fit` also raises it, out of
+            :func:`~dtfit.image.bases.u_of`, for a window whose first and
+            last timestamps coincide (a stalled clock).
         RuntimeError: the model has no free parameters.
     """
 
@@ -223,6 +231,8 @@ class ImageFilter:
         )
         if self.Q.shape != (n, n):
             raise ValueError(f"q_diag must hold {n} values")
+        if np.any(np.diag(self.Q) < 0.0):
+            raise ValueError("q_diag must be non-negative")
 
         self.detector = DriftDetector(
             b.n_coef, alpha=alpha, cusum_k=cusum_k, cusum_h=cusum_h, warmup=3,
@@ -240,9 +250,14 @@ class ImageFilter:
         self._v_est: float | None = None
         self._v_lambda = 0.05
         self._n_full = 0
-        self._cache: dict[
-            int, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-        ] = {}
+        # A single cached window length: at steady state (fixed window, or
+        # an adaptive one that has settled) every call repeats it, and
+        # while the window is still growing no length repeats anyway, so
+        # a dict keyed by length would only grow without ever evicting.
+        self._cache_len: int | None = None
+        self._cache_entry: tuple[
+            np.ndarray, np.ndarray, np.ndarray, np.ndarray
+        ] | None = None
         self._t: list[float] = []
         self._y: list[float] = []
         self._rbuf: list[tuple] = []
@@ -255,7 +270,12 @@ class ImageFilter:
     def _ingest(self, t_new: Any, y_new: Any, regressors: Any) -> bool:
         """Validate one sample and append it to the window; a non-finite
         sample is skipped with a ``RuntimeWarning`` and leaves every state
-        untouched. Returns whether the sample was appended."""
+        untouched. Returns whether the sample was appended.
+
+        The attached ``stream`` (if any) is fed before the window is
+        mutated, so a sample it rejects (outside its domain) leaves the
+        window untouched too, instead of already holding it.
+        """
         t_val = float(t_new)
         y_val = float(y_new)
         reg = (
@@ -268,12 +288,12 @@ class ImageFilter:
                 "non-finite sample skipped", RuntimeWarning, stacklevel=3
             )
             return False
+        if self.stream is not None:
+            self.stream.update(np.array([t_val]), np.array([y_val]))
         self._t.append(t_val)
         self._y.append(y_val)
         if self.model.has_regressors:
             self._rbuf.append(reg)
-        if self.stream is not None:
-            self.stream.update(np.array([t_val]), np.array([y_val]))
         return True
 
     def _window_ops(
@@ -281,13 +301,14 @@ class ImageFilter:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """The basis at the window's positions, the Cholesky factor of its
         Gram and the rotation that maps the window-mean channel onto the
-        first axis, cached per window length while the normalized positions
-        repeat (uniform streaming). ``None`` when a block window holds no
-        sample, which leaves the Gram singular."""
+        first axis, cached against the last window length while the
+        normalized positions repeat (uniform streaming). ``None`` when a
+        block window holds no sample, which leaves the Gram singular."""
         k = t_arr.size
         u = u_of(t_arr, float(t_arr[0]), float(t_arr[-1]))
-        hit = self._cache.get(k)
-        if hit is not None and np.allclose(u, hit[0], rtol=0.0, atol=1e-9):
+        hit = self._cache_entry
+        if (self._cache_len == k and hit is not None
+                and np.allclose(u, hit[0], rtol=0.0, atol=1e-9)):
             return hit[1], hit[2], hit[3]
         Phi = self.basis.evaluate(u)
         G = Phi.T @ Phi
@@ -313,8 +334,18 @@ class ImageFilter:
             if vn < 1e-24
             else np.eye(n_coef) - 2.0 * np.outer(v, v) / vn
         )
-        self._cache[k] = (u, Phi, L, Q)
+        self._cache_len = k
+        self._cache_entry = (u, Phi, L, Q)
         return Phi, L, Q
+
+    def _grow_on_skip(self) -> None:
+        """Grow the adaptive window past a skipped measurement. A window
+        that keeps failing to measure (an empty block bin, a rejected
+        step) does not get more likely to measure by staying the size it
+        stalled at; growing it is what gives the next sample a wider
+        window to land a bin in, or a better-conditioned step to try."""
+        if self.adaptive_window and self._W_eff < self.W:
+            self._W_eff += 1
 
     def partial_fit(
         self, t_new: Any, y_new: Any, regressors: Any = None
@@ -323,9 +354,12 @@ class ImageFilter:
 
         ``regressors`` (required for a regressor model) is a ``{name:
         value}`` mapping or a sequence ordered like ``regressors``. A
-        non-finite sample is skipped with a ``RuntimeWarning``; a sample
-        that leaves the innovation or the Jacobian non-finite, or a block
-        window without samples, is ingested but not measured.
+        non-finite sample is skipped with a ``RuntimeWarning``. A sample
+        is ingested but not measured when the window is not yet full
+        enough, a block window holds an empty bin, the step never lowers
+        the window's whitened misfit, or the innovation or the Jacobian
+        comes out entirely non-finite; a partly non-finite Jacobian is
+        instead measured with its non-finite entries zeroed.
         """
         self.drift_flag_ = False
         if not self._ingest(t_new, y_new, regressors):
@@ -349,6 +383,7 @@ class ImageFilter:
             reg_cols = [rb[:, c] for c in range(rb.shape[1])]
         ops = self._window_ops(t_arr)
         if ops is None:
+            self._grow_on_skip()
             return self
         Phi, L, Q = ops
 
@@ -381,6 +416,7 @@ class ImageFilter:
         J = np.where(np.isfinite(J), J, 0.0)
         H = solve_triangular(L, Phi.T @ J, lower=True)
         if not (np.all(np.isfinite(e)) and np.all(np.isfinite(H))):
+            self._grow_on_skip()
             return self
         self.last_residual_ = float(resid[-1])
         self.innovation_ = e
@@ -396,6 +432,7 @@ class ImageFilter:
         try:
             P_post = np.linalg.inv(np.linalg.inv(self.P) + A)
         except np.linalg.LinAlgError:
+            self._grow_on_skip()
             return self
         step = P_post @ b
         # Damped update: the linearization can overshoot on a nonlinear
@@ -416,11 +453,12 @@ class ImageFilter:
             alpha *= 0.5
             p_new = self.p + alpha * step
         if not accepted:
+            self._grow_on_skip()
             return self
-        step = alpha * step
         P_new = P_post + self.Q
         P_new = 0.5 * (P_new + P_new.T)
         if not (np.all(np.isfinite(p_new)) and np.all(np.isfinite(P_new))):
+            self._grow_on_skip()
             return self
         self.nis_ = float(e @ e) / s2 - float(b @ (P_post @ b))
         self.p = p_new
