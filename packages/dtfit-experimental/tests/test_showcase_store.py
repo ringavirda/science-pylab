@@ -4,6 +4,8 @@ comparison. No test here reads a real dataset."""
 from __future__ import annotations
 
 import csv
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -137,6 +139,9 @@ def test_param_score_is_purely_relative():
         pytest.approx(1e-10 / (1e-12 * 100.0))
     )
     assert compare.param_score({"a": 0.0}, {"a": 0.0}) == 0.0
+    assert compare.param_score({"a": 5.0}, {"a": 0.0}) == float("inf")
+    with pytest.raises(KeyError):
+        compare.param_score({"b": 0.0}, {"a": 0.0})
 
 
 def test_legendre_order_follows_the_measured_rule():
@@ -148,7 +153,7 @@ def test_legendre_order_follows_the_measured_rule():
     # the density floor bites before the n - 2 cap
     assert compare.legendre_order(32.0, 60) == 15
     assert compare.legendre_order(11.0, 200) == 50
-    # never more than the image can hold
+    # the density cap on a series too short for any model
     assert compare.legendre_order(32.0, 8) == 2
 
 
@@ -156,6 +161,12 @@ def test_gram_rebuild_error_is_at_rounding_for_a_direct_image():
     t, y = irregular_series(3.0, 12)
     img = Image.of(Original(t, y), "legendre", 40)
     assert compare.gram_rebuild_error(img) < 1e-12
+    # a perturbed G is reported at the size of the perturbation, and an
+    # all-zero G as infinite
+    bent = dataclasses.replace(img, G=img.G * (1.0 + 1e-6))
+    assert compare.gram_rebuild_error(bent) == pytest.approx(1e-6, rel=1e-3)
+    empty = dataclasses.replace(img, G=np.zeros_like(img.G))
+    assert compare.gram_rebuild_error(empty) == float("inf")
 
 
 def test_raw_bic_matches_the_library_formula():

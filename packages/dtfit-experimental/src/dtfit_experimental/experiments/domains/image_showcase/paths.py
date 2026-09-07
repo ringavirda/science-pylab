@@ -5,7 +5,7 @@ defaults only, read from the environment so that no machine's directory
 layout is written into the package. ``SHOWCASE_DATA`` (default
 ``~/data/showcase``) holds the NGL copy, the reduced images and the
 normals; ``SHOWCASE_ISD`` (default ``<SHOWCASE_DATA>/isd``) holds the NOAA
-year directories, which on the PC live on a second NVMe.
+year directories.
 """
 
 from __future__ import annotations

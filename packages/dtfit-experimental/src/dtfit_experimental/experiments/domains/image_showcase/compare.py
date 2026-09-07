@@ -29,7 +29,9 @@ def _scores(
     ref = {k: float(v) for k, v in reference.items()}
     m = max((abs(v) for v in ref.values()), default=0.0)
     if m == 0.0:
-        return {k: 0.0 for k in ref}
+        return {
+            k: 0.0 if float(fitted[k]) == 0.0 else float("inf") for k in ref
+        }
     return {
         name: abs(float(fitted[name]) - r) / max(abs(r), _SCORE_FLOOR * m)
         for name, r in ref.items()
@@ -46,8 +48,9 @@ def param_score(
     ``M`` the largest reference magnitude; the station's score is the
     maximum. The floor only stops a division by a reference value that is
     zero to rounding -- it is twelve orders below ``M``, so the score is a
-    relative difference for every parameter these models carry. Returns
-    0.0 when every reference value is zero.
+    relative difference for every parameter these models carry. When every
+    reference value is zero the score is 0.0 if every fitted value is zero
+    too and ``inf`` otherwise.
 
     Raises:
         KeyError: ``fitted`` is missing a name ``reference`` carries.
@@ -110,13 +113,11 @@ def legendre_order(
     ``ceil(per_unit * span) + margin``, floored at ``floor`` and capped
     twice: at ``n_samples - 2`` (an image of order ``k`` needs ``k + 2``
     samples) and at ``n_samples // per_coef``, the density floor that
-    keeps at least ``per_coef`` samples per coefficient. The additive
-    margin is what carries short spans through the 1e-8 exactness gate:
-    eight coefficients per year alone leaves 2.3e-3 at a three-year span
-    and 5.2e-7 at eleven years. The density cap is what keeps a sparse
-    station representable: without it 4.6 percent of real stations run at
-    fewer than three samples per coefficient and score 4.1e-2 to 2.26.
-    The result is never below 1.
+    keeps at least ``per_coef`` samples per coefficient. The margin carries
+    short spans through the 1e-8 exactness gate; the density cap keeps a
+    sparse station representable, at the price of an order too low for
+    the model, which the station's ``coverage`` column then reports. The
+    result is never below 1.
     """
     order = max(floor, math.ceil(per_unit * float(span)) + margin)
     n = int(n_samples)
