@@ -3,6 +3,7 @@
 from .grid import Grid
 from .bases import Basis, LegendreBasis, BlockBasis, make_basis, u_of
 from .original import Original
+from .image import Image, huber_weights
 
 __all__ = [
     "Grid",
@@ -12,4 +13,6 @@ __all__ = [
     "make_basis",
     "u_of",
     "Original",
+    "Image",
+    "huber_weights",
 ]
