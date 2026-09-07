@@ -47,7 +47,10 @@ class Grid:
     def positions(self) -> np.ndarray:
         if self.kind == "uniform":
             return np.linspace(self.x0, self.x1, self.n)
-        assert self.x is not None
+        if self.x is None:
+            raise RuntimeError(
+                "explicit grid has no stored positions"
+            )
         return self.x.copy()
 
     def __eq__(self, other: object) -> bool:
@@ -68,31 +71,15 @@ class Grid:
         return hash((self.kind, self.n, self.x0, self.x1))
 
     def merge(self, other: "Grid") -> "Grid":
-        """Positions of ``self`` followed by those of ``other``.
+        """The union of ``self`` and ``other``'s positions, stably sorted.
 
-        ``other`` must start after ``self`` ends. Two uniform grids with the
-        same spacing whose gap equals that spacing merge into one uniform
-        grid; every other combination becomes explicit.
+        No ordering between the two is required, and ties (a position
+        shared by both) are kept, not deduplicated. Uniform when the union
+        is uniform to :meth:`of`'s tolerance, explicit otherwise.
         """
-        if other.x0 <= self.x1:
-            raise ValueError(
-                f"grids overlap or touch: first ends at {self.x1}, "
-                f"second starts at {other.x0}"
-            )
-        if (
-            self.kind == "uniform"
-            and other.kind == "uniform"
-            and self.n > 1
-            and other.n > 1
-        ):
-            da = (self.x1 - self.x0) / (self.n - 1)
-            db = (other.x1 - other.x0) / (other.n - 1)
-            gap = other.x0 - self.x1
-            if np.isclose(
-                da, db, rtol=1e-9, atol=1e-9 * abs(da)
-            ) and np.isclose(gap, da, rtol=1e-9, atol=1e-9 * abs(da)):
-                return Grid("uniform", self.n + other.n, self.x0, other.x1)
-        return Grid.of(np.concatenate([self.positions(), other.positions()]))
+        positions = np.concatenate([self.positions(), other.positions()])
+        order = np.argsort(positions, kind="stable")
+        return Grid.of(positions[order])
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

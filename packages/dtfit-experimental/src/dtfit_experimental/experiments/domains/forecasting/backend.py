@@ -375,7 +375,7 @@ def _trend_spec(kind, y_tr, t_tr, period_hint=None):
             "a0 + a1*x + a2*sin(w*x) + a3*cos(w*x)",
             {"a0": (a0, -1e6, 1e6), "a1": (a1, -1e6, 1e6),
              "a2": (0.0, -5 * amp, 5 * amp), "a3": (amp, -5 * amp, 5 * amp),
-             "w": (w, 0.3 * w, 3 * w)}, k_star=10, filter_data=False), 1.0
+             "w": (w, 0.3 * w, 3 * w)}, k_star=10), 1.0
     if kind in ("poly_seasonal", "linear_seasonal"):     # joint trend + cycle
         deg = 2 if kind == "poly_seasonal" else 1
         s = _poly_seed(y_tr, t_tr, deg)

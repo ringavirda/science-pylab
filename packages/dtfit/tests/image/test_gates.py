@@ -11,7 +11,7 @@ from dtfit.image import Original, fit, order_for
 
 from accuracy.scenarios import SCENARIOS_BY_NAME
 
-NIGHTLY = bool(os.environ.get("DTFIT_NIGHTLY"))
+NIGHTLY = os.environ.get("DTFIT_NIGHTLY", "") not in ("", "0")
 REPS = 60 if NIGHTLY else 10
 FAMILIES = [
     "exp_decay_offset", "logistic", "michaelis_menten", "gompertz",
@@ -49,7 +49,7 @@ def test_efficiency_at_order_for(name):
         np.sqrt(np.mean(np.square(e_cf), axis=0)) + 1e-300
     )
     limit = 1.05 if NIGHTLY else 1.25
-    assert np.mean(ratio) < limit, f"{name}: efficiency ratio {ratio}"
+    assert 0.5 < np.mean(ratio) < limit, f"{name}: efficiency ratio {ratio}"
 
 
 @pytest.mark.parametrize(
@@ -62,10 +62,11 @@ def test_coverage_of_95_percent_intervals(name):
     sig = 0.05 * np.std(yc)
     rng = np.random.default_rng(12)
     reps = 200 if NIGHTLY else 60
+    order = 20 if name == "logistic" else 12
     hits = []
     for _ in range(reps):
         y = yc + sig * rng.standard_normal(x.size)
-        r = fit(expr, Original(x, y), var, order=12, p0=pt)
+        r = fit(expr, Original(x, y), var, order=order, p0=pt)
         hits.append(np.abs(r.coeffs - pt) <= 1.96 * np.sqrt(np.diag(r.cov)))
     cov = float(np.mean(hits))
     lo, hi = (0.92, 0.98) if NIGHTLY else (0.86, 0.995)
@@ -81,6 +82,7 @@ def test_robust_image_matches_scipy_soft_l1(name):
     yc = fn(x, *pt)
     sig = 0.05 * np.std(yc)
     rng = np.random.default_rng(13)
+    order = 20 if name == "logistic" else 12
     e_img, e_sl = [], []
     for _ in range(REPS):
         y = yc + sig * rng.standard_normal(x.size)
@@ -88,7 +90,7 @@ def test_robust_image_matches_scipy_soft_l1(name):
         y[idx] += 10 * sig * rng.choice([-1.0, 1.0], idx.size)
         e_img.append(
             fit(
-                expr, Original(x, y), var, order=12, p0=pt, robust=True
+                expr, Original(x, y), var, order=order, p0=pt, robust=True
             ).coeffs - pt
         )
         e_sl.append(
@@ -100,4 +102,4 @@ def test_robust_image_matches_scipy_soft_l1(name):
         np.sqrt(np.mean(np.square(e_sl), axis=0)) + 1e-300
     )
     limit = 1.15 if NIGHTLY else 1.4
-    assert np.mean(ratio) < limit, f"{name}: robust ratio {ratio}"
+    assert 0.3 < np.mean(ratio) < limit, f"{name}: robust ratio {ratio}"

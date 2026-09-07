@@ -7,13 +7,11 @@ The median of the estimates rejects windows corrupted by outliers, and the
 inter-window spread is a cheap empirical uncertainty band. This is bagging
 over the time axis and applies to both EAC and LSI.
 
-Reach for it when contamination is dense. Median-of-windows rejects whole
-corrupted windows outright, where the robust image (``fit_eac(robust=True)``)
-still averages a contaminated window in with the clean ones. For lighter
-contamination the robust image on a single ``fit_eac`` is cheaper (see
-:func:`dtfit.fit_eac`). On clean Gaussian-noise data prefer a single
-whole-record fit; the ensemble trades a little accuracy there for the
-outlier robustness.
+The premise is bagging over the time axis: many overlapping-window fits,
+pooled by their median. For lighter contamination the robust image on a
+single ``fit_eac`` is cheaper (see :func:`dtfit.fit_eac`). On clean
+Gaussian-noise data prefer a single whole-record fit; the ensemble trades a
+little accuracy there for the outlier robustness.
 """
 
 from __future__ import annotations

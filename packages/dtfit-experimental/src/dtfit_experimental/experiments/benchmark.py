@@ -477,53 +477,26 @@ def fig_lsi_oscillatory() -> None:
 
 
 def fig_eac_adaptive() -> None:
-    """Adaptive EAC's scenario: a sharp sigmoid step. All the curvature sits
-    at the bend, and curvature-placed windows cluster there with it, over the
-    samples that carry the parameter information, instead of spreading evenly
-    across x."""
+    """EAC's block preset on a sharp sigmoid step: uniform windows spread
+    evenly across x, not placed by the curve's local curvature."""
     rng = np.random.default_rng(4)
     x = np.linspace(0, 10, 300)
     L_t, k_t, x0_t = 1.0, 2.5, 5.0
     clean = L_t / (1.0 + np.exp(-k_t * (x - x0_t)))   # sharp step at x0=5
     y = clean + rng.normal(0, 0.02, x.size)
-    res = dt.fit_eac(x, y, "L/(1 + exp(-k*(x - x0)))", "x", window_mode="curvature",
-                     p0=[1.0, 1.0, 5.0])
+    res = dt.fit_eac(x, y, "L/(1 + exp(-k*(x - x0)))", "x", p0=[1.0, 1.0, 5.0])
     yhat = np.asarray(res.model(x))
-    m = 6
+    edges = np.linspace(x[0], x[-1], res.image_order + 1)[1:-1]
 
-    # Window edges at equal information, i.e. equal cumulative curvature of the
-    # underlying curve: the principle the placement targets. Drawn from the
-    # clean curve to keep the mechanism visible; on heavily noisy data the
-    # curvature estimate softens toward equal spacing.
-    d2 = np.abs(np.gradient(np.gradient(clean, x), x)) + 1e-12
-    cum = np.concatenate([[0.0], np.cumsum(d2)]); cum /= cum[-1]
-    xc = np.concatenate([[x[0]], x])
-    targets = np.linspace(0, 1, m + 1)
-    adaptive_x = np.interp(targets, cum, xc)[1:-1]
-    equal_x = np.linspace(x[0], x[-1], m + 1)[1:-1]
-
-    fig, ax = plt.subplots(1, 2, figsize=(10, 3.8))
-    ax[0].scatter(x, y, s=8, c="0.7", label="samples")
-    ax[0].plot(x, clean, "k--", lw=1, label="ground truth")
-    ax[0].plot(x, yhat, "tab:green", lw=2,
-               label=f"adaptive EAC (k={res.params['k']:.2f}, x0={res.params['x0']:.2f})")
-    for xe in adaptive_x:
-        ax[0].axvline(xe, color="tab:green", ls=":", lw=1, alpha=0.7)
-    ax[0].set_title("Adaptive EAC — sharp sigmoid step (curvature window edges)")
-    ax[0].set_xlabel("x"); ax[0].set_ylabel("y"); ax[0].legend(fontsize=8)
-
-    ax[1].plot(x, cum[1:], "tab:green", lw=1.8, label="cumulative |curvature|")
-    for fr in targets[1:-1]:
-        ax[1].axhline(fr, color="0.85", lw=0.7)
-    for xe in adaptive_x:
-        ax[1].axvline(xe, color="tab:green", ls=":", lw=1.3, alpha=0.9)
-    for xe in equal_x:
-        ax[1].axvline(xe, color="0.6", ls="--", lw=0.8)
-    ax[1].plot([], [], color="tab:green", ls=":", label="adaptive edges (cluster at bend)")
-    ax[1].plot([], [], color="0.6", ls="--", label="equal-x edges (spread evenly)")
-    ax[1].set_title("Edges at equal information, not equal x")
-    ax[1].set_xlabel("x"); ax[1].set_ylabel("normalized cumulative curvature")
-    ax[1].legend(fontsize=8, loc="upper left")
+    fig, ax = plt.subplots(figsize=(6, 3.8))
+    ax.scatter(x, y, s=8, c="0.7", label="samples")
+    ax.plot(x, clean, "k--", lw=1, label="ground truth")
+    ax.plot(x, yhat, "tab:green", lw=2,
+            label=f"EAC (k={res.params['k']:.2f}, x0={res.params['x0']:.2f})")
+    for xe in edges:
+        ax.axvline(xe, color="0.6", ls="--", lw=0.8)
+    ax.set_title("EAC — sharp sigmoid step (uniform windows)")
+    ax.set_xlabel("x"); ax.set_ylabel("y"); ax.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(FIG_DIR / "eac_adaptive.png"); plt.close(fig)
 
 
@@ -636,7 +609,7 @@ def fig_scaling() -> None:
     clean = a_t * np.exp(b_t * x)
     y = clean + rng.normal(0, 0.03 * clean.std(), x.size)
 
-    whole = dt.fit_lsi(x, y, "a*exp(b*x)", "x", filter_data=False)
+    whole = dt.fit_lsi(x, y, "a*exp(b*x)", "x")
     acc = dt.PartitionedLSI("a*exp(b*x)", "x", domain=(0.0, 1.5), order=6)
     n_chunks = 8
     bnds = np.linspace(0, x.size, n_chunks + 1).astype(int)

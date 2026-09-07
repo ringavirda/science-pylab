@@ -45,6 +45,63 @@ def test_additivity_under_merge():
     assert m.grid.kind == "uniform" and m.grid.n == 301
 
 
+def test_merge_of_replicate_sample_sets_matches_direct_image():
+    rng = np.random.default_rng(0)
+    domain = (0.0, 4.0)
+
+    def f(x):
+        return 2.0 * np.exp(-0.7 * x) + 0.3
+
+    x1 = np.sort(rng.uniform(*domain, 90))
+    x2 = np.sort(rng.uniform(*domain, 70))
+    y1 = f(x1) + 0.01 * rng.standard_normal(x1.size)
+    y2 = f(x2) + 0.01 * rng.standard_normal(x2.size)
+    a = Image.of(Original(x1, y1, domain=domain), "legendre", 8)
+    b = Image.of(Original(x2, y2, domain=domain), "legendre", 8)
+    merged = a.merge(b)
+    whole = Image.of(
+        Original(
+            np.concatenate([x1, x2]), np.concatenate([y1, y2]),
+            domain=domain,
+        ),
+        "legendre", 8,
+    )
+    assert np.allclose(merged.S, whole.S)
+    assert np.allclose(merged.G, whole.G)
+    assert merged.n == whole.n
+
+
+def test_merge_of_interleaved_chunks_matches_whole_series():
+    o = _orig(n=200)
+    even = Image.of(
+        Original(o.x[::2], o.y[::2], domain=o.domain), "legendre", 8
+    )
+    odd = Image.of(
+        Original(o.x[1::2], o.y[1::2], domain=o.domain), "legendre", 8
+    )
+    whole = Image.of(o, "legendre", 8)
+    m = even.merge(odd)
+    assert np.allclose(m.S, whole.S)
+    assert np.allclose(m.G, whole.G)
+    assert m.n == whole.n
+
+
+def test_merge_of_uniform_and_explicit_grid_positions():
+    a = Image.of(
+        Original(np.linspace(0.0, 1.0, 11), np.zeros(11)), "legendre", 2
+    )
+    xb = np.array([0.05, 0.3, 0.5, 0.95])
+    b = Image.of(
+        Original(xb, np.zeros(4), domain=(0.0, 1.0)), "legendre", 2
+    )
+    m = a.merge(b)
+    assert m.grid.kind == "explicit"
+    expected = np.sort(
+        np.concatenate([a.grid.positions(), xb]), kind="stable"
+    )
+    assert np.array_equal(m.grid.positions(), expected)
+
+
 def test_merge_requires_same_basis_and_domain():
     o = _orig()
     a = Image.of(o, "legendre", 6)
@@ -87,7 +144,8 @@ def test_simulate_shape_and_seed():
     img = Image.of(_orig(), "legendre", 8)
     x1, y1 = img.simulate(0.05, rng=np.random.default_rng(3))
     x2, y2 = img.simulate(0.05, rng=np.random.default_rng(3))
-    assert x1.shape == (200,) and np.array_equal(y1, y2)
+    assert x1.shape == (200,) and x2.shape == y2.shape
+    assert np.array_equal(y1, y2)
     assert np.std(y1 - img.reconstruct(x1)) == pytest.approx(0.05, rel=0.3)
 
 

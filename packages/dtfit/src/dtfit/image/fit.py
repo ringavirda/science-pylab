@@ -75,6 +75,12 @@ def _solve(
             sol.x, sol.jac, bool(sol.success), str(sol.message),
             int(sol.nfev),
         )
+    if not sol.success:
+        reason = "did not converge"
+    elif not np.isfinite(local_cost):
+        reason = "reached a non-finite cost"
+    else:
+        reason = "explained less than half the variance"
 
     def cost(c: np.ndarray) -> float:
         r = residual(c)
@@ -93,15 +99,20 @@ def _solve(
     )
     xg = np.asarray(res.x, dtype=float)
     global_cost = cost(xg)
-    nfev = (
-        int(sol.nfev) + int(getattr(res_g, "nfev", 0))
-        + int(getattr(res, "nfev", 0))
+    de_nfev = int(getattr(res_g, "nfev", 0)) + int(getattr(res, "nfev", 0))
+    warnings.warn(
+        f"the local solve from p0 {reason}; a differential-evolution "
+        f"search ran ({de_nfev} function evaluations)",
+        UserWarning, stacklevel=3,
     )
+    nfev = int(sol.nfev) + de_nfev
     if not global_cost < local_cost:
         return sol.x, sol.jac, bool(sol.success), str(sol.message), nfev
     return xg, jac(xg), bool(res.success), str(res.message), nfev
 
 
+# Serves fit() only; methods/_common.py has the whitened-residual variant
+# for scale/_partitioned.py and _core/_spectral.py.
 def _covariance(jac: np.ndarray, s2: float) -> np.ndarray | None:
     """``s2 (J^T J)^-1`` from the SVD of ``J``. A parameter with a
     component in a null direction of ``J`` is not identified: its diagonal
@@ -337,11 +348,12 @@ def fit(
             oscillatory recipe when ``oscillatory`` or ``freq_param`` is
             given or the detrended spectrum has a peak share above 0.3,
             the Legendre basis at its default order, and the block basis
-            at its default order; the candidate with the lowest sample
-            RSS is returned, a later candidate winning only when its RSS
-            is lower by more than 0.1 percent. Rejected with an Image
-            (``TypeError``), which no longer carries the samples the
-            routing needs.
+            at its default order; the candidate with the lowest unweighted
+            sample RSS (over the Original's own samples, so a robust fit is
+            compared like with like) is returned, a later candidate winning
+            only when its RSS is lower by more than 0.1 percent. Rejected
+            with an Image (``TypeError``), which no longer carries the
+            samples the routing needs.
         order: The basis order (polynomial degree for Legendre, window
             count for block). When omitted with an Original, defaults to
             :func:`order_for` at ``p0`` (:func:`osc_order` also, and the
@@ -423,7 +435,9 @@ def fit(
     Warns:
         UserWarning: the image's coverage of the model's sensitivities at
             ``p0`` exceeds ``0.02`` (:func:`coverage`); the order is too
-            low to identify the model from this image.
+            low to identify the model from this image. Also raised when
+            the bounded local solve is poor and a differential-evolution
+            search runs to recover it (see :func:`_solve`).
 
     A model whose value is not finite at a sample raises ``ValueError`` at
     ``p0`` and, once the solve is under way, is instead scored with an
@@ -462,15 +476,6 @@ def fit(
             )
         image = data
         original = None
-        cov_err = coverage(model, guess, image, var=var,
-                            param_names=param_names)
-        if cov_err > 0.02:
-            warnings.warn(
-                f"image coverage {cov_err:.3f} at order {image.order}: "
-                "the model's sensitivities are not represented at this "
-                "order; build the image at order_for(model, p0, domain)",
-                UserWarning, stacklevel=2,
-            )
         if freq_param is not None:
             xg = image.grid.positions()
             seed = fft_frequency_seed(xg, image.reconstruct(xg))
@@ -516,10 +521,13 @@ def fit(
                         np.linalg.LinAlgError) as exc:
                     last = exc
                     continue
-                if cand.rss is None or not np.isfinite(cand.rss):
+                cand_rss = float(
+                    np.sum((original.y - cand.predict(original.x)) ** 2)
+                )
+                if not np.isfinite(cand_rss):
                     continue
-                if best is None or cand.rss < best_rss * (1.0 - 1e-3):
-                    best, best_rss = cand, float(cand.rss)
+                if best is None or cand_rss < best_rss * (1.0 - 1e-3):
+                    best, best_rss = cand, cand_rss
             if best is None:
                 raise RuntimeError(
                     "basis='auto': every candidate basis failed"
@@ -553,6 +561,16 @@ def fit(
             f"{len(names)} parameters; raise the order so the image has "
             f"at least {len(names)} coefficients"
         )
+    if image.basis.name == "legendre":
+        cov_err = coverage(model, guess, image, var=var,
+                            param_names=param_names)
+        if cov_err > 0.02:
+            warnings.warn(
+                f"image coverage {cov_err:.3f} at order {image.order}: "
+                "the model's sensitivities are not represented at this "
+                "order; build the image at order_for(model, p0, domain)",
+                UserWarning, stacklevel=2,
+            )
 
     Phi = image.phi()
     x = image.grid.positions()
@@ -799,9 +817,6 @@ def fit_eac(
     Warns:
         DeprecationWarning: a recognized legacy keyword was passed, or
             ``loss`` is not ``"linear"`` (see ``loss``).
-        UserWarning: the image's coverage of the model's sensitivities at
-            ``p0`` is poor, or the order is too low to identify the model;
-            see :func:`fit`.
     """
     _drop_legacy(legacy, _LEGACY_EAC, "fit_eac")
     if loss != "linear":

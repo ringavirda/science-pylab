@@ -5,6 +5,45 @@ All notable changes to `dtfit` are documented here. The format follows
 [SemVer](https://semver.org/) with the usual 0.x caveat — minor releases may
 carry breaking changes, and each one is listed explicitly under **Changed**.
 
+## [Unreleased]
+
+### Added
+
+- **`dtfit.image`**: the discrete-statistic core (`Grid`, `LegendreBasis`,
+  `BlockBasis`, `Original`, `Image`, `fit`, `order_for`, `coverage`,
+  `osc_order`, `fft_frequency_seed`), and the top-level names `Original`,
+  `Image`, `fit`, `order_for`.
+- `FittingResult` gained `rss_source`, `image_order` and `basis_name`,
+  recording where `rss` was computed and the image the fit ran on.
+- The Monte-Carlo gates in `tests/image/test_gates.py`, run at their full
+  replicate counts with `DTFIT_NIGHTLY=1`.
+
+### Changed
+
+- `fit_lsi` and `fit_eac` are now presets of `fit` on the Legendre and block
+  bases. The default order comes from `order_for` (Legendre) or four windows
+  per parameter (block); the covariance comes from the projected Jacobian,
+  with an unidentified parameter marked `inf`/`nan` rather than given a
+  spuriously small variance; robustness is the robust image (`robust=True`),
+  applied when the image is built.
+- The bounded solve runs a differential-evolution stage only when the local
+  solve fails, reaches a non-finite cost, or explains less than half the
+  variance, and warns when it does.
+- `basis="auto"` fits the candidate bases and returns the one with the
+  lowest sample RSS.
+- The golden accuracy corpus was regenerated: values now sit at the scipy
+  reference on the same draw.
+
+### Removed
+
+- `dtfit.methods._lsi` and `dtfit.methods._eac`, replaced by `dtfit.image`.
+- The keywords `filter_data`, `alpha`, `huber_c`, `active_ratio`,
+  `window_mode` and `f_scale` (accepted and ignored, with a
+  `DeprecationWarning`) and `loss` (maps to `robust=True`, with a warning).
+- `Model.fit(method="adaptive")`.
+- Curvature-placed EAC windows.
+- The Savitzky-Golay pre-filter, moved to `dtfit_experimental.basis_lsi`.
+
 ## [0.4.0] — 2026-07-09
 
 The "adoption" release: first-class (optional) pandas support, a public model

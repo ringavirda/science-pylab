@@ -77,6 +77,8 @@ class BlockBasis(Basis):
         return self.order
 
     def evaluate(self, u: np.ndarray) -> np.ndarray:
+        """Window indicators at ``u``; ``u`` outside ``[-1, 1]`` falls into
+        the nearest edge window (clamped, not extrapolated)."""
         u = np.asarray(u, dtype=float)
         idx = np.clip(
             np.floor((u + 1.0) / 2.0 * self.order).astype(int),

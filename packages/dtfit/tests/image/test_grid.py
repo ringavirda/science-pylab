@@ -36,10 +36,15 @@ def test_merge_non_contiguous_becomes_explicit():
     assert m.positions()[10] == 1.0 and m.positions()[11] == 1.5
 
 
-def test_merge_rejects_overlap():
+def test_merge_overlapping_ranges_makes_a_sorted_union():
     a = Grid.of(np.linspace(0.0, 1.0, 11))
-    with pytest.raises(ValueError):
-        a.merge(Grid.of(np.linspace(0.5, 2.0, 16)))
+    b = Grid.of(np.linspace(0.5, 2.0, 16))
+    m = a.merge(b)
+    expected = np.sort(
+        np.concatenate([a.positions(), b.positions()]), kind="stable"
+    )
+    assert m.n == a.n + b.n
+    assert np.array_equal(m.positions(), expected)
 
 
 def test_merge_small_scale_uniform_uses_relative_tolerance():

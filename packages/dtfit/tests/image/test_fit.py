@@ -1,9 +1,11 @@
+import warnings
+
 import numpy as np
 import pytest
 from scipy.optimize import curve_fit
 
 from dtfit.image import (
-    Original, Image, fit, order_for, coverage, fft_frequency_seed,
+    Original, Image, fit, fit_lsi, order_for, coverage, fft_frequency_seed,
 )
 from dtfit.types import FittingResult
 
@@ -48,7 +50,12 @@ def _grids(scn, kind, seed=1):
 def test_noise_free_fit_is_exact_on_any_grid(name, kind):
     expr, var, fn, pt, scn = _case(name)
     x = _grids(scn, kind)
-    order = 24 if name == "damped_oscillation" else 12
+    if name == "damped_oscillation":
+        order = 24
+    elif name in ("logistic", "gaussian"):
+        order = 20
+    else:
+        order = 12
     res = fit(expr, Original(x, fn(x, *pt)), var, order=order, p0=pt)
     assert np.max(np.abs(res.coeffs / pt - 1.0)) < 1e-7
     assert res.converged and res.rss_source == "samples"
@@ -123,7 +130,7 @@ def test_efficiency_matches_scipy_on_a_clustered_grid():
     for _ in range(20):
         y = fn(x, *pt) + sig * rng.standard_normal(x.size)
         e_img.append(
-            fit(expr, Original(x, y), var, order=12, p0=pt).coeffs - pt
+            fit(expr, Original(x, y), var, order=20, p0=pt).coeffs - pt
         )
         e_cf.append(curve_fit(fn, x, y, p0=pt)[0] - pt)
     ratio = (
@@ -143,12 +150,14 @@ def test_bounds_and_global_fallback_are_reproducible():
         order=24,
         bounds={"A": (0.1, 5.0), "w": (0.5, 3.0), "p": (-3.2, 3.2)},
     )
-    a = fit(
-        "A*sin(w*x + p)", Original(x, y), "x", p0=[1.0, 3.0, 0.0], **kw
-    )
-    b = fit(
-        "A*sin(w*x + p)", Original(x, y), "x", p0=[1.0, 3.0, 0.0], **kw
-    )
+    with pytest.warns(UserWarning, match="differential-evolution"):
+        a = fit(
+            "A*sin(w*x + p)", Original(x, y), "x", p0=[1.0, 3.0, 0.0], **kw
+        )
+    with pytest.warns(UserWarning, match="differential-evolution"):
+        b = fit(
+            "A*sin(w*x + p)", Original(x, y), "x", p0=[1.0, 3.0, 0.0], **kw
+        )
     assert np.allclose(a.coeffs, b.coeffs)
     assert abs(a.params["w"] - 1.5) < 0.02
 
@@ -199,11 +208,12 @@ def test_unidentified_parameter_reports_infinite_stderr():
 def test_non_finite_model_at_p0_raises():
     t = np.linspace(0, 1000, 400)
     y = np.exp(-0.01 * t)
-    with pytest.raises(ValueError, match="not finite"):
-        fit(
-            "a*exp(b*t)", Original(t, y), "t", order=12,
-            p0=[1.0, 1.0],
-        )
+    with pytest.warns(UserWarning, match="coverage"):
+        with pytest.raises(ValueError, match="not finite"):
+            fit(
+                "a*exp(b*t)", Original(t, y), "t", order=12,
+                p0=[1.0, 1.0],
+            )
 
 
 def test_nan_sensitivity_at_one_sample_does_not_zero_the_column():
@@ -232,10 +242,12 @@ def test_no_global_fallback_from_a_good_start():
         order=24,
         bounds={"A": (0.1, 5.0), "w": (0.5, 3.0), "p": (-3.2, 3.2)},
     )
-    r = fit(
-        "A*sin(w*x + p)", Original(x, y), "x",
-        p0={"A": 2.0, "p": 0.3, "w": 1.5}, **kw,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        r = fit(
+            "A*sin(w*x + p)", Original(x, y), "x",
+            p0={"A": 2.0, "p": 0.3, "w": 1.5}, **kw,
+        )
     assert r.nfev < 60
     assert abs(r.params["w"] - 1.5) < 0.02
 
@@ -250,8 +262,9 @@ def test_no_global_fallback_from_a_good_start():
 def test_noise_free_fit_converges_from_a_perturbed_start(name):
     expr, var, fn, pt, scn = _case(name)
     x = _grids(scn, "uniform")
+    order = 20 if name in ("logistic", "gaussian") else 12
     res = fit(
-        expr, Original(x, fn(x, *pt)), var, order=12, p0=0.9 * pt
+        expr, Original(x, fn(x, *pt)), var, order=order, p0=0.9 * pt
     )
     assert np.max(np.abs(res.coeffs / pt - 1.0)) < 1e-7
 
@@ -306,6 +319,10 @@ def test_default_order_and_coverage_warning():
     with pytest.warns(UserWarning, match="coverage"):
         fit(expr, low, var, p0=pt)
     assert coverage(expr, pt, low, var=var) > 0.02
+    with pytest.warns(UserWarning, match="coverage"):
+        fit(expr, Original(x, y), var, order=4, p0=pt)
+    with pytest.warns(UserWarning, match="coverage"):
+        fit_lsi(x, y, expr, var, k_star=4, p0=pt)
 
 
 def test_oscillatory_recipe_seeds_frequency():

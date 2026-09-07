@@ -51,9 +51,10 @@ class Image:
     is the per-sample weights, stored when any weight differs from one or
     the image is robust; else None.
 
-    Images with the same basis, order, domain and grid kind are additive
-    (:meth:`merge`), a Legendre image is nested (:meth:`truncate`), and the
-    least-squares coefficients ``beta = G^-1 S`` are derived, never stored.
+    Images with the same basis, order and domain merge by adding their sums
+    whatever their sample sets (:meth:`merge`); a Legendre image is nested
+    (:meth:`truncate`); the least-squares coefficients ``beta = G^-1 S`` are
+    derived, never stored.
     """
 
     basis: Basis
@@ -182,23 +183,34 @@ class Image:
         return cls.of(Original(x, f, w, domain=dom), basis, order)
 
     def merge(self, other: "Image") -> "Image":
-        """The image of the two signals concatenated; ``other`` follows
-        ``self``."""
+        """The image of the two signals' samples pooled, whatever their
+        sample sets; requires the same basis (including order) and domain.
+
+        The sums (``S``, ``G``, ``n``, ``sumsq``, ``sumy``, ``wsum``) are
+        additive regardless of sample order, so they are simply added; the
+        grid is rebuilt from the sorted union of both position sets
+        (:meth:`Grid.merge`).
+        """
         if self.basis != other.basis or self.domain != other.domain:
             raise ValueError(
                 "images to merge must share basis, order and domain"
             )
+        positions = np.concatenate(
+            [self.grid.positions(), other.grid.positions()]
+        )
+        idx = np.argsort(positions, kind="stable")
+        grid = Grid.of(positions[idx])
         if self.weighted or other.weighted:
             wa = self.w if self.w is not None else np.ones(self.n)
             wb = other.w if other.w is not None else np.ones(other.n)
-            w: np.ndarray | None = np.concatenate([wa, wb])
+            w: np.ndarray | None = np.concatenate([wa, wb])[idx]
         else:
             w = None
         return Image(
             self.basis, self.domain, self.S + other.S, self.G + other.G,
             self.n + other.n, self.sumsq + other.sumsq,
             self.sumy + other.sumy, self.wsum + other.wsum,
-            self.grid.merge(other.grid), w, self.robust or other.robust,
+            grid, w, self.robust or other.robust,
         )
 
     def truncate(self, order: int) -> "Image":
@@ -217,11 +229,17 @@ class Image:
             make_basis("legendre", order), self.domain,
             self.S[:k].copy(), self.G[:k, :k].copy(),
             self.n, self.sumsq, self.sumy, self.wsum,
-            self.grid, self.w, self.robust,
+            self.grid, self.w.copy() if self.w is not None else None,
+            self.robust,
         )
 
     def reconstruct(self, x: np.ndarray) -> np.ndarray:
-        """The least-squares reconstruction of the signal at ``x``."""
+        """The least-squares reconstruction of the signal at ``x``.
+
+        A position outside the domain is evaluated in the basis's own
+        extension: the edge window for the block basis, the polynomial
+        continuation for Legendre.
+        """
         Phi = self.basis.evaluate(
             u_of(np.asarray(x, dtype=float), *self.domain)
         )

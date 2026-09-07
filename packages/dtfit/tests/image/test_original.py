@@ -14,15 +14,15 @@ def test_original_validates_and_sorts():
 
 
 def test_original_rejects_bad_input():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="same length"):
         Original([1.0, 2.0], [1.0])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="1-D"):
         Original(np.ones((3, 2)), [1.0, 2.0, 3.0])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="non-finite"):
         Original([1.0, float("nan")], [1.0, 2.0])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="positive"):
         Original([1.0, 2.0], [1.0, 2.0], sigma=[1.0, 0.0])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="nan_policy"):
         Original([1.0, 2.0], [1.0, 2.0], nan_policy="drop")
 
 
