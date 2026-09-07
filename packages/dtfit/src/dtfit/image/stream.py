@@ -27,11 +27,11 @@ class _Sums:
     (endpoints, spacing, count) or kept explicitly."""
 
     def __init__(self, n_coef: int, channels: int, explicit: bool) -> None:
-        self.S = np.zeros((channels, n_coef))
-        self.G = np.zeros((n_coef, n_coef))
+        self.S: np.ndarray = np.zeros((channels, n_coef))
+        self.G: np.ndarray = np.zeros((n_coef, n_coef))
         self.n = 0
-        self.sumsq = np.zeros(channels)
-        self.sumy = np.zeros(channels)
+        self.sumsq: np.ndarray = np.zeros(channels)
+        self.sumy: np.ndarray = np.zeros(channels)
         self.wsum = 0.0
         self.explicit = explicit
         self.x0 = 0.0
