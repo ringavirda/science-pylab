@@ -79,6 +79,8 @@ class FittingResult:
         tss: Total sum of squares of the data; enables :attr:`rsquared`.
         nfev: Model evaluations the optimizer used, when it reports them.
         cost: Final optimizer cost, typically ``0.5 * rss``.
+        rss_source: Where ``rss`` was computed: ``"samples"``, ``"image"``
+            or ``None``.
     """
 
     def __init__(
@@ -122,6 +124,7 @@ class FittingResult:
         self.tss = None if tss is None else float(tss)
         self.nfev = None if nfev is None else int(nfev)
         self.cost = None if cost is None else float(cost)
+        self.rss_source: str | None = None
 
     def __repr__(self) -> str:
         if self.error is not None:

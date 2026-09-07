@@ -1,0 +1,196 @@
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+from scipy.optimize import curve_fit
+
+from dtfit.image import Original, Image, fit
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from accuracy.scenarios import SCENARIOS_BY_NAME  # noqa: E402
+
+
+def _case(name):
+    scn = SCENARIOS_BY_NAME[name]
+    import sympy as sp
+    m = scn.model()
+    t = sp.Symbol(m.var)
+    f = sp.sympify(m.expr)
+    names = sorted(str(s) for s in f.free_symbols if s != t)
+    fn = sp.lambdify((t, *[sp.Symbol(n) for n in names]), f, "numpy")
+    return m.expr, m.var, fn, np.array([scn.true[n] for n in names]), scn
+
+
+def _grids(scn, kind, seed=1):
+    n = scn.n
+    if kind == "uniform":
+        return np.linspace(scn.x0, scn.x1, n)
+    if kind == "clustered":
+        a = int(0.8 * n)
+        third = scn.x0 + (scn.x1 - scn.x0) / 3
+        return np.sort(np.concatenate([
+            np.linspace(scn.x0, third, a),
+            np.linspace(third, scn.x1, n - a + 1)[1:],
+        ]))
+    x = np.sort(np.random.default_rng(seed).uniform(scn.x0, scn.x1, n))
+    x[0], x[-1] = scn.x0, scn.x1
+    return x
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "exp_decay_offset", "logistic", "michaelis_menten", "gompertz",
+        "gaussian", "damped_oscillation",
+    ],
+)
+@pytest.mark.parametrize("kind", ["uniform", "clustered", "random"])
+def test_noise_free_fit_is_exact_on_any_grid(name, kind):
+    expr, var, fn, pt, scn = _case(name)
+    x = _grids(scn, kind)
+    order = 24 if name == "damped_oscillation" else 12
+    res = fit(expr, Original(x, fn(x, *pt)), var, order=order, p0=pt)
+    assert np.max(np.abs(res.coeffs / pt - 1.0)) < 1e-7
+    assert res.converged and res.rss_source == "samples"
+    assert res.n_obs == x.size
+
+
+def test_fit_on_image_matches_fit_on_original_and_uses_image_rss():
+    expr, var, fn, pt, scn = _case("logistic")
+    x = _grids(scn, "uniform")
+    y = fn(x, *pt) + 0.05 * np.random.default_rng(0).standard_normal(x.size)
+    o = Original(x, y)
+    a = fit(expr, o, var, order=12, p0=pt)
+    b = fit(expr, Image.of(o, "legendre", 12), var, p0=pt)
+    assert np.allclose(a.coeffs, b.coeffs, atol=1e-8)
+    assert b.rss_source == "image"
+    assert abs(b.rss - a.rss) / a.rss < 0.02
+    assert np.allclose(
+        np.sqrt(np.diag(a.cov)), np.sqrt(np.diag(b.cov)), rtol=0.02
+    )
+
+
+def test_image_rss_is_exact_for_a_model_in_the_span():
+    x = np.linspace(0, 1, 100)
+    y = 1.0 + 2.0 * x + 0.1 * np.random.default_rng(1).standard_normal(100)
+    o = Original(x, y)
+    a = fit("a + b*x", o, "x", order=4, p0=[1.0, 2.0])
+    b = fit("a + b*x", Image.of(o, "legendre", 4), "x", p0=[1.0, 2.0])
+    assert abs(a.rss - b.rss) < 1e-9
+
+
+def test_covariance_is_calibrated_and_tracks_sigma_semantics():
+    expr, var, fn, pt, scn = _case("exp_decay_offset")
+    x = _grids(scn, "uniform")
+    rng = np.random.default_rng(5)
+    sig = 0.05 * np.std(fn(x, *pt))
+    hits = []
+    for _ in range(100):
+        y = fn(x, *pt) + sig * rng.standard_normal(x.size)
+        r = fit(expr, Original(x, y), var, order=8, p0=pt)
+        se = np.sqrt(np.diag(r.cov))
+        hits.append(np.abs(r.coeffs - pt) <= 1.96 * se)
+    assert 0.88 <= np.mean(hits) <= 0.99
+    y = fn(x, *pt) + sig * rng.standard_normal(x.size)
+    rel = fit(
+        expr, Original(x, y), var, order=8, p0=pt,
+        sigma=np.full(x.size, 3.0),
+    )
+    plain = fit(expr, Original(x, y), var, order=8, p0=pt)
+    assert np.allclose(
+        np.sqrt(np.diag(rel.cov)), np.sqrt(np.diag(plain.cov)), rtol=1e-6
+    )
+    absl = fit(
+        expr, Original(x, y), var, order=8, p0=pt,
+        sigma=np.full(x.size, 3.0), absolute_sigma=True,
+    )
+    absl2 = fit(
+        expr, Original(x, y), var, order=8, p0=pt,
+        sigma=np.full(x.size, 6.0), absolute_sigma=True,
+    )
+    assert np.allclose(
+        np.sqrt(np.diag(absl2.cov)), 2.0 * np.sqrt(np.diag(absl.cov)),
+        rtol=1e-6,
+    )
+
+
+def test_efficiency_matches_scipy_on_a_clustered_grid():
+    expr, var, fn, pt, scn = _case("logistic")
+    x = _grids(scn, "clustered")
+    rng = np.random.default_rng(7)
+    sig = 0.05 * np.std(fn(x, *pt))
+    e_img, e_cf = [], []
+    for _ in range(20):
+        y = fn(x, *pt) + sig * rng.standard_normal(x.size)
+        e_img.append(
+            fit(expr, Original(x, y), var, order=12, p0=pt).coeffs - pt
+        )
+        e_cf.append(curve_fit(fn, x, y, p0=pt)[0] - pt)
+    ratio = (
+        np.sqrt(np.mean(np.square(e_img), axis=0))
+        / np.sqrt(np.mean(np.square(e_cf), axis=0))
+    )
+    assert np.all(ratio < 1.25)
+
+
+def test_bounds_and_global_fallback_are_reproducible():
+    x = np.linspace(0, 10, 300)
+    y = (
+        2.0 * np.sin(1.5 * x + 0.3)
+        + 0.1 * np.random.default_rng(2).standard_normal(300)
+    )
+    kw = dict(
+        order=24,
+        bounds={"A": (0.1, 5.0), "w": (0.5, 3.0), "p": (-3.2, 3.2)},
+    )
+    a = fit(
+        "A*sin(w*x + p)", Original(x, y), "x", p0=[1.0, 3.0, 0.0], **kw
+    )
+    b = fit(
+        "A*sin(w*x + p)", Original(x, y), "x", p0=[1.0, 3.0, 0.0], **kw
+    )
+    assert np.allclose(a.coeffs, b.coeffs)
+    assert abs(a.params["w"] - 1.5) < 0.02
+
+
+def test_robust_flag_needs_an_original_and_helps_under_outliers():
+    expr, var, fn, pt, scn = _case("exp_decay_offset")
+    x = _grids(scn, "uniform")
+    rng = np.random.default_rng(9)
+    sig = 0.05 * np.std(fn(x, *pt))
+    y = fn(x, *pt) + sig * rng.standard_normal(x.size)
+    idx = rng.choice(x.size, 20, replace=False)
+    y[idx] += 20 * sig
+    plain = fit(expr, Original(x, y), var, order=12, p0=pt)
+    rob = fit(expr, Original(x, y), var, order=12, p0=pt, robust=True)
+    assert (
+        np.max(np.abs(rob.coeffs / pt - 1))
+        < 0.5 * np.max(np.abs(plain.coeffs / pt - 1))
+    )
+    with pytest.raises(TypeError):
+        fit(
+            expr, Image.of(Original(x, y), "legendre", 12), var, p0=pt,
+            robust=True,
+        )
+
+
+def test_callable_model_and_input_errors():
+    x = np.linspace(0, 3, 120)
+    y = (
+        2.0 * np.exp(-1.1 * x)
+        + 0.02 * np.random.default_rng(4).standard_normal(120)
+    )
+    r = fit(
+        lambda x, a, b: a * np.exp(-b * x), Original(x, y),
+        order=8, p0=[1.0, 1.0],
+    )
+    assert r.names == ("a", "b") and abs(r.params["b"] - 1.1) < 0.05
+    with pytest.raises(ValueError):
+        fit("a*exp(-b*x)", Original(x, y), "x", order=8, p0=[1.0])
+    with pytest.raises(ValueError):
+        fit("a*exp(-b*x)", Original(x, y), "x", order=0, p0=[1.0, 1.0])
+    with pytest.raises(ValueError):
+        fit(
+            "a + b*x + c*x**2 + d*x**3", Original(x, y), "x", order=2
+        )
