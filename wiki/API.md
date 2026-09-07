@@ -10,19 +10,21 @@ signatures, arguments, return types, and behavior.
 
 > **Looking for the experimental adaptations** (`fit_lsi_basis`, `fit_joint`,
 > `boosted_fit`)? Those live in the separate `dtfit-experimental` package -- see
-> [../experimental/adaptations-api.md](Experimental-Adaptations-API).
-> (The overlapping-window ensemble `ensemble_fit` and the **stochastic-series**
-> solution have been promoted -- see [fitting.md](API-Fitting#ensemble_fit) and
-> [stochastic.md](API-Stochastic).) The `InformationFilter` fusion primitive also
-> lives in `dtfit-experimental` now (`from dtfit_experimental import
-> InformationFilter`), not in the stable streaming surface. This page covers the
-> **stable** `dtfit` API.
+> [../experimental/adaptations-api.md](Experimental-Adaptations-API). The
+> overlapping-window ensemble `ensemble_fit` is documented in
+> [fitting.md](API-Fitting#ensemble_fit) and the stochastic-series solution in
+> [stochastic.md](API-Stochastic). The `InformationFilter` fusion primitive
+> lives in `dtfit-experimental` (`from dtfit_experimental import
+> InformationFilter`), not in the stable streaming surface. This page covers
+> the **stable** `dtfit` API.
 
 ## Conventions
 
-- All fitters take 1-D NumPy arrays `x`, `y` and a model as a **sympy-style
-  expression string** plus the name of its main variable, e.g.
-  `fit_lsi(x, y, "a*exp(b*x)", "x")`.
+- Fitters take an `Original` or an `Image` directly, or plain 1-D NumPy arrays
+  `x`, `y` (from which the batch fitters build an `Original`), and a model as
+  a **sympy-style expression string**, a `sympy.Expr`, or a callable `f(x,
+  *params)`, plus the name of its main variable, e.g. `fit_lsi(x, y,
+  "a*exp(b*x)", "x")`.
 - **Parameters are the free symbols** of the expression (everything except the
   variable), and results are ordered by **sorted parameter name** -- a stable
   layout used everywhere. So `"a*exp(b*x)"` has parameters `[a, b]` in that order.
@@ -34,14 +36,14 @@ signatures, arguments, return types, and behavior.
 
 | Area | Names | Page |
 |---|---|---|
-| **Batch fitting** | `fit_lsi`, `fit_eac` (incl. `window_mode="curvature"`, `robust=True`), `ensemble_fit`, `EnsembleResult`, `fit_dsb`, `find_degree`, `fft_frequency_seed` | [fitting.md](API-Fitting) |
+| **Batch fitting** | `fit`, `Original`, `Image`, `order_for`, `fit_lsi`, `fit_eac`, `ensemble_fit`, `EnsembleResult`, `fit_dsb`, `find_degree`, `fft_frequency_seed` | [fitting.md](API-Fitting) |
 | **Result type** | `FittingResult` | [types.md](API-Types) |
 | **sklearn estimator** | `NonlineRegressor` | [estimator.md](API-Estimator) |
 | **One-call entry points** | `auto_estimate`, `auto_forecast` | [auto.md](API-Auto) |
 | **Model framework** | `models`, `Model`, `suggest_models` (+ catalog families) | [models.md](API-Models) |
 | **Stochastic series** | `fit_stochastic`, `StochasticModel`, `StochasticFilter`, `Stochastic`, `stochastic` (estimators) | [stochastic.md](API-Stochastic) |
 | **Streaming / online** | `EACFilter`, `LSIFilter`, `FilterBank`, `FusedChiSquareDetector` | [streaming.md](API-Streaming) |
-| **Scaling backends** | `fit_many`, `FittingProblem`, `PartitionedLSI`, `PartitionedEAC`, `PartitionedBatchLSI`, `fit_lsi_batched` (`project_spectra` lives in `dtfit.scale`) | [scaling.md](API-Scaling) |
+| **Streams and scale** | `ImageStream`, `fit_many`, `FittingProblem` (`coverage`, `assemble`, `legendre_transfer`, `block_transfer` in `dtfit.image`) | [scaling.md](API-Scaling) |
 | **Diagnostics** | `fit_report`, `residual_diagnostics`, `FitDisplay`, `ResidualsDisplay` | [diagnostics.md](API-Diagnostics) |
 | **Logging** | `enable_logging`, `logger` | [below](#logging) |
 
@@ -49,8 +51,9 @@ signatures, arguments, return types, and behavior.
 
 ```python
 # batch fitting
-from dtfit import (fit_lsi, fit_eac, fit_dsb, ensemble_fit, EnsembleResult,
-                   find_degree, fft_frequency_seed, FittingResult)
+from dtfit import (fit, Original, Image, order_for, fit_lsi, fit_eac, fit_dsb,
+                   ensemble_fit, EnsembleResult, find_degree, fft_frequency_seed,
+                   FittingResult)
 
 # high-level entry points
 from dtfit import auto_estimate, auto_forecast
@@ -70,11 +73,9 @@ from dtfit import NonlineRegressor
 # streaming
 from dtfit import (EACFilter, LSIFilter, FilterBank, FusedChiSquareDetector)
 
-# scaling
-from dtfit import (fit_many, FittingProblem,
-                   PartitionedLSI, PartitionedEAC, PartitionedBatchLSI,
-                   fit_lsi_batched)
-from dtfit.scale import project_spectra   # not top-level
+# streams and scale
+from dtfit import ImageStream, fit_many, FittingProblem
+from dtfit.image import coverage, assemble, legendre_transfer, block_transfer
 
 # diagnostics (submodule, not top-level - sklearn convention)
 from dtfit.diagnostics import (fit_report, residual_diagnostics,

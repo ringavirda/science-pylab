@@ -1,13 +1,19 @@
 # Batch fitting
 
-The differential-transformation batch fitters and the self-describing result
-type they return. Start with `fit_lsi` (the accurate general default); switch to
-`fit_eac` when the data are noisy or you need speed; reach for `ensemble_fit`
-when outliers contaminate the record. See the
-[Guide](../guide/choosing-a-method.md) for the decision tree.
+The core batch fitters run on the **image** of the data -- a fixed-size basis
+projection, additive over sample sets. `fit` runs on an `Original` or an
+`Image` directly; `fit_lsi` and `fit_eac` are `fit`'s presets in the Legendre
+and block bases.
 
-All three accept the model as a SymPy string, a `sympy.Expr`, or a Python
-callable `f(x, *params)` -- resolved by `resolve_model`.
+::: dtfit.fit
+
+::: dtfit.Original
+
+::: dtfit.Image
+
+::: dtfit.order_for
+
+::: dtfit.image.coverage
 
 ::: dtfit.fit_lsi
 

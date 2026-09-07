@@ -88,6 +88,7 @@ nav:
   - Home: index.md
   - Guide:
       - Choosing a method: guide/choosing-a-method.md
+      - The image: guide/image.md
       - "LSI -- Least-Squares Integral": guide/lsi.md
       - "EAC -- Equal-Areas Criterion": guide/eac.md
       - Multivariate data: guide/multivariate.md
@@ -98,4 +99,5 @@ nav:
       - Models: api/models.md
       - Forecasting: api/forecasting.md
       - Streaming: api/streaming.md
+      - Streams and scale: api/streams.md
       - scikit-learn: api/sklearn.md

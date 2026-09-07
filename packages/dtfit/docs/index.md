@@ -10,11 +10,14 @@ dtfit's edge is not one-shot batch curve fitting -- for that, use
 [dtfit vs SciPy](comparison.md)). dtfit is for the cases where SciPy is awkward or
 does not apply:
 
-- **Streaming / recursive** parameter tracking (`partial_fit`, one sample at a time).
-- **Out-of-memory** and **many-channel** fitting (one-pass map-reduce, GEMM-batched).
+- **Streaming / recursive** parameter tracking (`partial_fit`, one sample at a
+  time; `ImageStream` accumulates the fitting statistic in fixed memory).
+- **Out-of-memory** and **many-channel** fitting (block images assembled onto a
+  coarse domain, channels batched through one shared GEMM).
 - **Embedded / real-time** estimation with predictable per-step cost.
 - **Robustness without tuning** -- self-seeding models, integral (area) criteria
-  that denoise by construction, and outlier-robust ensembles.
+  that denoise by construction, and the robust image for outlier-contaminated
+  samples.
 
 It is complementary to SciPy / lmfit, not a replacement.
 
@@ -94,6 +97,21 @@ print(fit.params)      # {'a': 1.4991, 'b': 0.8027}
 
 A callable carries no expression, so its result cannot be `to_dict`-serialized,
 but `predict` (including error bands) still works via the numeric evaluator.
+
+### One image, several models
+
+`fit_lsi` and `fit_eac` build the image for you; imaging the data once with
+`Original.image` and calling `.fit()` on it directly reuses that same
+projection for as many candidate models as you like:
+
+```python
+from dtfit import Original
+
+img = Original(x, y).image("legendre", order=8)
+lin = img.fit("a0 + a1*x", "x")
+exp = img.fit("a0 + a1*exp(a2*x)", "x")
+print(lin.aic, exp.aic)   # compare candidates on the same image
+```
 
 ### Per-point uncertainty (`sigma`)
 
@@ -176,10 +194,10 @@ print(fc.to_series().head(3))   # future dates -> forecast values
 
 | Tier | You do this | Entry points |
 |---|---|---|
-| **Methods** | choose the engine | `fit_lsi`, `fit_eac`, `fit_dsb`, `ensemble_fit` |
+| **Methods** | choose the engine | `fit`, `fit_lsi`, `fit_eac`, `fit_dsb`, `ensemble_fit` |
 | **Estimator** | plug into scikit-learn | `NonlineRegressor` |
 | **Models** | pick a shape, not a formula | `models`, `Model`, `suggest_models`, `register` |
 | **High-level** | let dtfit choose | `auto_estimate`, `auto_forecast` |
 | **Streaming** | track live parameters | `EACFilter`, `LSIFilter`, `FilterBank` |
-| **Scale** | run big / many | `PartitionedLSI`, `fit_lsi_batched`, `fit_many` |
+| **Scale** | run big / many | `ImageStream`, `fit_many` |
 | **Stochastic** | genuinely random series | `fit_stochastic`, `StochasticModel` |

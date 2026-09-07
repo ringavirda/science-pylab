@@ -26,10 +26,8 @@ FittingResult(coeffs, cov=None, expr=None, var=None, names=(), model=None,
 ```
 
 You rarely construct one yourself; the fitters return it. `FittingResult` is
-picklable, so it survives a process-pool round trip; the `scale` fitters return it
-too. Batch and single fits return this **same** type -- including
-[`fit_many`](API-Scaling#fit_many) (the old `BatchFittingResult` alias has been
-**removed**).
+picklable, so it survives a process-pool round trip. Batch and single fits
+return this **same** type -- including [`fit_many`](API-Scaling#fit_many).
 
 ## Attributes
 
@@ -37,10 +35,10 @@ too. Batch and single fits return this **same** type -- including
 |---|---|---|
 | `coeffs` | ndarray | fitted coefficients, ordered by parameter name for a symbolic model, by **signature order** for a callable-fit result |
 | `cov` | ndarray \| None | parameter covariance (`nxn`) when the method produced one from an overdetermined system; else `None`. Diagonal square-roots are the standard errors |
-| `expr` | str \| None | the model expression (enables serialization & error bands). **`None` for a callable-fit result** — `predict`/`model` still work via `param_model`, but `to_dict` raises |
+| `expr` | str \| None | the model expression (enables serialization & error bands). **`None` for a callable-fit result** -- `predict`/`model` still work via `param_model`, but `to_dict` raises |
 | `var` | str \| None | the main variable name (a label only for a callable-fit result) |
 | `names` | tuple[str] | parameter names aligned with `coeffs` |
-| `model` | callable | the fitted model `f(x) > y` (lambdified lazily from `expr`+`coeffs`, or — for a callable-only result — from `param_model` with the coefficients frozen) |
+| `model` | callable | the fitted model `f(x) > y` (lambdified lazily from `expr`+`coeffs`, or -- for a callable-only result -- from `param_model` with the coefficients frozen) |
 | `param_model` | callable \| None | a numeric, parameters-explicit evaluator `f(x, coeffs) -> y` set instead of `expr` for a **callable-fit** result; `predict(return_std=True)` finite-differences it for a band, and `model` falls back to it. `None` when the model is symbolic |
 | `n_obs` | int \| None | number of observations in the fit; enables `aic`/`bic`. `None` when not recorded |
 | `rss` | float \| None | residual sum of squares; enables `rsquared`/`aic`/`bic`. `None` when not recorded |
@@ -52,6 +50,9 @@ too. Batch and single fits return this **same** type -- including
 | `x_range` | tuple[float, float] \| None | `(min, max)` of the training `x`, recorded so [`predict`](#predictx-return_stdfalse-warn_extrapolationfalse) can warn on extrapolation; `None` when unknown |
 | `label` | Any | optional tag carried through batch/parallel fits (a channel name, grid cell, ...); `None` for a plain single fit |
 | `error` | str \| None | set to a message instead of coefficients when a fit failed inside a batch ([`fit_many`](API-Scaling#fit_many)), so one bad problem does not abort the batch; `None` for a success |
+| `rss_source` | str \| None | where `rss` was computed: `"samples"` when the fit ran on an `Original`, `"image"` when it ran on an `Image`; `None` when not recorded |
+| `image_order` | int \| None | the order of the image the fit ran on; `None` when not recorded |
+| `basis_name` | str \| None | the basis of the image the fit ran on (`"legendre"` or `"block"`); `None` when not recorded |
 
 ## Methods & properties
 
@@ -72,7 +73,7 @@ the model is locally linearized at each `x` (numerically, by perturbing each
 parameter), and the parameter covariance is pushed through that linearization to
 give a per-point variance. So the band is wide where the model is sensitive to the
 uncertain parameters and narrow where it isn't. This needs `cov` and either `expr`
-or, for a **callable-fit** result (`expr is None`), the `param_model` evaluator —
+or, for a **callable-fit** result (`expr is None`), the `param_model` evaluator --
 so a callable-only fit still produces a band.
 
 **Extrapolation guard.** With `warn_extrapolation=True` a `UserWarning` is issued
@@ -84,7 +85,7 @@ unknown.
 ```python
 y_hat = res.predict(x)
 y_hat, sigma = res.predict(x, return_std=True)   # 1sigma band from parameter covariance
-res.predict(x_future, warn_extrapolation=True)   # warns if x_future leaves the fitted range
+res.predict(x + 10, warn_extrapolation=True)     # warns since x + 10 leaves the fitted range
 ```
 
 ### `stderr() -> dict[str, float]`
@@ -95,19 +96,19 @@ Per-parameter standard errors (sqrt of the covariance diagonal). Raises if `cov`
 Per-parameter confidence intervals (normal approximation) at the given level.
 
 <a name="fit-quality-diagnostics-v03"></a>
-### Fit-quality diagnostics (`rsquared`, `aic`, `bic`, `residuals`) — v0.3
+### Fit-quality diagnostics (`rsquared`, `aic`, `bic`, `residuals`)
 The iterative fitters ([`fit_lsi`](API-Fitting#fit_lsi), [`fit_eac`](API-Fitting#fit_eac))
 record the raw fit statistics (`n_obs`, `rss`, `tss`, plus the optimizer's `nfev`
 and `cost`) on the result, and three read-only properties derive the usual
 model-comparison numbers from them:
 
-- **`rsquared -> float | None`** — coefficient of determination `1 - rss/tss`.
+- **`rsquared -> float | None`** -- coefficient of determination `1 - rss/tss`.
   `None` when the fit did not record both `rss` and `tss`, or the data is constant
   (`tss == 0`).
-- **`aic -> float | None`** / **`bic -> float | None`** — Akaike / Bayesian
+- **`aic -> float | None`** / **`bic -> float | None`** -- Akaike / Bayesian
   information criteria, computed from `rss` and `n_obs`. `None` when either is
   unrecorded.
-- **`residuals(x, y) -> ndarray`** — the fit residuals `y - model(x)` at the given
+- **`residuals(x, y) -> ndarray`** -- the fit residuals `y - model(x)` at the given
   samples.
 
 ```python
@@ -174,5 +175,5 @@ res2 = FittingResult.from_dict(json.loads(blob))   # rebuilt, ready to predict
   `n_windows == n_params`); uncertainty methods then raise with a clear message.
 - Parameter **order is by sorted name** for a symbolic model, consistently across
   the whole library -- so `coeffs`, `names`, and `params` always agree. A
-  **callable-fit** result (v0.3) instead follows the callable's **signature order**;
+  **callable-fit** result instead follows the callable's **signature order**;
   `coeffs`/`names`/`params` still agree, just in that layout.
