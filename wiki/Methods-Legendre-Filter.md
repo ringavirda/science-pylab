@@ -1,151 +1,162 @@
-# LSIFilter -- recursive (streaming) LSI
+# ImageFilter -- recursive estimation on the window image
 
 > Numeric **online** method. Source:
-> [`streaming/_lsi.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/streaming/_lsi.py).
-> Invoke via `LSIFilter(expr, var, p0=, window_size=, order=, ...)` then
-> `flt.partial_fit(t, y)` per sample; `flt.predict(x)`, `flt.params_`.
+> [`streaming/filter.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/streaming/filter.py).
+> Invoke via `ImageFilter(model, var, p0=, window_size=, order=, basis=,
+> ...)` then `flt.partial_fit(t, y)` per sample; `flt.predict(x)`,
+> `flt.params_`, `flt.result()`.
 
-The LSIFilter runs [LSI](Methods-LSI)'s spectral identification **recursively**, one
-sample at a time, as an extended-Kalman estimator. It is the streaming twin of the
-[EACFilter](Methods-Equal-Areas-Filter), differing in **what it measures**: where the
-EACFilter corrects against a single integrated **area** over the sliding window,
-the LSIFilter corrects against the window's **orthogonal Legendre spectrum** -- a
-richer, multi-component measurement. That extra structure is what lets it track
-**oscillatory** plants, whose cycle the scalar area criterion partly cancels.
+ImageFilter tracks the parameters of `f(t; theta)` online by treating each
+sliding window of the stream as [an image](Methods-Image) `(S_w, G_w)` in a
+chosen basis -- the same statistic a batch fit builds -- and updating it
+one sample at a time in information form. `LSIFilter` and `EACFilter` fix
+its basis to Legendre and block, the streaming twins of
+[LSI](Methods-LSI) and [EAC](Methods-EAC).
 
 ## Mathematical grounding
 
-The state is the parameter vector $\theta$, modelled as a random walk
-$\theta_t = \theta_{t-1} + w_t$, $w_t\sim\mathcal N(0,Q)$. Over the current sliding
-window of length $W$, the **measurement** is the window's Legendre spectrum (the
-first $L{+}1$ coefficients, `order` $=L$):
+The state is the parameter vector `theta`, modelled as a random walk
+`theta_t = theta_{t-1} + w_t`, `w_t ~ N(0, Q)`. Over the current window the
+measurement is the window image `S_w = Phi_w^T y`, `G_w = Phi_w^T Phi_w`,
+`Phi_w` the basis evaluated at the window's sample positions mapped to
+`[-1, 1]` -- recomputed from scratch each step, `O(W K)`, not accumulated,
+because the window's positions shift by one sample every update. With
+`S_f(theta) = Phi_w^T f(t_w; theta)` the model's projection on the same
+window and `G_w = L_w L_w^T`, the **whitened innovation** and Jacobian are
 
 $$
-\beta^{\text{data}} = \Pi\, y_W
-\quad\text{(cached projection)},
+e = L_w^{-1}\big(S_w - S_f(\theta)\big),
 \qquad
-\beta^{\text{model}}(\theta)_j = \int_{W} f(t;\theta)\,P_j(u(t))\,dt
-\quad\text{(quadrature)} ,
+H = L_w^{-1}\, \Phi_w^{\top}\, \frac{\partial f}{\partial \theta} .
 $$
 
-and the **vector innovation** is their difference
+The measurement noise is `s2 I` with `s2` an EWMA of the window's model
+residual variance (or a fixed `noise_var`). The update is the
+**information form** of a Kalman correction, which needs no matrix
+inverse of the measurement covariance:
 
 $$
-e \;=\; \beta^{\text{data}} - \beta^{\text{model}}(\theta) \;\in\; \mathbb R^{L+1}.
+A = \frac{H^{\top} H}{s^2}, \qquad
+b = \frac{H^{\top} e}{s^2}, \qquad
+P_{\text{post}} = \big(P^{-1} + A\big)^{-1}, \qquad
+\theta \leftarrow \theta + P_{\text{post}}\, b ,
 $$
 
-Its sensitivity to the parameters is the **spectral Jacobian** $H\in\mathbb
-R^{(L+1)\times m}$, whose column $j$ is the Legendre projection of
-$\partial f/\partial\theta_j$ over the window -- exactly LSI's model spectrum,
-differentiated. The extended-Kalman update is then standard:
+followed by `P <- P_post + Q`, symmetrized. `P` is a gain state, not a
+calibrated covariance -- the calibrated read-out is [`result()`](#result).
+A step that raises the window's whitened misfit `e^T e` is halved, up to
+eight times, before it is skipped; a nonlinear model can otherwise
+overshoot on the linearized step.
 
-$$
-\begin{aligned}
-S &= H\,P\,H^{\top} + R && \text{(innovation covariance)}\\
-K &= P\,H^{\top}S^{-1} && \text{(gain)}\\
-\theta &\leftarrow \theta + K\,e && \text{(correction)}\\
-P &\leftarrow (I - K\,H)\,P + Q && \text{(covariance update)} .
-\end{aligned}
-$$
+`nis_`, the normalized innovation squared reported after each update, is
+`e^T e / s2` corrected for the information gained in this step
+(`b^T P_post b`), chi-square with `n_coef` degrees of freedom under the
+model.
 
-**The measurement-noise covariance is diagonal with the orthonormal weighting**
-$R_{jj} = r\,(2j+1)$. This is the streaming counterpart of batch LSI's $1/(2j+1)$
-criterion weight: the higher-order Legendre coefficients are noisier, so they are
-trusted less. With `adapt_r=True` the base $r$ is rescaled online from an EWMA of
-the normalized innovation power (Mehra-style).
+## Drift detection
 
-Because the empirical spectrum over a (near-)uniform streaming window is a fixed
-linear map, the projection $\Pi$ is a **single cached matrix** $\Pi=\text{pinv}(V)$
-where $V$ is the Legendre Vandermonde on the normalized in-window positions -- so
-$\beta^{\text{data}}=\Pi y_W$ is one mat-vec. The model spectrum and its Jacobian
-use Gauss-Legendre quadrature on mapped nodes (the model is integrated exactly, as
-in batch LSI). The model and its derivatives are compiled (`lambdify`) **once in
-`__init__`**; every `partial_fit` is pure NumPy at $O(W\cdot(L{+}m))$ cost with no
-SymPy on the hot path -- real-time safe.
+Every `W` samples once the window is full -- or the shorter, current
+`_W_eff` while the adaptive window is still growing, so the detector
+tests sooner and more often before the window reaches its cap -- the
+whitened innovation is rotated by a Householder reflection so its first
+component is the window-mean channel (the direction that carries a level
+shift in any basis), and tested by a
+[`DriftDetector`](API-Streaming#driftdetector) shared with
+`ImageStream(detect=...)`: a jump test on the innovation energy against
+an exponentially weighted baseline, and a two-sided CUSUM on the first
+component. On a detection, `drift_reset="inflate"` (the default)
+multiplies `P` by `drift_inflation` and keeps the window; `"full"` resets
+`P` to its initial value and clears the window. Either way the adaptive
+window collapses to `min_window` and the detector's own baselines
+restart.
 
-## Why a spectrum, not an area
+## The adaptive window
 
-A pure area $\int_W y$ over a window spanning roughly an integer number of cycles
-of an oscillation is **near zero regardless of amplitude or phase** -- the positive
-and negative half-cycles cancel -- so an area measurement is nearly blind to an
-oscillatory model's parameters. The Legendre spectrum keeps the higher orders that
-*do* respond to a cycle, so the LSIFilter observes (and tracks) frequency,
-amplitude and phase where the EACFilter cannot. The embedded-control domain study
-confirms this split: LSIFilter for oscillatory / sustained-cycle plants, EACFilter
-for monotone / polynomial ones.
+`adaptive_window=True` (the default) sizes the window from the data: it
+grows from `min_window` by one sample per update while the model still
+fits, and shrinks by one while an EWMA of the window residual's lag-1
+autocorrelation stays above 0.35 -- a curve the model is lagging or
+missing the dynamics of. A static model grows to `window_size`; a
+manoeuvring signal settles where the model still tracks it. `False` keeps
+the window fixed at `window_size`.
 
-## Guards -- drift detection
+## Robustness
 
-Like the EACFilter, the LSIFilter watches the innovation stream for **structural
-breaks** and re-arms on detection, with the same family of guards (self-calibrated
-scales, decimated non-overlapping testing, a warmup). Because the measurement is a
-vector, the detector uses two complementary, **self-normalizing** statistics:
+`robust=True` winsorizes each sample's residual to the current model at
+`huber_c` MAD sigmas around the window's median residual before it enters
+the image: a single spike cannot carry into `S_w`, while a sustained
+shift still passes through unclipped and reaches the drift test.
 
-- **Spectral-energy jump test (NIS-like).** A scalar energy of the innovation
-  vector is standardized by an EWMA of its own prior values and flagged when it
-  exceeds a ratio threshold mapped from `alpha` via a $\chi^2$ on the spectrum's
-  effective degrees of freedom (with a margin for the heavier tails of an
-  EWMA-estimated scale). Catches a sudden shift in *any* spectral component.
-- **Two-sided CUSUM** on the **mean (zeroth) coefficient** -- the level/area arm --
-  accumulating evidence for a slow sustained drift up or down, tripping on
-  `cusum_h`. Using a single robust scale per statistic (rather than $L{+}1$
-  per-coefficient scales) keeps the test from inheriting the heavy tails of a noisy
-  per-coefficient variance estimate.
+## The two bases
 
-On detection, `_on_drift` re-arms: `drift_reset="full"` resets the covariance to
-its large prior and clears the window; `drift_reset="inflate"` multiplies the
-covariance by `drift_inflation` and **keeps** the current estimate (a gentler
-re-adaptation). It exposes `n_drifts_`, `drift_flag_`, `last_drift_direction_` and
-`last_residual_` (the one-step forecast innovation, used by a
-[FilterBank](Methods-Filter-Bank)'s fused detector).
+`basis="legendre"` (`LSIFilter`) resolves an oscillatory plant's shape
+and frequency: the window's Legendre spectrum carries the amplitude,
+frequency and phase a single scalar measurement partly cancels over a
+cycle. `basis="block"` (`EACFilter`) is the cheapest statistic -- window
+sums, a diagonal `G_w` -- and the one an embedded target runs; see
+[the embedded tool](Domain-Embedded-Control). Both are the same recursion
+on the same image type, differing only in `Phi_w`.
+
+<a name="result"></a>
+## `result()` -- the calibrated read-out
+
+`P` tracks information, not uncertainty: a run of easy samples shrinks it
+regardless of how well the parameters actually match the plant.
+`result()` instead runs a batch fit ([`fit`](Methods-Image#the-projected-estimator))
+on the current window, in the filter's own basis and order, started from
+the current estimate -- the window's parameters, covariance, standard
+errors and prediction band in the same type a batch fit returns, imaged
+robustly when the filter is robust. Measured on the coordinated-turn
+tracking benchmark: the covariance's nominal interval covers the actual
+filter error 70 to 96 percent of the time, and is conservative (wider
+than needed) whenever the process noise `q_diag` is small relative to the
+true drift rate.
+
+## Coasting
+
+`coast(x, order=1|2)` and `coast_cov` dead-reckon past the window from
+its last ingested sample by a Taylor expansion of the current model,
+unaffected by the change from a Kalman covariance to an information-form
+gain: the anchor is `_t[-1]`, and an external-regressor model splits into
+its extrapolable and nuisance parts exactly as before.
 
 ## Algorithm (per `partial_fit`)
 
-1. Push `(t, y)`, evict the oldest if the window exceeds $W$. Return early until
-   the window is full.
-2. Empirical spectrum $\beta^{\text{data}}=\Pi y_W$ (cached mat-vec); model
-   spectrum + Jacobian by quadrature -> vector innovation $e$ and $H$. Reject a
-   non-finite $e$/$H$ (an unbounded model can overflow) keeping the last good
-   estimate.
-3. Every $W$ full-window steps, run the **drift step** (energy jump + CUSUM on a
-   self-standardized innovation). If it fires, re-arm and return.
-4. Otherwise apply the EKF correction $\theta \mathrel{+}= K e$, update $P$;
-   reject a non-finite update (ill-conditioned $S$).
-
-## Optimizations and guards (summary)
-
-- **Compile-once** model + derivatives; **bounded $O(W\cdot(L{+}m))$** per update,
-  no SymPy on the hot path -> real-time safe.
-- **Cached projection** -- the empirical-spectrum mat-vec uses a precomputed
-  pseudo-inverse; only the model side is recomputed each step.
-- **Orthonormal measurement-noise weighting** $R_{jj}=r(2j+1)$ (optionally adapted
-  online) -- the streaming form of LSI's $1/(2j+1)$ criterion.
-- **Spectral (vector) measurement** -> tracks oscillations the area filter cancels.
-- Drift guards: **self-standardized** energy + mean-coefficient innovations,
-  **decimated** testing, **warmup**, **covariance reset/inflate** re-arming.
+1. Ingest `(t, y[, regressors])`; a non-finite sample is skipped with a
+   warning, leaving every state untouched. Feed the attached `stream`, if
+   any, before the window is mutated.
+2. Evict past the window cap (`_W_eff` while adaptive, else `W`); return
+   early below `min_window`.
+3. Build `Phi_w`, its Cholesky factor and the mean-channel rotation
+   (cached against the window length while the normalized positions
+   repeat); winsorize the residual first when `robust`.
+4. Compute the whitened innovation `e` and Jacobian `H`; reject a
+   non-finite pair, keeping the last good estimate.
+5. On a full-window stride, run the drift test; a detection re-arms and
+   returns.
+6. Otherwise take the damped information-form step, update `s2`, `p` and
+   `P`, and adjust `_W_eff` from the residual autocorrelation.
 
 ## Worked example
 
-A steady `A.sin(w.t)` (truth `w=1.3`) tracked online. **Left:** the LSIFilter's
-one-step prediction (spectrum measurement) locks onto the cycle, while the
-EACFilter (area measurement) cannot follow it. **Right:** the tracked frequency --
-the LSIFilter converges to `w=1.30`, but the EACFilter's estimate collapses away
-(`w>0.80`) because the window area nearly cancels over a cycle and carries almost
-no frequency information. This is the concrete reason the LSIFilter exists.
+A steady `A.sin(w.t)` (truth `w=1.3`) tracked online. **Left:** the
+Legendre-basis filter's one-step prediction locks onto the cycle, while
+the block-basis filter cannot follow it. **Right:** the tracked
+frequency -- the Legendre filter converges to `w=1.30`, but the block
+filter's estimate collapses away because its window sum nearly cancels
+over a cycle and carries almost no frequency information. This is the
+concrete reason the two bases exist.
 
 ![LSIFilter vs EACFilter on a steady oscillation](figures/lsi_filter.png)
 
 ## Where it is best applied
 
-**Use the LSIFilter for:** real-time tracking of **oscillatory** or
-**sustained-cycle** plants (a resonating structure, an AC signal, a damped
-oscillator) and any stream where amplitude/frequency/phase drift and must be
-followed online with bounded per-sample cost and regime-change detection. It is
-the spectrum-measurement sibling of the [EACFilter](Methods-Equal-Areas-Filter).
-
-**Caveats.** It is heavier per sample than the EACFilter (an $(L{+}1)$-vector
-update vs a scalar one), so for **monotone / saturating** plants the cheaper
-EACFilter is preferable. Choose `order` to resolve the cycle (more orders =
-richer observability, larger update); it is clamped so `order + 1 <= window_size`.
-Like all the methods it assumes a modest dynamic range over the window. For a
-static batch oscillatory fit use [LSI](Methods-LSI)'s oscillatory recipe.
+**Use `ImageFilter` for:** real-time tracking of a stream where the
+parameters drift, at bounded per-sample cost, with regime-change
+detection. Pick `basis="legendre"` (`LSIFilter`) for oscillatory or
+sustained-cycle plants; `basis="block"` (`EACFilter`) for monotone or
+saturating ones, or where the per-sample cost must be the smallest
+possible. `result()` is the calibrated uncertainty, not `P` directly.
+For a static batch fit use [LSI](Methods-LSI) or [EAC](Methods-EAC); for
+several streams pooled into one fault test, see
+[several streams](API-Streaming#several-streams).

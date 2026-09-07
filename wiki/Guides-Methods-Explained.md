@@ -267,87 +267,83 @@ lowering the variance of the estimate -- and it lets EAC report a parameter
 <a name="streaming"></a>
 ## The streaming filters -- real-time tracking
 
-Full math: [../methods/equal_areas_filter.md](Methods-Equal-Areas-Filter).
+Full math: [../methods/legendre-filter.md](Methods-Legendre-Filter).
 
 ### The intuition
 
 The batch methods above look at the *whole* dataset at once. But sometimes data
 arrives one sample at a time (a sensor, a live feed), the parameters **drift**
-over time, and you need an answer *now*, at fixed cost per sample. That's what the
-streaming filters do.
+over time, and you need an answer *now*, at fixed cost per sample. `ImageFilter`
+does this by treating each sliding window of the stream as its own **image** --
+the same projection a batch fit builds -- and updating the parameter estimate
+one sample at a time instead of re-fitting the window from scratch.
 
-The mental model is a **Kalman filter** -- the classic "predict, then correct"
-loop used in GPS and control systems:
+- You hold a current estimate of the parameters, plus a gain state that tracks
+  how much new information each update carries.
+- Each new sample produces a **surprise**, the window image's whitened
+  innovation: how far the window's projection was from what the current
+  parameters predict.
+- You nudge the parameters to reduce the surprise -- nudging the uncertain
+  directions more and the confident ones less.
 
-- You hold a current estimate of the parameters, plus a sense of how unsure you
-  are about each.
-- Each new sample produces a **surprise** (how far the data was from what your
-  current parameters predicted).
-- You nudge the parameters to reduce the surprise -- nudging the uncertain ones
-  more and the confident ones less -- and update your uncertainty.
-
-The dtfit twist: the "surprise" is **not** a single-point error (which would be
-noisy). It's the **area mismatch over a sliding window** (for `EACFilter`) or the
-**spectrum mismatch over the window** (for `LSIFilter`). So even the streaming
-filters inherit EAC/LSI's integrate-don't-differentiate robustness.
+The "surprise" is **not** a single-point error (which would be noisy). It's the
+mismatch between the data's and the model's projection over the whole sliding
+window -- an area sum (`EACFilter`, the block basis) or a Legendre spectrum
+(`LSIFilter`) -- so the streaming filter inherits EAC/LSI's
+integrate-don't-differentiate robustness.
 
 ### How it works (per sample)
 
 1. Add the new sample to a sliding window; drop the oldest.
-2. Compute the window's area (or spectrum) for the data and for the model ->
-   the **innovation** (the surprise) and its sensitivity to each parameter.
-3. Apply the Kalman correction: move the parameters by gain x surprise, and
-   update the uncertainty. All pure NumPy -- the symbolic work was done once at
-   construction, so each update has **bounded cost** and is real-time safe.
+2. Image the window in the chosen basis for the data and for the model ->
+   the whitened **innovation** (the surprise) and its sensitivity to each
+   parameter.
+3. Apply the correction in information form: move the parameters by gain x
+   surprise, and update the gain state. All pure NumPy -- the symbolic work
+   was done once at construction, so each update has **bounded cost** and is
+   real-time safe.
 
 ### Detecting regime changes (drift)
 
 A single smoothly-updated estimate cannot represent a **sudden structural break**
 (a currency un-pegging, a plant fault). So the filter watches the stream of
-surprises for two patterns:
+surprises for two patterns, through the same detector `ImageStream` uses on its
+blocks:
 
 - a single **big** surprise (a sudden jump) -- caught by a chi-squared test (NIS);
 - a **sustained** lean in one direction (slow drift) -- caught by a two-sided
   CUSUM accumulator.
 
-When either fires, the filter **re-arms** (resets or inflates its uncertainty) so
+When either fires, the filter **re-arms** (resets or inflates its gain state) so
 it re-adapts to the new regime instead of stubbornly averaging across the break.
-Careful guards (self-standardizing the surprise, only testing on non-overlapping
-windows, a warmup period) keep it from false-alarming on ordinary noise -- these
-are detailed in [../methods/equal_areas_filter.md](Methods-Equal-Areas-Filter).
 
 ### Knobs & adaptations
 
 - **Presets** -- rather than set the knobs below by hand, start from a curated
-  classmethod: `EACFilter.tracking(...)` / `LSIFilter.tracking(...)` favors fast
-  re-adaptation, and `.robust(...)` favors stability under outliers/dropouts. The
+  classmethod: `ImageFilter.tracking(...)` favors fast re-adaptation (the
+  default), and `.robust(...)` favors stability under outliers/dropouts. The
   individual knobs below still override anything a preset sets.
-- `window_size` -- smoothing vs responsiveness (bigger = smoother, slower to react).
+- `window_size` -- the window cap: smoothing vs responsiveness. `adaptive_window`
+  (on by default) sizes it from the data instead of holding it fixed.
 - `q_diag` -- how fast you allow each parameter to drift.
-- `r` -- how much you trust each measurement.
+- `noise_var` -- how much you trust each measurement; left alone it is
+  estimated online from the window residual.
 - `cusum_k` / `cusum_h` -- drift-detector sensitivity vs false-alarm rate.
-- `n_sub` (EACFilter) / `order` (LSIFilter) -- split the window into more
-  sub-measurements for better observability of coupled multi-parameter models.
-- **`LSIFilter` vs `EACFilter`:** use `LSIFilter` (spectrum measurement) for
-  **oscillatory** plants -- the area criterion partly cancels oscillations, so the
+- **`LSIFilter` vs `EACFilter`:** `ImageFilter` with `basis="legendre"` or
+  `basis="block"` fixed. Use `LSIFilter` (spectrum measurement) for
+  **oscillatory** plants -- the block sum partly cancels oscillations, so the
   spectrum is the right fingerprint there; use the cheaper `EACFilter` for
-  monotone/saturating signals.
-- **`FilterBank` + `FusedChiSquareDetector`** -- run many streams in lockstep and
-  pool their surprises to catch a fault that's too weak in any single stream but
-  strong across all of them. -> [api/streaming.md](API-Streaming)
+  monotone/saturating signals, or for the smallest embedded footprint.
+- `result()` -- the current window as a batch fit, with a calibrated
+  covariance; `P` itself is a gain state, not a confidence measure.
+- **Pooling several streams** -- summing several filters' `nis_` is a fused
+  fault test: a change that hits every stream is weak in any one innovation
+  and strong in the pooled statistic.
+  -> [api/streaming.md#several-streams](API-Streaming#several-streams)
 - **Coasting through gaps** (`filter.coast(x, order=)`, `coast_cov`) -- when
   measurements drop out, roll the current parameter model forward
   (dead-reckoning) and grow the uncertainty band with the length of the gap,
   instead of freezing the last estimate or letting a raw extrapolation diverge.
-- **Sensor fusion / distributed streaming** (`InformationFilter`, *experimental*) --
-  an inverse-covariance ("information") form recursive **linear** estimator whose
-  updates are purely **additive**, so independent estimators `fuse()` **exactly**
-  and in any order -- a natural state object for multi-sensor combination and
-  streaming map-reduce. It is a **standalone experimental primitive** in
-  `dtfit-experimental` (`from dtfit_experimental import InformationFilter`): it
-  shares **no code** with the nonlinear `EACFilter` / `LSIFilter` above (which run
-  the covariance form directly), and it has not yet cleared the >=2-domain
-  promotion gate. -> [../experimental/adaptations-api.md](Experimental-Adaptations-API)
 
 ---
 

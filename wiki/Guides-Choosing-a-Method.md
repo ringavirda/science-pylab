@@ -31,9 +31,9 @@ river levels -- with no smooth curve to fit?
 ```
 Is the data arriving live / do the parameters change over time?
 |
-+- YES > use a STREAMING filter
-|        +- signal oscillates (a cycle)         > LSIFilter   (spectrum measurement)
-|        +- signal is monotone / saturating      > EACFilter   (area measurement, cheaper)
++- YES > use ImageFilter (a STREAMING filter)
+|        +- signal oscillates (a cycle)         > LSIFilter   (Legendre spectrum)
+|        +- signal is monotone / saturating      > EACFilter   (block sums, cheaper)
 |
 +- NO (you have the whole batch) > use a BATCH method
          +- you want one reliable default        > LSI            (fit_lsi)
@@ -67,11 +67,10 @@ production fitter (see [methods-explained.md#dsb](Guides-Methods-Explained#dsb))
   the fits are exact in the span and cost no further data pass.
 - **Streaming with dropouts?** Use `filter.coast(...)` / `coast_cov` to
   dead-reckon through measurement gaps (the uncertainty band grows with the gap)
-  instead of freezing or diverging. (For combining several estimators/sensors into
-  one state there is an experimental inverse-covariance `InformationFilter` in
-  `dtfit-experimental` -- additive updates, exact `fuse()` -- but it is not part of
-  the stable streaming surface; see
-  [../experimental/adaptations-api.md](Experimental-Adaptations-API).)
+  instead of freezing or diverging. For several streams pooled into one fault
+  test, sum their `nis_` (a `FilterBank` doing this over many streams lives in
+  `dtfit-experimental` for the experiment harnesses; see
+  [../experimental/adaptations-api.md](Experimental-Adaptations-API)).
 
 ---
 

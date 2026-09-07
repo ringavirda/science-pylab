@@ -42,7 +42,7 @@ signatures, arguments, return types, and behavior.
 | **One-call entry points** | `auto_estimate`, `auto_forecast` | [auto.md](API-Auto) |
 | **Model framework** | `models`, `Model`, `suggest_models` (+ catalog families) | [models.md](API-Models) |
 | **Stochastic series** | `fit_stochastic`, `StochasticModel`, `StochasticFilter`, `Stochastic`, `stochastic` (estimators) | [stochastic.md](API-Stochastic) |
-| **Streaming / online** | `EACFilter`, `LSIFilter`, `FilterBank`, `FusedChiSquareDetector` | [streaming.md](API-Streaming) |
+| **Streaming / online** | `ImageFilter`, `LSIFilter`, `EACFilter` (`DriftDetector` in `dtfit.streaming`) | [streaming.md](API-Streaming) |
 | **Streams and scale** | `ImageStream`, `fit_many`, `FittingProblem` (`coverage`, `assemble`, `legendre_transfer`, `block_transfer` in `dtfit.image`) | [scaling.md](API-Scaling) |
 | **Diagnostics** | `fit_report`, `residual_diagnostics`, `FitDisplay`, `ResidualsDisplay` | [diagnostics.md](API-Diagnostics) |
 | **Logging** | `enable_logging`, `logger` | [below](#logging) |
@@ -71,7 +71,8 @@ from dtfit.stochastic import (hurst_spectral, ar1_reversion, garch_persistence,
 from dtfit import NonlineRegressor
 
 # streaming
-from dtfit import (EACFilter, LSIFilter, FilterBank, FusedChiSquareDetector)
+from dtfit import ImageFilter, LSIFilter, EACFilter
+from dtfit.streaming import DriftDetector
 
 # streams and scale
 from dtfit import ImageStream, fit_many, FittingProblem

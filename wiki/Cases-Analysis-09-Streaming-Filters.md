@@ -1,5 +1,11 @@
 # Streaming filters -- recursive O(1)/sample tracking
 
+> **Status (2026-09):** `FilterBank` and `FusedChiSquareDetector` live in
+> `dtfit_experimental.streaming` for the notebooks; `EACFilter` and
+> `LSIFilter` are `ImageFilter` aliases tracking the window image, and the
+> pooled `nis_` sum is the stable fused test. The sections below describe
+> the study as it was run.
+
 **Verdict: WORKS -- the real-time win, in its niche.** Constant per-sample cost at
 bounded, **embeddable** memory with drift detection -- capabilities batch methods
 structurally lack (shown cleanly in Exp 1 & 2). On a *realistic maneuvering* GPS
