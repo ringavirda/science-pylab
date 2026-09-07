@@ -1,191 +1,152 @@
-# Scaling -- map-reduce, GEMM-batched & parallel batch fitting
+# Streams -- the additive image at scale
 
-> Numeric **batch-at-scale** backends. Source:
-> [`scale/_partitioned.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/scale/_partitioned.py),
-> [`scale/_batched.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/scale/_batched.py),
-> [`scale/_parallel.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/scale/_parallel.py).
-> `PartitionedLSI`, `PartitionedEAC`, `PartitionedBatchLSI`, `fit_lsi_batched`,
-> `fit_many` (top-level); `project_spectra` via `from dtfit.scale import
-> project_spectra`. API: [../api/scaling.md](API-Scaling).
+> Source: [`image/stream.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/stream.py),
+> [`image/transfer.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/transfer.py),
+> [`image/parallel.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/parallel.py).
+> API: [../api/scaling.md](API-Scaling).
 
-These are alternative **execution backends** that run the LSI/EAC *criteria* on
-data too big for memory, spread across workers, or spanning thousands of channels,
-exploiting two structural properties of the empirical spectrum: it is **additive
-over the domain** and **linear across channels**.
+The additive image runs at scale because of two structural properties, both
+exact: it is **additive over sample sets** -- a sum over samples, no boundary
+carry -- and **linear across channels**. `ImageStream` is the one class that
+exploits both.
 
-**What is exact and what is asymptotic.** The *reduce itself* -- folding a stream
-chunk-by-chunk or merging workers -- is bit-exact relative to a single-pass run of
-the **same** estimator (boundary samples are carried so no connecting interval is
-dropped). Parity with the **in-memory** [LSI](Methods-LSI)/[EAC](Methods-EAC),
-however, is **not** exact:
+## Additive over sample sets -> streaming and map-reduce
 
-- `PartitionedLSI` projects onto the basis by plain trapezoid; [`fit_lsi`](Methods-LSI)
-  adds Savitzky-Golay pre-filtering, auto/robust order selection and a
-  least-squares Legendre projection. Parity is **asymptotic on dense uniform data**,
-  not bit-for-bit.
-- `PartitionedEAC` is an **approximate** streaming estimator: its windows are
-  **value-uniform** (placed by domain value, not by sample index as batch
-  [`fit_eac`](Methods-EAC)) and its model areas are a Simpson quadrature, so it
-  recovers batch EAC's parameters only **asymptotically** on dense, roughly uniform
-  data.
-
-So "runs LSI/EAC at scale" means it optimizes the same criterion, converging to the
-in-memory fit as the data densify -- not that it returns identical parameters.
-
-## The two structural properties
-
-### Additive over the domain -> map-reduce / streaming
-
-The LSI empirical coefficient is an integral,
+The projections `S = Phi^T (w y)` and the Gram `G = Phi^T diag(w) Phi` are
+each a sum over samples, so a sum over a partition of the samples is the
+whole-domain sum:
 
 $$
-\beta_j \;=\; \frac{2j+1}{H}\int_{x_0}^{x_N} y(x)\,P_j\big(u(x)\big)\,dx
-\;=\; \frac{2j+1}{H}\,s_j,
-\qquad s_j = \int y\,P_j\,dx .
+S = \sum_p \Phi_p^\top (w_p \, y_p), \qquad
+G = \sum_p \Phi_p^\top \mathrm{diag}(w_p) \, \Phi_p .
 $$
 
-An integral over the whole domain is the **sum** of integrals over a partition of
-it:
+`ImageStream`'s accumulator (`block=None`) folds this sum chunk by chunk in
+memory fixed by the order, not the sample count -- the `(K+1) x (K+1)` Gram
+and the `K+1` projections, `O(order^2)`: `update(x, y, w=None)` adds one
+chunk, `image()` reads the running `S`, `G`, `n`, `sumsq` off as an `Image`.
+No interval connects two chunks, so there is nothing to carry across a chunk
+boundary -- the sum is exact term by term. This is fixed size only on a
+uniform grid; with `grid="explicit"` the stream also keeps every position
+and weight, so memory grows with the sample count. `merge(other)` adds two streams' sums (both
+need the same configuration; uniform streams must be contiguous), the
+distributed step: each worker accumulates its own shard, and `merge` folds
+the partials into one. `checkpoint()` serializes the running sums,
+`resume(state)` continues from them exactly, so a stream survives a process
+restart or crosses a process boundary.
 
-$$
-s_j \;=\; \sum_{p} \int_{\text{chunk}_p} y\,P_j\,dx .
-$$
-
-So a stream can be reduced **chunk by chunk** in fixed $O(\text{order})$ memory,
-and independent workers can each accumulate a partial $\mathbf s$ and **`merge`**
-by addition -- an associative, order-independent reduce. The same holds for
-[EAC](Methods-EAC): a window's area is additive over the samples that fall in it.
-
-**Exactness at chunk boundaries.** The trapezoid rule needs the interval
-*connecting* two chunks. Each `update` therefore carries the previous chunk's last
-sample into the next, so the connecting interval is integrated exactly and the
-partial sums add up to a single whole-domain projection -- provided chunks are fed
-in domain order (and, for `merge`, that partitions share boundary samples).
-
-### Linear across channels -> one GEMM
-
-Folding the trapezoid weights into a weight vector $w$ ($\int y\,dx \approx \sum_i
-w_i y_i$) turns each projection into a single matrix product. For $B$ channels
-sharing the sampling grid $x$, stacked as columns of $Y\in\mathbb R^{n\times B}$,
-**all** their empirical integrals are one GEMM:
-
-$$
-S \;=\; D^{\top}\,(w \odot Y) \;\in\; \mathbb R^{(L+1)\times B},
-\qquad D_{ij} = P_j(u(x_i)) .
-$$
-
-(In practice the weights are folded into the *small* $(n,L{+}1)$ design,
-$S = (w\odot D)^{\top}Y$, so the only large array touched is $Y$ -- read once into
-the matmul.) Because it is a plain GEMM, it runs on multithreaded BLAS on the CPU
-or on cuBLAS/torch on a GPU by swapping only **where the arrays live** (see the
-pluggable [Backend](API-Scaling)); the projection has low arithmetic
-intensity, so a GPU pays off mainly when the data is already resident, but the code
-path is identical.
-
-## The estimators
-
-### `PartitionedLSI` / `PartitionedEAC` -- one-pass / distributed (map-reduce)
-
-Accumulate, then solve. `PartitionedLSI` accumulates the additive projection
-integrals $\mathbf s$; `PartitionedEAC` accumulates per-window areas. Both expose
-`update(x_chunk, y_chunk)` (fold a chunk), `merge(other)` (combine workers), and
-`fit(p0=...)` (solve the spectral / area match -- LSI's `solve_spectral`, EAC's
-window-area least squares). Fixed memory, one pass; the reduce is exact, parity
-with the in-memory fitter is asymptotic (see above).
-
-```
-acc = PartitionedLSI("a*exp(b*t)", "t", domain=(0, 10), order=6)
-for x_chunk, y_chunk in stream:   # one pass, O(order) memory
+```python
+acc = ImageStream("legendre", 6, domain=(0, 4))
+for x_chunk, y_chunk in stream:
     acc.update(x_chunk, y_chunk)
-result = acc.fit(p0=[1.0, 1.0])
+res = fit("a0 + a1*exp(a2*x)", acc.image(), "x")
 ```
 
-`PartitionedEAC` matches the model's window areas to the reduced data areas over
-**value-uniform** windows (split by domain value, not sample index). The model area
-per window is a **Simpson quadrature** (9 nodes) -- consistent across solver
-iterations and converging to the true window integral -- while the data areas were
-accumulated during the reduce by an **exact edge-split trapezoid** (an interval
-straddling a window edge is split at the edge so no area is lost). Because the
-windows follow the domain value rather than the samples, this is an *approximation*
-of batch EAC, exact only asymptotically on dense uniform data.
+## Blocks and transfer
 
-### `project_spectra` / `fit_lsi_batched` -- GEMM-batched multi-channel
+`block` a sample count or a domain length puts the stream in block mode: each
+finished block is imaged over its own local domain rather than accumulated
+into one running sum. Block membership is half-open on the right,
+`[x0, x1)` -- a sample landing exactly on a block's upper edge belongs to the
+next block, except at the domain's own end, which belongs to the last block.
 
-`project_spectra(x, Y)` returns the $(B, L{+}1)$ empirical spectra of $B$ channels
-in a single GEMM. `fit_lsi_batched(x, Y, expr, var)` then solves each channel's
-small spectral match on the host (it is `len(params)`-dimensional and negligible),
-returning one [`FittingResult`](API-Types) per channel. Maximal throughput,
-$O(N\cdot B)$ memory (data resident), GPU-able via `backend=`.
+Block images at different local domains and orders are combined by
+**transfer**, not by naive addition: `legendre_transfer(local_domain,
+coarse_domain, local_order, coarse_order)` finds the change-of-basis matrix
+`A` with `Phi_coarse = Phi_local @ A`, exact to rounding whenever
+`coarse_order <= local_order`, because a coarse Legendre polynomial
+restricted to a sub-domain is a polynomial of the same degree in the local
+variable. `block_transfer` does the same for
+the block basis with a 0/1 aggregation matrix: a coarse window must be a
+union of fine blocks, or the call raises -- the union rule. `assemble`
+transfers every given image onto one coarse domain and merges the results;
+`ImageStream.assemble(t0, t1, order=None)` calls it on the stored blocks
+inside `[t0, t1]`, and `blocks(t0, t1)` lists them without merging.
 
-### `PartitionedBatchLSI` -- fused map-reduce **and** GEMM
+Retention bounds how many block images the stream keeps: once there are more
+than `keep_fine` fine blocks, the oldest `fold` are folded into one coarse
+block at the stream's order (`keep_fine`, `fold`, both at least 1; the peak
+retained count is `max(keep_fine, fold)` when `fold > keep_fine`). Folding
+bounds the block *count*, not the grid: with `grid="explicit"` the coarse
+block's grid is the union of its fine blocks' positions, so an irregular
+sample set is not compacted.
 
-The two levers combined: the **volume** partition of `PartitionedLSI` (a stream of
-arbitrary length reduced in fixed $O(B\cdot\text{order})$ memory) *and* the
-**channel** batch of `project_spectra` (each chunk's $(B,L{+}1)$ partial integrals
-computed in one GEMM). The fusion is exact because the projection is linear across
-channels and additive over the domain: each chunk's partial integrals are folded
-in (with the same boundary-sample carrying), `merge` reduces across workers, and
-`fit` solves every channel. Flat memory over volume *and* one matmul over channels
--- the estimator for **many channels and a stream too big for memory**.
+```python
+blk = ImageStream("legendre", 3, domain=(0, 4), block=1.0)
+for x_chunk, y_chunk in stream:
+    blk.update(x_chunk, y_chunk)
+blk.close()
+whole = blk.assemble(0, 4)
+```
 
-### `fit_many` -- process/thread fan-out of independent fits
+## Linear across channels -> one GEMM
 
-Orthogonal to the above: for **many independent problems** (different series and/or
-models), `fit_many(problems, n_jobs=...)` fans the fits across a `joblib` pool
-(`"loky"` processes, `"threading"`, or `"multiprocessing"`). Each
-[`FittingProblem`](API-Scaling#fittingproblem) is picklable and a failed fit
-is captured per-problem (its `error` set) rather than aborting the batch; results
-come back in input order as ordinary picklable
-[`FittingResult`](API-Types)s, each carrying the problem's `.label` (and `.error`
-when it failed) -- batch and single fits return the same type.
+`channels=B` shares one Gram across `B` signals sampled at the same
+positions: `update(x, Y)` takes `Y` of shape `(n, B)` and folds all `B`
+projections `(B, K+1)` in a single matrix product per chunk, dispatched to
+the `numpy`, `cupy` or `torch` backend named by `backend=`. The Gram update
+itself stays host numpy regardless of backend, since it does not touch `Y`.
+`image(channel)` reads one channel's running image, `images()` all of them.
+
+## Drift on block streams
+
+`detect="previous"` or `detect=(model, params[, var])` runs a
+`DriftDetector` on the whitened residual between each finished block's
+coefficients and either the previous block or that model's image on the
+same domain, and records a flagged boundary as `(block_index, domain)` in
+`flags_`. The per-sample equivalent -- drift on an innovation stream rather
+than block boundaries -- is the filters' own detector; see
+[Methods-Legendre-Filter](Methods-Legendre-Filter).
+
+## `fit_many`
+
+Orthogonal to the image: for **many independent problems** (different series
+and/or models), `fit_many(problems, n_jobs=...)` fans the fits across a
+`joblib` pool (`"loky"` processes, `"threading"`, or `"multiprocessing"`).
+Each `FittingProblem` is picklable and a failed fit is captured per-problem
+(its `error` set) rather than aborting the batch; results come back in input
+order as ordinary picklable `FittingResult`s, each carrying the problem's
+`.label` -- batch and single fits return the same type.
 
 ## Optimizations and guards
 
-- **Exact additive reduce** -- boundary-sample carrying makes chunked `update`s and
-  `merge`s equal to a single whole-domain projection (validated in the big-data
-  domain study across order-independent, variable-chunk and missing-data reduces).
-- **Weights folded into the small design** -- `(w*D)^T.Y` avoids materializing an
-  $(n,B)$ temporary; the only large array touched is $Y$.
-- **Pluggable backend** -- the GEMM dispatches to NumPy/BLAS, CuPy or Torch by name
-  (`"auto"` prefers a GPU); the math is written once with `@`/`*`/`.T`.
-- **Numerical stability at scale** -- the additive reduction is the concern that
-  bites at $10^8$-$10^9$ samples; the domain study profiles naive float32 vs
-  float64 vs compensated (Kahan) summation.
-- **Per-problem error capture** (`fit_many`) -- one failing problem does not abort
-  the batch.
-- **Convergence & range metadata** -- every scale fitter
-  (`PartitionedLSI`/`PartitionedEAC`/`PartitionedBatchLSI`, `fit_lsi_batched`) now
-  sets `converged` and the fitted `x_range` on its [`FittingResult`](API-Types), so
-  the same `predict(warn_extrapolation=...)` guard that protects the in-memory
-  fitters applies to the at-scale results too.
+- **Float64 accumulation** -- `S` and `G` accumulate in float64 regardless of
+  the channel backend; a producer that must emit float32 (an MCU) should keep
+  chunks to at most 10,000 samples: measured float32 error is 2.4e-3
+  sequential over 1e6 samples but only 1.8e-5 per 1e4-sample chunk.
+- **Throughput** -- measured 37 million samples/s at order 12 with the Gram
+  update, on one core.
+- **The Legendre transfer's order guard** -- `legendre_transfer` raises unless
+  `coarse_order <= local_order`, so a stream cannot silently assemble onto an
+  order finer than a block actually carries.
+- **The union rule** -- `block_transfer` raises if a coarse window is not a
+  union of fine blocks, rather than aggregating a fine window into two
+  coarse ones.
+- **`close()` for a partial block** -- finishes the block currently being
+  filled if it holds at least `order + 2` samples, else leaves it untouched;
+  needed to read out a stream's last, still-open block.
 
 ## Worked example
 
-**Left:** a `PartitionedLSI` reduce over 8 chunks recovers the *identical*
-projection to a single unchunked pass of the same estimator -- the growth rate
-matches to `max|Deltacoef| ~= 5x10^-^7`, the only difference being trapezoid boundary
-terms; the *reduce* is exact, not approximate (parity with the in-memory `fit_lsi`,
-which adds savgol/robust/auto-order, is instead asymptotic). **Right:**
-`fit_lsi_batched` recovers the per-channel growth rate of
-**300 channels in one GEMM**, each landing on the truth diagonal.
+**Left:** an image accumulated over 8 chunks equals a single whole-domain
+pass. **Right:** 300 channels' growth rate recovered in one GEMM, each
+landing on the truth diagonal.
 
-![Partitioned exactness and GEMM-batched multi-channel recovery](figures/scaling.png)
+![Chunked reduce and many-channel GEMM recovery](figures/scaling.png)
 
 ## Where it is best applied
 
-| situation | backend |
+| situation | tool |
 |---|---|
-| stream too big for memory, one pass | `PartitionedLSI` / `PartitionedEAC` |
-| distributed workers, then combine | the same accumulators via `.merge()` |
-| many channels on a shared grid | `project_spectra` / `fit_lsi_batched` |
-| many channels **and** a big stream | `PartitionedBatchLSI` |
+| accumulate a stream in fixed memory | `ImageStream` accumulator |
+| distributed workers, then combine | `ImageStream.merge` |
+| block streams with retention, assembly and drift flags | `ImageStream` block mode |
+| many channels on a shared grid | `ImageStream` channels |
 | many independent series/models | `fit_many` |
 
-**Trade-off.** Streaming/partitioned estimators trade peak throughput for
-**bounded memory**; the GEMM-batched path trades memory (data resident) for
-**maximal throughput**. Their chunked/merged *reduce* is exact, and they converge
-to the in-memory [LSI](Methods-LSI)/[EAC](Methods-EAC) parameters **asymptotically on
-dense uniform data** -- `PartitionedEAC` in particular is an approximate estimator
-(value-uniform windows), not a bit-exact replica of batch `fit_eac`. For real-time
-*online* tracking (as opposed to batch at scale) use the
+**Trade-off.** The accumulator and block modes trade peak throughput for
+**bounded memory**; the channel batch trades memory (`Y` resident) for
+**maximal throughput** in one GEMM. Both are exact relative to a single
+whole-domain image. For real-time *online* tracking (as opposed to batch
+at scale) use the
 [streaming filters](Methods-Legendre-Filter).

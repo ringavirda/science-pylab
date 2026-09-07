@@ -51,7 +51,7 @@ fit_lsi_basis(data_x, data_y, expr, var, *,
 | `expr`, `var` | -- | model expression and main variable |
 | `basis` | `"fourier"` | `"legendre"` \| `"chebyshev"` \| `"fourier"` \| `"laguerre"` |
 | `order` | `5` | spectral order (number of harmonics `K` for Fourier) |
-| `filter_data` | `None` | Savitzky-Golay pre-smoothing before projection. `None` (the default) picks per basis: **off** for `"fourier"` (smoothing would erase the very cycle a Fourier basis targets -- the same reason `fit_lsi`'s oscillatory recipe disables it) and **on** for every other basis. Pass an explicit bool to override. |
+| `filter_data` | `None` | Savitzky-Golay pre-smoothing before projection. `None` (the default) picks per basis: **off** for `"fourier"` (smoothing would erase the very cycle a Fourier basis targets) and **on** for every other basis. Pass an explicit bool to override. |
 | `period` | `None` | fundamental period for Fourier (defaults to the domain length) |
 | `bounds` | `None` | per-parameter `(min, max)` bounds; **supplying them switches on `solve_spectral`'s global (differential-evolution) search before the local refine** -- needed for a multimodal fit such as a free frequency |
 | `p0` | `None` | initial guess |
@@ -106,6 +106,8 @@ fit_joint(channels, expr, var, shared, *,
 
 ```python
 from dtfit_experimental import fit_joint
+ax, ay, az = (A * np.sin(1.7 * t + p) + rng.normal(0, 0.05, t.size)
+              for A, p in ((1.0, 0.0), (0.7, 0.4), (0.4, 1.1)))
 jr = fit_joint([(t, ax), (t, ay), (t, az)], "A*sin(w*t + p)", "t",
                shared=["w"])          # one frequency, per-axis amplitude/phase
 print(jr.shared["w"], jr.private[0])
@@ -161,7 +163,7 @@ y_hat = bm.predict(x)
 step. The **information form** maintains the inverse `Y = P^-1` (the *information
 matrix*) and `yv = P^-1 p` (the *information vector*) instead, which flips two
 properties that matter for sensor fusion: the measurement update is **purely
-additive** (`Y += Hᵀ R⁻¹ H`, `yv += Hᵀ R⁻¹ z` -- no inverse to absorb a
+additive** (`Y += H^T R^-1 H`, `yv += H^T R^-1 z` -- no inverse to absorb a
 measurement), so independent estimators **fuse by adding information** (exact,
 associative, order-independent); and the readout inverts only the small `n x n`
 state matrix.
@@ -211,9 +213,12 @@ print(np.round(fused.theta_, 3))          # ~ [0.5, 2.0]
 <a name="backends"></a>
 ## Array backends -- `available_backends`, `resolve_backend`, `Backend`
 
-The GEMM-batched projection (the promoted `fit_lsi_batched` / `project_spectra` in
-stable `dtfit`) is a single matrix product that runs unchanged on CPU or GPU -- only
-*where the arrays live* changes. These helpers expose that choice.
+The channel GEMM behind `ImageStream(channels=B, backend=...)` in stable
+`dtfit` is a single matrix product that runs unchanged on CPU or GPU -- only
+*where the arrays live* changes. `ImageStream` selects that backend by name
+(`"numpy"`, `"cupy"` or `"torch"`); `available_backends()` lists the names
+usable here. `resolve_backend` builds a resolved `Backend` object instead --
+what the experimental batched fitters in `dtfit_experimental.scale` accept.
 
 ```python
 available_backends() -> list[str]
@@ -229,15 +234,19 @@ resolve_backend(name="auto", *, dtype="float64") -> Backend
   `.T`), which is why GPU support is a backend *choice*, not a rewrite.
 
 ```python
-from dtfit_experimental import available_backends, resolve_backend
+from dtfit_experimental import available_backends
 print(available_backends())          # e.g. ['numpy'] or ['numpy', 'torch']
-bk = resolve_backend("auto")         # GPU if present, else numpy
 
-from dtfit import fit_lsi_batched
-fit_lsi_batched(x, Y, "a*exp(b*x)", "x", backend=bk)   # pass it straight in
+from dtfit import ImageStream
+xs = np.linspace(0, 4, 300)
+Ys = np.column_stack([xs, 2 * xs, xs ** 2])
+stream = ImageStream("legendre", 6, domain=(0, 4), channels=Ys.shape[1],
+                      backend="numpy")
+stream.update(xs, Ys)
+images = stream.images()             # one running Image per channel
 ```
 
-> The batched projection has low arithmetic intensity (it's a thin GEMM), so a GPU
-> pays off only when the data is already resident on the device -- but the code path
-> is identical either way. See the big-data domain study in
+> The channel GEMM has low arithmetic intensity (it's a thin matrix product), so a
+> GPU pays off only when the data is already resident on the device -- but the code
+> path is identical either way. See the big-data domain study in
 > [README.md](Experimental#suite).
