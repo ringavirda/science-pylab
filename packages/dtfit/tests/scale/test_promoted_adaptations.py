@@ -61,8 +61,9 @@ def test_oscillatory_flag_raises_order_under_bounds():
     y = np.sin(2.0 * t) + rng.normal(0, 0.05, t.size)
     # the bounds path: a global search brackets the frequency; the recipe
     # still helps
-    r = fit_lsi(t, y, "A*sin(w*x)", "x", oscillatory=True,
-                bounds=[(0.1, 5.0), (0.5, 4.0)])
+    with pytest.warns(UserWarning, match="differential-evolution"):
+        r = fit_lsi(t, y, "A*sin(w*x)", "x", oscillatory=True,
+                    bounds=[(0.1, 5.0), (0.5, 4.0)])
     assert abs(r.coeffs[1] - 2.0) < 0.2
 
 
