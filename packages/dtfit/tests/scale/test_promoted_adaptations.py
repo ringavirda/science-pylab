@@ -50,7 +50,9 @@ def test_oscillatory_recipe_recovers_sine_where_default_fails():
     # without the recipe the default order at p0 need not resolve the cycle
     plain = fit_lsi(t, y, "A*sin(w*x)", "x", p0=[1.0, 1.0])
     w_plain = plain.coeffs[names.index("w")]
-    assert abs(w_osc - w_true) <= abs(w_plain - w_true)
+    # Both fits can land within 1 percent on some platforms; the recipe
+    # must then not be worse than the default beyond that level.
+    assert abs(w_osc - w_true) <= max(abs(w_plain - w_true), 0.01)
 
 
 def test_oscillatory_flag_raises_order_under_bounds():

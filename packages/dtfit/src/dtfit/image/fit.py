@@ -48,7 +48,7 @@ def _solve(
     the sum over every stage run.
     """
     opts = dict(solver_options or {})
-    ls_opts = {
+    ls_opts: dict[str, Any] = {
         k: opts[k] for k in ("xtol", "ftol", "gtol", "max_nfev") if k in opts
     }
     if bounds is None:
@@ -90,7 +90,9 @@ def _solve(
         cost, list(zip(lo, hi)), strategy="best1bin", popsize=15,
         seed=random_state,
     )
-    min_opts = {k: opts[k] for k in ("ftol", "gtol") if k in opts}
+    min_opts: dict[str, Any] = {
+        k: opts[k] for k in ("ftol", "gtol") if k in opts
+    }
     if "max_nfev" in opts:
         min_opts["maxfun"] = opts["max_nfev"]
     res = minimize(
