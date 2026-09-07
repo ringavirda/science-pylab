@@ -495,7 +495,7 @@ def fig_eac_adaptive() -> None:
             label=f"EAC (k={res.params['k']:.2f}, x0={res.params['x0']:.2f})")
     for xe in edges:
         ax.axvline(xe, color="0.6", ls="--", lw=0.8)
-    ax.set_title("EAC — sharp sigmoid step (uniform windows)")
+    ax.set_title("EAC - sharp sigmoid step (uniform windows)")
     ax.set_xlabel("x"); ax.set_ylabel("y"); ax.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(FIG_DIR / "eac_adaptive.png"); plt.close(fig)
 

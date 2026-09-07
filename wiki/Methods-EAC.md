@@ -94,13 +94,12 @@ Two placement strategies are shipped:
   curvature mode uses the **full** record (no `active_ratio` clipping), which is
   part of why it captures a saturating asymptote in the tail.
 
-**Left:** `fit_eac(..., window_mode="curvature")` recovers a sharp sigmoid step (`k=2.45, x0=4.99`),
-its window edges (dotted) clustering on the bend. **Right:** the placement
-principle -- edges sit at equal *cumulative curvature*, so they bunch where the
-curve bends (green) instead of spreading evenly in `x` (grey). Under heavy noise
-the curvature estimate softens toward equal spacing.
+`fit_eac` recovers a sharp sigmoid step with its windows spread evenly across
+`x` (dotted edges): the block preset uses four uniform windows per parameter,
+and the estimate comes from the projection on those windows, not from where
+the curve bends.
 
-![Adaptive EAC on a sharp sigmoid step](figures/eac_adaptive.png)
+![EAC with uniform windows on a sharp sigmoid step](figures/eac_adaptive.png)
 
 ## Algorithm
 
