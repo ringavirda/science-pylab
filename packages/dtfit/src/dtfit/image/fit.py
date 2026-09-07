@@ -134,25 +134,29 @@ def _rss_from_image(image: Image, S_f: np.ndarray) -> float:
 
 
 def fft_frequency_seed(x: np.ndarray, y: np.ndarray) -> float:
-    """Dominant angular frequency of ``y`` on the near-uniform grid ``x``.
+    """Dominant angular frequency of ``y`` on the grid ``x``.
 
-    Computed as ``2 pi f`` at the peak of the mean-removed real FFT of
-    ``y``, with the DC bin ignored.
+    The samples are interpolated onto a uniform grid first (an identity
+    when ``x`` already is one); ``2 pi f`` is then the peak of the
+    mean-removed real FFT of the resampled signal, with the DC bin
+    ignored.
 
     Args:
-        x: Sample positions, non-decreasing; only ``x[1] - x[0]`` sets the
-            sampling interval, so a near-uniform grid is assumed.
+        x: Sample positions, non-decreasing.
         y: Sample values, same length as ``x``.
 
     Returns:
         The angular frequency (radians per unit ``x``) of the strongest
         spectral peak.
     """
-    yy = np.asarray(y, dtype=float) - float(np.mean(y))
+    x = np.asarray(x, dtype=float)
+    xu = np.linspace(x[0], x[-1], x.size)
+    yy = np.interp(xu, x, np.asarray(y, dtype=float))
+    yy = yy - float(np.mean(yy))
     spec = np.abs(np.fft.rfft(yy))
     if spec.size:
         spec[0] = 0.0
-    freqs = np.fft.rfftfreq(yy.size, d=float(x[1] - x[0]))
+    freqs = np.fft.rfftfreq(yy.size, d=float(xu[1] - xu[0]))
     return 2.0 * np.pi * float(freqs[int(np.argmax(spec))])
 
 
@@ -231,6 +235,8 @@ def order_for(
         RuntimeError: the model has no free parameters.
     """
     spec = resolve_model(model, var, param_names=param_names)
+    if not spec.names:
+        raise RuntimeError("Model has no free parameters to fit.")
     p = np.asarray(params, dtype=float)
     err = _sensitivity_truncation(
         spec, p, (float(domain[0]), float(domain[1])), max_order,
@@ -250,7 +256,9 @@ def coverage(
     Above ``0.02`` the image loses information about ``params``: the
     order is too low to identify the model's parameter sensitivities from
     this image. ``0.0`` for a non-Legendre basis, which this measure does
-    not apply to.
+    not apply to. The truncation error is taken against a reference
+    expansion of at least 64 modes, so the tail beyond the image order is
+    measured against a full expansion rather than a truncated one.
 
     Args:
         model: A SymPy expression string, a ``sympy.Expr``, or a callable
@@ -264,26 +272,23 @@ def coverage(
 
     Returns:
         The largest relative L2 truncation error, over every parameter,
-        of the model's sensitivities at ``image.order``.
+        of the model's sensitivities at ``image.order``; ``inf`` if that
+        error is not finite.
+
+    Raises:
+        RuntimeError: the model has no free parameters.
     """
-    spec = resolve_model(model, var, param_names=param_names)
     if image.basis.name != "legendre":
         return 0.0
+    spec = resolve_model(model, var, param_names=param_names)
+    if not spec.names:
+        raise RuntimeError("Model has no free parameters to fit.")
     err = _sensitivity_truncation(
         spec, np.asarray(params, dtype=float), image.domain,
-        max(image.order + 1, 8),
+        max(2 * image.order, 64),
     )
-    return float(np.max(err[:, image.order]))
-
-
-def _auto_basis(original: Original) -> tuple[str, bool]:
-    """``(basis, oscillatory)`` from the signal's shape: a spectral peak
-    above 0.10 of the detrended power means a cycle, else the bulk
-    route."""
-    _, strength = dominant_period(original.y)
-    if strength > 0.10:
-        return "legendre", True
-    return "bulk", False
+    worst = float(np.max(err[:, image.order]))
+    return worst if np.isfinite(worst) else float("inf")
 
 
 def fit(
@@ -328,11 +333,15 @@ def fit(
             label only for a callable.
         basis: The basis to image an Original in, ``"legendre"``,
             ``"block"``, or a :class:`~dtfit.image.Basis` instance.
-            ``"auto"`` routes by the signal's shape (:func:`_auto_basis`):
-            a spectral peak means ``"legendre"`` with ``oscillatory=True``;
-            otherwise both bases are tried and the lower-``rss`` result is
-            returned. Rejected with an Image (``TypeError``), which no
-            longer carries the samples the routing needs.
+            ``"auto"`` fits the candidates: the Legendre basis with the
+            oscillatory recipe when ``oscillatory`` or ``freq_param`` is
+            given or the detrended spectrum has a peak share above 0.3,
+            the Legendre basis at its default order, and the block basis
+            at its default order; the candidate with the lowest sample
+            RSS is returned, a later candidate winning only when its RSS
+            is lower by more than 0.1 percent. Rejected with an Image
+            (``TypeError``), which no longer carries the samples the
+            routing needs.
         order: The basis order (polynomial degree for Legendre, window
             count for block). When omitted with an Original, defaults to
             :func:`order_for` at ``p0`` (:func:`osc_order` also, and the
@@ -408,8 +417,10 @@ def fit(
             not finite at ``p0`` on the data's grid; ``sigma`` given for
             an Original that already carries weights; a malformed ``p0``
             or ``bounds`` (from the normalizers).
-        RuntimeError: the model has no free parameters; both bases fail
-            when ``basis="auto"`` routes to the non-cyclic comparison.
+        RuntimeError: the model has no free parameters; every candidate
+            basis fails when ``basis="auto"``.
+
+    Warns:
         UserWarning: the image's coverage of the model's sensitivities at
             ``p0`` exceeds ``0.02`` (:func:`coverage`); the order is too
             low to identify the model from this image.
@@ -456,9 +467,9 @@ def fit(
             )
         if freq_param is not None:
             xg = image.grid.positions()
-            guess[names.index(freq_param)] = fft_frequency_seed(
-                xg, image.reconstruct(xg)
-            )
+            seed = fft_frequency_seed(xg, image.reconstruct(xg))
+            if seed > 0:
+                guess[names.index(freq_param)] = seed
     else:
         if not isinstance(data, Original):
             raise TypeError(
@@ -475,33 +486,43 @@ def fit(
             else Original(data.x, data.y, sigma=sigma, domain=data.domain)
         )
         if basis == "auto":
-            route, osc = _auto_basis(original)
-            if route == "bulk":
-                best = None
-                for b in ("legendre", "block"):
-                    try:
-                        cand = fit(
-                            model, original, var, basis=b, order=order,
-                            p0=p0, bounds=bounds,
-                            absolute_sigma=absolute_sigma, robust=robust,
-                            param_names=param_names,
-                            solver_options=solver_options,
-                            random_state=random_state,
-                        )
-                    except Exception:
-                        continue
-                    if best is None or (
-                        cand.rss is not None and cand.rss < best.rss
-                    ):
-                        best = cand
-                if best is None:
-                    raise RuntimeError("both bases failed for this series")
-                return best
-            basis, oscillatory = route, oscillatory or osc
+            strength = dominant_period(original.y)[1]
+            cands: list[tuple[str, bool]] = []
+            if oscillatory or strength > 0.3:
+                cands.append(("legendre", True))
+            cands.append(("legendre", False))
+            cands.append(("block", False))
+            best: FittingResult | None = None
+            best_rss = float("inf")
+            last: Exception | None = None
+            for b_name, osc in cands:
+                try:
+                    cand = fit(
+                        model, original, var, basis=b_name, order=order,
+                        p0=p0, bounds=bounds,
+                        absolute_sigma=absolute_sigma, robust=robust,
+                        oscillatory=osc, freq_param=freq_param,
+                        param_names=param_names,
+                        solver_options=solver_options,
+                        random_state=random_state,
+                    )
+                except (ValueError, RuntimeError, FloatingPointError,
+                        np.linalg.LinAlgError) as exc:
+                    last = exc
+                    continue
+                if cand.rss is None or not np.isfinite(cand.rss):
+                    continue
+                if best is None or cand.rss < best_rss * (1.0 - 1e-3):
+                    best, best_rss = cand, float(cand.rss)
+            if best is None:
+                raise RuntimeError(
+                    "basis='auto': every candidate basis failed"
+                ) from last
+            return best
         if freq_param is not None:
-            guess[names.index(freq_param)] = fft_frequency_seed(
-                original.x, original.y
-            )
+            seed = fft_frequency_seed(original.x, original.y)
+            if seed > 0:
+                guess[names.index(freq_param)] = seed
         if order is None:
             if not isinstance(basis, str):
                 order = basis.order

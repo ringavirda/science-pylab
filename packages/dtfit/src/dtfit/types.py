@@ -367,6 +367,8 @@ class FittingResult:
         ):
             if val is not None:
                 out[key] = val
+        # The image diagnostics, unlike the ones above, are always
+        # written to the dict and may be None.
         out["rss_source"] = self.rss_source
         out["image_order"] = self.image_order
         out["basis_name"] = self.basis_name

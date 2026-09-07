@@ -60,8 +60,8 @@ def test_fit_on_image_matches_fit_on_original_and_uses_image_rss():
     x = _grids(scn, "uniform")
     y = fn(x, *pt) + 0.05 * np.random.default_rng(0).standard_normal(x.size)
     o = Original(x, y)
-    a = fit(expr, o, var, order=12, p0=pt)
-    b = fit(expr, Image.of(o, "legendre", 12), var, p0=pt)
+    a = fit(expr, o, var, order=24, p0=pt)
+    b = fit(expr, Image.of(o, "legendre", 24), var, p0=pt)
     assert np.allclose(a.coeffs, b.coeffs, atol=1e-8)
     assert b.rss_source == "image"
     assert abs(b.rss - a.rss) / a.rss < 0.02
@@ -307,7 +307,7 @@ def test_oscillatory_recipe_seeds_frequency():
     assert r.image_order >= 12
 
 
-def test_auto_basis_routes_by_shape():
+def test_auto_basis_returns_the_best_candidate():
     x = np.linspace(0, 12, 400)
     y = (
         1.0 + 2.0 * np.sin(1.5 * x + 0.5)
@@ -324,12 +324,15 @@ def test_auto_basis_routes_by_shape():
     yg = fn(xg, *pt) + 0.02 * np.random.default_rng(1).standard_normal(
         xg.size
     )
-    r = fit(expr, Original(xg, yg), var, basis="auto", p0=pt)
-    assert r.basis_name in ("legendre", "block")
+    o = Original(xg, yg)
+    r = fit(expr, o, var, basis="auto", p0=pt)
     assert np.max(np.abs(r.coeffs / pt - 1)) < 0.05
+    a = fit(expr, o, var, p0=pt)
+    b = fit(expr, o, var, basis="block", p0=pt)
+    assert r.rss <= min(a.rss, b.rss) * (1 + 1e-3)
     with pytest.raises(TypeError):
         fit(
-            expr, Image.of(Original(xg, yg), "legendre", 8), var,
+            expr, Image.of(o, "legendre", 8), var,
             basis="auto", p0=pt,
         )
 
@@ -342,3 +345,26 @@ def test_result_round_trips_through_dict():
     assert r2.rss_source == r.rss_source
     assert r2.image_order == r.image_order
     assert r2.basis_name == r.basis_name
+
+
+def test_from_dict_without_image_keys_defaults_to_none():
+    d = {
+        "expr": "a + b*x", "var": "x", "names": ["a", "b"],
+        "coeffs": [1.0, 2.0], "cov": None, "x_range": [0.0, 1.0],
+    }
+    r = FittingResult.from_dict(d)
+    assert r.rss_source is None
+    assert r.image_order is None
+    assert r.basis_name is None
+
+
+def test_frequency_seed_on_a_non_uniform_grid():
+    class _Scn:
+        x0, x1, n = 0.0, 12.0, 400
+
+    x = _grids(_Scn(), "random")
+    y = (
+        1.0 + 2.0 * np.sin(1.5 * x + 0.5)
+        + 0.05 * np.random.default_rng(3).standard_normal(x.size)
+    )
+    assert abs(fft_frequency_seed(x, y) - 1.5) < 0.3

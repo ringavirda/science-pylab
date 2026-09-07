@@ -117,7 +117,9 @@ class Image:
             return False
         if (self.w is None) != (other.w is None):
             return False
-        return self.w is None or np.array_equal(self.w, other.w)
+        if self.w is None or other.w is None:
+            return True
+        return np.array_equal(self.w, other.w)
 
     def __hash__(self) -> int:
         return hash(
