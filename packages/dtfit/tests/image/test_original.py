@@ -48,6 +48,46 @@ def test_window_and_domain():
     assert w.domain == (2.0, 4.0)
 
 
+def test_ties_are_allowed_but_span_is_required():
+    o = Original([1.0, 1.0, 2.0], [5.0, 6.0, 7.0])
+    assert o.n == 3 and o.domain == (1.0, 2.0)
+    with pytest.raises(ValueError):
+        Original([2.0, 2.0], [1.0, 3.0])
+
+
+def test_scalar_sigma_broadcasts():
+    o = Original([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], sigma=2.0)
+    assert np.allclose(o.w, [0.25, 0.25, 0.25])
+
+
+def test_explicit_weight_follows_the_sort():
+    o = Original([3.0, 1.0, 2.0], [30.0, 10.0, 20.0], w=[1.0, 2.0, 3.0])
+    assert np.array_equal(o.w, [2.0, 3.0, 1.0])
+
+
+def test_w_and_sigma_together_rejected():
+    with pytest.raises(ValueError):
+        Original([1.0, 2.0], [1.0, 2.0], w=[1.0, 1.0], sigma=[1.0, 1.0])
+
+
+def test_infinite_weight_rejected():
+    with pytest.raises(ValueError):
+        Original([1.0, 2.0], [1.0, 2.0], w=[1.0, float("inf")])
+
+
+def test_original_owns_its_data():
+    x = np.array([1.0, 2.0, 3.0])
+    y = np.array([10.0, 20.0, 30.0])
+    o = Original(x, y)
+    x[0] = -1.0
+    y[0] = -1.0
+    assert o.x[0] == 1.0 and o.y[0] == 10.0
+
+    w = o.window(0, 2)
+    w.y[0] = -1.0
+    assert o.y[0] == 10.0
+
+
 def test_pandas_input_is_coerced():
     pd = pytest.importorskip("pandas")
     s = pd.Series([1.0, 2.0, 3.0], index=pd.RangeIndex(3))
