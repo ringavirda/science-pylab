@@ -561,16 +561,6 @@ def fit(
             f"{len(names)} parameters; raise the order so the image has "
             f"at least {len(names)} coefficients"
         )
-    if image.basis.name == "legendre":
-        cov_err = coverage(model, guess, image, var=var,
-                            param_names=param_names)
-        if cov_err > 0.02:
-            warnings.warn(
-                f"image coverage {cov_err:.3f} at order {image.order}: "
-                "the model's sensitivities are not represented at this "
-                "order; build the image at order_for(model, p0, domain)",
-                UserWarning, stacklevel=2,
-            )
 
     Phi = image.phi()
     x = image.grid.positions()
@@ -611,6 +601,16 @@ def fit(
             "the model is not finite at p0 on the data's grid; "
             "rescale x or change p0"
         )
+    if image.basis.name == "legendre":
+        cov_err = coverage(model, guess, image, var=var,
+                            param_names=param_names)
+        if cov_err > 0.02:
+            warnings.warn(
+                f"image coverage {cov_err:.3f} at order {image.order}: "
+                "the model's sensitivities are not represented at this "
+                "order; build the image at order_for(model, p0, domain)",
+                UserWarning, stacklevel=2,
+            )
     sentinel = np.full(
         image.n_coef, max(1e6, 10.0 * float(np.linalg.norm(r0)))
     )

@@ -208,7 +208,8 @@ def test_unidentified_parameter_reports_infinite_stderr():
 def test_non_finite_model_at_p0_raises():
     t = np.linspace(0, 1000, 400)
     y = np.exp(-0.01 * t)
-    with pytest.warns(UserWarning, match="coverage"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
         with pytest.raises(ValueError, match="not finite"):
             fit(
                 "a*exp(b*t)", Original(t, y), "t", order=12,
