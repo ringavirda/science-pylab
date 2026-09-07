@@ -19,11 +19,14 @@ prototyped and evaluated here.
 
 When an adaptation proves effective across enough domains it is **promoted into
 stable `dtfit`** and physically moved there; it is then imported from `dtfit`,
-not from here. Already promoted: `PartitionedLSI` / `PartitionedEAC` (#1), the
-GEMM-batched `fit_lsi_batched` / `project_spectra` and fused multi-channel
-`PartitionedBatchLSI`, adaptive-window EAC (#6, `dtfit.fit_eac(window_mode="curvature")`), the LSI
-**oscillatory recipe** (`dtfit.fit_lsi(oscillatory=…, freq_param=…)` +
+not from here. Already promoted: adaptive-window EAC (#6,
+`dtfit.fit_eac(window_mode="curvature")`), the LSI **oscillatory recipe**
+(`dtfit.fit_lsi(oscillatory=..., freq_param=...)` +
 `dtfit.fft_frequency_seed`), and the multi-axis `FusedChiSquareDetector`.
+The map-reduce estimators (`PartitionedLSI` / `PartitionedEAC`, #1) and the
+GEMM-batched `fit_lsi_batched` / `project_spectra` / `PartitionedBatchLSI`
+were promoted and later parked back here, in `dtfit_experimental.scale`,
+until they rerun on `ImageStream`.
 
 ## Install
 

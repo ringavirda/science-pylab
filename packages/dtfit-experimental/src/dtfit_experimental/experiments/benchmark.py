@@ -40,6 +40,7 @@ from scipy.optimize import curve_fit
 
 import dtfit as dt
 from dtfit.streaming import EACFilter
+from dtfit_experimental.scale import PartitionedLSI, fit_lsi_batched
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -610,7 +611,7 @@ def fig_scaling() -> None:
     y = clean + rng.normal(0, 0.03 * clean.std(), x.size)
 
     whole = dt.fit_lsi(x, y, "a*exp(b*x)", "x")
-    acc = dt.PartitionedLSI("a*exp(b*x)", "x", domain=(0.0, 1.5), order=6)
+    acc = PartitionedLSI("a*exp(b*x)", "x", domain=(0.0, 1.5), order=6)
     n_chunks = 8
     bnds = np.linspace(0, x.size, n_chunks + 1).astype(int)
     for c in range(n_chunks):  # shared boundary sample keeps the reduce exact
@@ -633,7 +634,7 @@ def fig_scaling() -> None:
     b_true = rng.uniform(0.8, 2.6, B)
     Y = np.exp(np.outer(x, b_true)) * rng.uniform(0.6, 1.4, B)
     Y = Y + rng.normal(0, 0.02 * Y.std(axis=0), Y.shape)
-    results = dt.fit_lsi_batched(x, Y, "a*exp(b*x)", "x", order=6)
+    results = fit_lsi_batched(x, Y, "a*exp(b*x)", "x", order=6)
     b_rec = np.array([r.params["b"] for r in results])
     ax[1].scatter(b_true, b_rec, s=10, c="tab:green", alpha=0.6)
     lim = [0.7, 2.7]

@@ -1,21 +1,18 @@
-"""Scaling out -- parallel, batched, partitioned.
+"""Scaling out -- parallel fits and the streaming image accumulator.
 
-Per-problem independence makes dtfit embarrassingly parallel. Three tools:
+Per-problem independence makes dtfit embarrassingly parallel. Two tools:
 
 - fit_many (+ FittingProblem)  -- fan independent fits across CPU cores.
-- fit_lsi_batched / project_spectra -- many channels' projections in one GEMM on
-  a pluggable backend (numpy / cupy / torch). project_spectra is the low-level
-  primitive and lives under dtfit.scale.
-- PartitionedLSI / PartitionedEAC / PartitionedBatchLSI -- one-pass / distributed
-  (map-reduce) estimators for streams too big for memory.
+- ImageStream -- accumulate a signal's image in fixed O(order) memory as it
+  arrives; merge() reduces per-shard accumulators, so a stream (or a
+  partitioned dataset) too big for memory still fits in one pass.
 
 Run headless:   python examples/06_scaling.py
 """
 
 import numpy as np
 
-from dtfit import fit_many, FittingProblem, fit_lsi_batched, PartitionedLSI
-from dtfit.scale import project_spectra
+from dtfit import fit_many, FittingProblem, ImageStream, fit
 
 
 def parallel_fits(rng) -> None:
@@ -35,51 +32,35 @@ def parallel_fits(rng) -> None:
         print("  {}: {}".format(r.label, msg))
 
 
-def batched(rng) -> None:
-    # All channels share grid x; their empirical spectra are computed together in
-    # one GEMM, then each small spectral-match solve runs on the host.
-    x = np.linspace(0, 3, 300)
-    b_true = [0.4, 0.6, 0.8, 1.0]
-    Y = np.column_stack([np.exp(b * x) + rng.normal(0, 0.03, x.size) for b in b_true])
-    spectra = project_spectra(x, Y, order=6)           # (B, n_coef), one GEMM
-    # Multi-channel Y returns one FittingResult per channel; a single channel
-    # would return one result, so normalize to a list.
-    fits = fit_lsi_batched(x, Y, "a*exp(b*t)", "t", order=6, p0=[1.0, 1.0])
-    fits = fits if isinstance(fits, list) else [fits]
-    print("\n== project_spectra / fit_lsi_batched ==")
-    print("spectra shape:", spectra.shape)
-    print("recovered b  :", [round(f.params["b"], 3) for f in fits])
-    print("true b       :", b_true)
-
-
 def one_pass(rng) -> None:
-    # Fold chunks of a stream into an additive projection accumulator, then fit
-    # once. Consecutive update() calls are made exactly additive (equal to a
-    # single whole-domain projection).
-    acc = PartitionedLSI("a*exp(b*t)", "t", domain=(0, 5), order=6)
+    # Fold chunks of a stream into an additive image accumulator, then fit
+    # once. Consecutive update() calls are exactly additive (equal to a
+    # single whole-domain image).
+    acc = ImageStream("legendre", 6, domain=(0, 5))
     for x_chunk in np.array_split(np.linspace(0, 5, 5000), 10):
-        y_chunk = 1.3 * np.exp(0.7 * x_chunk) + rng.normal(0, 0.05, x_chunk.size)
+        y_chunk = (1.3 * np.exp(0.7 * x_chunk)
+                   + rng.normal(0, 0.05, x_chunk.size))
         acc.update(x_chunk, y_chunk)
-    res = acc.fit(p0=[1.0, 1.0])
-    print("\n== PartitionedLSI: one pass, fixed memory ==")
-    print("params:", {k: round(v, 3) for k, v in res.params.items()},
-          " n_samples:", acc.n_samples)
+    res = fit("a*exp(b*t)", acc.image(), "t", p0=[1.0, 1.0])
+    print("\n== ImageStream: one pass, fixed memory ==")
+    print("params:", {k: round(v, 3) for k, v in res.params.items()})
 
 
 def map_reduce(rng) -> None:
-    # Workers each accumulate over a shard, then the partials are reduced with
-    # merge() -- the distributed estimator.
+    # Workers each accumulate over a contiguous shard, then the partials are
+    # reduced with merge() -- the distributed estimator.
     def shard(x_shard):
-        a = PartitionedLSI("a*exp(b*t)", "t", domain=(0, 5), order=6)
+        a = ImageStream("legendre", 6, domain=(0, 5))
         y = 1.3 * np.exp(0.7 * x_shard) + rng.normal(0, 0.05, x_shard.size)
-        return a.update(x_shard, y)
+        a.update(x_shard, y)
+        return a
 
     shards = np.array_split(np.linspace(0, 5, 5000), 4)
-    partials = [shard(s) for s in shards]              # the "map" (parallelizable)
+    partials = [shard(s) for s in shards]  # the "map" (parallelizable)
     reduced = partials[0]
     for a in partials[1:]:
-        reduced = reduced.merge(a)                      # the "reduce"
-    res = reduced.fit(p0=[1.0, 1.0])
+        reduced = reduced.merge(a)          # the "reduce"
+    res = fit("a*exp(b*t)", reduced.image(), "t", p0=[1.0, 1.0])
     print("\n== map-reduce with merge() ==")
     print("params:", {k: round(v, 3) for k, v in res.params.items()})
 
@@ -87,7 +68,6 @@ def map_reduce(rng) -> None:
 def main() -> None:
     rng = np.random.default_rng(0)
     parallel_fits(rng)
-    batched(rng)
     one_pass(rng)
     map_reduce(rng)
 

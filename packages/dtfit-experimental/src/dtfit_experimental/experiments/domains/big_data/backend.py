@@ -51,10 +51,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from dtfit import fit_lsi_batched, PartitionedBatchLSI
-from dtfit.scale import project_spectra
 from dtfit.streaming import EACFilter
 
+from dtfit_experimental.scale import (
+    fit_lsi_batched, PartitionedBatchLSI, project_spectra,
+)
 from dtfit_experimental.experiments.common import fmt, metrics
 from dtfit_experimental.experiments.common import baselines as bl
 from dtfit_experimental.experiments.common import datasets as ltsf

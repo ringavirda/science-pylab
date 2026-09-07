@@ -8,8 +8,9 @@ land on the whole-array batched projection as well as on the per-channel
 import numpy as np
 import pytest
 
-from dtfit import PartitionedLSI, PartitionedBatchLSI
-from dtfit.scale import project_spectra
+from dtfit_experimental.scale import (
+    PartitionedLSI, PartitionedBatchLSI, project_spectra,
+)
 
 
 @pytest.fixture

@@ -7,13 +7,11 @@ happens once at construction; updates are pure NumPy/SciPy.
 Each filter is the streaming twin of a batch method and carries that method's
 name, keeping one method discoverable across execution modes:
 
-- :class:`EACFilter`, twin of :func:`dtfit.fit_eac` /
-  :class:`dtfit.PartitionedEAC`. Its measurement is the integrated area
-  innovation over a sliding window.
-- :class:`LSIFilter`, twin of :func:`dtfit.fit_lsi` /
-  :class:`dtfit.PartitionedLSI`. Its measurement is the window's Legendre
-  spectrum, a richer quantity that captures oscillations the area criterion
-  partly cancels.
+- :class:`EACFilter`, twin of :func:`dtfit.fit_eac`. Its measurement is the
+  block image's integrated area innovation over a sliding window.
+- :class:`LSIFilter`, twin of :func:`dtfit.fit_lsi`. Its measurement is the
+  block image's Legendre spectrum, a richer quantity that captures
+  oscillations the area criterion partly cancels.
 
 Both accept optional external regressors. The integral measurement can then
 score a model that also depends on measured side-channels, an IMU-derived

@@ -33,7 +33,8 @@ def test_fit_many_matches_direct_fit():
     res = fit_many(probs, n_jobs=1)
     for p, r in zip(probs, res):
         direct = fit_eac(p.x, p.y, p.expr, p.var, **p.kwargs)
-        np.testing.assert_allclose(r.coeffs, direct.coeffs, rtol=1e-8, atol=1e-8)
+        np.testing.assert_allclose(r.coeffs, direct.coeffs,
+                                    rtol=1e-8, atol=1e-8)
 
 
 def test_fit_many_threading_backend():

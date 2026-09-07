@@ -28,8 +28,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from dtfit import FittingProblem, fit_many
-from dtfit import PartitionedLSI
 from dtfit._core import _kernels
+from dtfit_experimental.scale import PartitionedLSI
 
 __all__ = [
     "N_CORES", "PHYS", "HAVE_NATIVE",

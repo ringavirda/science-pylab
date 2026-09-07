@@ -41,3 +41,15 @@ def test_all_submodules_import():
 def test_removed_methods_are_gone(mod):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(mod)
+
+
+def test_scale_names_left_the_library():
+    import dtfit
+
+    for name in ("PartitionedLSI", "PartitionedEAC", "PartitionedBatchLSI",
+                 "fit_lsi_batched"):
+        assert not hasattr(dtfit, name)
+    assert callable(dtfit.fit_many) and dtfit.ImageStream is not None
+    import dtfit_experimental.scale as legacy
+
+    assert legacy.PartitionedLSI is not None

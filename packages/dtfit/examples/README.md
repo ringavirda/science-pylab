@@ -15,7 +15,7 @@ python packages/dtfit/examples/01_quickstart.py
 | `03_models_and_auto.py` | the model catalog, self-seeding `Model.fit`, composition with `+`, `suggest_models`, `auto_estimate` / `auto_forecast` |
 | `04_sklearn_estimator.py` | `NonlineRegressor` with `fit` / `predict` / `score`, `GridSearchCV`, `cross_val_score` |
 | `05_streaming.py` | `EACFilter` (+ `.tracking()` / `.robust()` presets), `LSIFilter`, `FilterBank`, `FusedChiSquareDetector` |
-| `06_scaling.py` | `fit_many` (+ `FittingProblem`), `project_spectra` / `fit_lsi_batched`, `PartitionedLSI` one-pass and map-reduce `merge` |
+| `06_scaling.py` | `fit_many` (+ `FittingProblem`), `ImageStream` one-pass accumulation and map-reduce `merge` |
 | `07_diagnostics.py` | `fit_report`, `residual_diagnostics`, `to_dict` / `from_dict`, opt-in logging, and (with `--plot`) the `*Display` plots |
 | `08_stochastic.py` | `fit_stochastic` / `StochasticModel` (regime, forecast bands, `simulate` round-trip), `StochasticFilter` online tracking, the `Stochastic` model wrapper |
 

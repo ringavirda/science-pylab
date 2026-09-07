@@ -9,8 +9,7 @@ equivalence is checked here for every basis.
 import numpy as np
 import pytest
 
-from dtfit import fit_lsi_batched
-from dtfit.scale import project_spectra
+from dtfit_experimental.scale import fit_lsi_batched, project_spectra
 from dtfit._core._backend import available_backends, resolve_backend
 from dtfit._core._spectral import LaguerreBasis, make_basis, _trapz_weights
 from sklearn.metrics import r2_score

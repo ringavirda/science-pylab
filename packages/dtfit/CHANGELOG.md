@@ -17,9 +17,14 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   recording where `rss` was computed and the image the fit ran on.
 - The Monte-Carlo gates in `tests/image/test_gates.py`, run at their full
   replicate counts with `DTFIT_NIGHTLY=1`.
+- `ImageStream`, the running image over a fixed domain, in block or
+  channel-batch mode; `Image.transfer`, `assemble` (merging block images
+  onto a coarse domain); `DriftDetector`, the shared change-detection logic
+  behind the streaming filters.
 
 ### Changed
 
+- `fit_many` now lives in `dtfit.image.parallel`.
 - `fit_lsi` and `fit_eac` are now presets of `fit` on the Legendre and block
   bases. The default order comes from `order_for` (Legendre) or four windows
   per parameter (block); the covariance comes from the projected Jacobian,
@@ -43,6 +48,9 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
 - `Model.fit(method="adaptive")`.
 - Curvature-placed EAC windows.
 - The Savitzky-Golay pre-filter, moved to `dtfit_experimental.basis_lsi`.
+- `PartitionedLSI`, `PartitionedEAC`, `PartitionedBatchLSI`,
+  `fit_lsi_batched` and `project_spectra`, parked in
+  `dtfit_experimental.scale` until the notebooks rerun on `ImageStream`.
 
 ## [0.4.0] — 2026-07-09
 

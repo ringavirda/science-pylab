@@ -148,31 +148,25 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
   real-time tracking.
 - **DSB** (`method="dsb"`) — symbolic differential spectra balance; kept as the
   analytical reference (requires a polynomial fit first in the pipeline).
-- **PartitionedLSI / PartitionedEAC** — map-reduce LSI/EAC: because the
-  empirical spectrum and the window areas are *integrals*, they are additive
-  over a partition of the domain, so a stream of any length is fitted in one
-  pass with O(order) state, and partitions reduce (sum) across workers. Use for
-  big-data / distributed fitting (see the `dtfit-experimental`
-  `cases/02_big_data_streaming` experiment).
 
 ### Scaling out
 
+- **`ImageStream`** accumulates a signal in fixed `O(order)` memory as it
+  arrives; its blocks checkpoint and `assemble` merges them into one
+  `Image`, and a channel axis batches many signals through the same
+  accumulator:
+
+  ```python
+  s = dtfit.ImageStream("legendre", 6, domain=(0, 10), block=200)
+  for x, y in chunks_of_the_stream():
+      s.update(x, y)
+  img = s.assemble(0, 10)
+  ```
 - `dtfit.fit_many(problems, n_jobs=-1)` fans many independent fits across cores
-  (process or threading backend); the compiled kernels release the GIL, so
-  thread pools accelerate the hot numeric loops.
+  (process or threading backend); the threading backend shares memory and
+  avoids pickling, nothing more.
 - `dtfit.streaming.FilterBank` runs a bank of independent streaming filters
   (one per channel / satellite / axis) for multi-stream real-time tracking.
-- `dtfit.fit_lsi_batched(x, Y, ...)` (and `dtfit.PartitionedBatchLSI` for the
-  fused streaming variant) fits many channels that share a grid by
-  expressing the LSI projection as one GEMM `S = Dᵀ·(w⊙Y)`, dispatched through a
-  pluggable array backend (`numpy`/BLAS, or `cupy`/`torch` on a GPU; install the
-  GPU extra, e.g. `pip install cupy-cuda13x`). Batching amortizes dispatch on the
-  CPU (up to ~300× a per-channel loop) and runs on cuBLAS when data is
-  device-resident. Because the projection is a low-arithmetic-intensity
-  reduction, the GPU pays off only for resident / many-channel work, not a single
-  streaming pass over host data — measured on an RTX 5080 in the
-  `cases/08_gpu_batched_projection` experiment (fp32 resident ~16× CPU and
-  bandwidth-saturated; streamed is PCIe-bound ≈ CPU).
 
 Further experimental adaptations (pluggable orthogonal bases, robust
 overlapping-window ensembles, joint multi-channel fits, stage-wise boosting,

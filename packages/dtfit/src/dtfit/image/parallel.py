@@ -17,11 +17,8 @@ Two backends, both useful:
   callable on pickling and rebuilds it lazily on the caller side. Nothing
   unpicklable crosses the process boundary. That matters on Windows, where
   workers are spawned rather than forked.
-* ``backend="threading"`` keeps the workers in one process sharing memory.
-  The compiled numeric kernels (``dtfit._core._native``) release the GIL on their
-  hot loops; the integral and projection work therefore runs concurrently,
-  with no process or pickling overhead. Best when the per-problem arrays are
-  large.
+* ``backend="threading"`` keeps the workers in one process, sharing memory
+  and avoiding pickling, nothing more.
 """
 
 from __future__ import annotations
@@ -32,7 +29,7 @@ from typing import Any, Callable, Sequence, cast
 import numpy as np
 from joblib import Parallel, delayed
 
-from dtfit.methods import fit_lsi, fit_eac
+from dtfit.image.fit import fit_eac, fit_lsi
 from dtfit.types import FittingResult
 
 __all__ = ["FittingProblem", "fit_many"]

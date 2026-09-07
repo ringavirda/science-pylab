@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from dtfit import PartitionedLSI, PartitionedEAC
+from dtfit_experimental.scale import PartitionedLSI, PartitionedEAC
 
 
 @pytest.fixture
@@ -109,3 +109,29 @@ def test_partitioned_lsi_accepts_scalar_chunks():
     acc.update(x[11:], y[11:])
     assert acc.n_samples == ref.n_samples
     assert np.allclose(acc.spectrum(), ref.spectrum())
+
+
+def test_partitioned_eac_merge_is_associative():
+    rng = np.random.default_rng(0)
+    x = np.sort(rng.uniform(0, 10, 503))
+    y = 2.0 * np.exp(-0.3 * x) + 0.05 * rng.standard_normal(x.size)
+
+    whole = PartitionedEAC("a*exp(b*t)", "t", domain=(0, 10), n_windows=8)
+    whole.update(x, y)
+
+    for nchunks in (2, 3, 5, 10):
+        idx = np.array_split(np.arange(x.size), nchunks)
+        for reverse in (False, True):
+            # fresh accumulators every pass: merge mutates in place
+            accs = []
+            for ii in idx:
+                a = PartitionedEAC("a*exp(b*t)", "t", domain=(0, 10),
+                                    n_windows=8)
+                a.update(x[ii], y[ii])
+                accs.append(a)
+            order = accs[::-1] if reverse else accs
+            base = order[0]
+            for a in order[1:]:
+                base.merge(a)
+            assert np.allclose(base._areas, whole._areas, atol=1e-12), (
+                f"merge not additive for {nchunks} chunks (reverse={reverse})")

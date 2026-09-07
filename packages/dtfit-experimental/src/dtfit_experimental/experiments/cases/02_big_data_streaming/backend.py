@@ -26,8 +26,8 @@ import tracemalloc
 import numpy as np
 
 import dtfit as dt
-from dtfit import PartitionedLSI
 from dtfit.streaming import EACFilter
+from dtfit_experimental.scale import PartitionedLSI
 
 __all__ = [
     "CHUNK", "DOMAIN",

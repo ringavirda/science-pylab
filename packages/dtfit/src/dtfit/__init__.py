@@ -29,10 +29,10 @@ Streaming:
     FusedChiSquareDetector drive many streams at once.
 
 Scale:
-    PartitionedLSI, PartitionedEAC and PartitionedBatchLSI are the one-pass
-    and distributed map-reduce estimators. fit_lsi_batched is the GEMM-batched
-    multi-channel path, fit_many the process/thread fan-out. The
-    project_spectra primitive lives in ``dtfit.scale``.
+    ImageStream accumulates a signal in fixed memory as it arrives. Its
+    blocks checkpoint and assemble merges them into one Image; a channel
+    axis batches many signals through the same accumulator. fit_many fans
+    independent fits across processes or threads.
 
 Stochastic series:
     fit_stochastic, StochasticModel and Stochastic fit the deterministic
@@ -71,9 +71,7 @@ from dtfit.streaming import (
     FilterBank,
     FusedChiSquareDetector,
 )
-from dtfit.scale._parallel import fit_many, FittingProblem
-from dtfit.scale._partitioned import PartitionedLSI, PartitionedEAC, PartitionedBatchLSI
-from dtfit.scale._batched import fit_lsi_batched
+from dtfit.image.parallel import fit_many, FittingProblem
 from dtfit.auto import auto_estimate, auto_forecast, ForecastResult
 from dtfit import models
 from dtfit.models import Model, Stochastic, suggest_models, register, unregister
@@ -104,10 +102,6 @@ __all__ = [
     "LSIFilter",
     "FilterBank",
     "FusedChiSquareDetector",
-    "PartitionedLSI",
-    "PartitionedEAC",
-    "PartitionedBatchLSI",
-    "fit_lsi_batched",
     "fit_lsi",
     "fft_frequency_seed",
     "fit_eac",

@@ -16,9 +16,10 @@ done per byte read to ``B`` outputs per input column, the intensity a
 bandwidth-bound reduction has to reach before a GPU can help it at all.
 
 The reduction stays exact and additive. It is the same projection as
-:class:`dtfit.PartitionedLSI`, so a batched projection can still be summed
-across a domain partition. On the 321-channel panel of the big-data study it
-ran ~50x faster than the per-channel loop, bit-identical.
+:class:`dtfit_experimental.scale.PartitionedLSI`, so a batched projection
+can still be summed across a domain partition. On the 321-channel panel of
+the big-data study it ran ~50x faster than the per-channel loop,
+bit-identical.
 """
 
 from __future__ import annotations

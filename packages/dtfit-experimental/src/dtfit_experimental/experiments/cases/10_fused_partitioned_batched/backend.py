@@ -4,12 +4,12 @@
 presentation.
 
 The subject is ``PartitionedBatchLSI``, which fuses two big-data levers the
-other cases exercise on their own. :class:`dtfit.PartitionedLSI` partitions by
-volume: flat ``O(order)`` memory and an exact one-pass reduce, but one channel
-at a time. :func:`dtfit.project_spectra` batches by channel: one matmul across
-all of them, GPU-pluggable, but the whole volume resident at ``O(N)``. Each
-covers the other's weakness, and the fused estimator is the claim that you can
-have both at once.
+other cases exercise on their own. ``PartitionedLSI`` partitions by volume:
+flat ``O(order)`` memory and an exact one-pass reduce, but one channel at a
+time. ``project_spectra`` batches by channel: one matmul across all of
+them, GPU-pluggable, but the whole volume resident at ``O(N)``. Each covers
+the other's weakness, and the fused estimator is the claim that you can
+have both at once. Both live in :mod:`dtfit_experimental.scale`.
 
 :func:`fused_project` folds each chunk's GEMM into a ``(B, n_coef)``
 accumulator; :func:`loop_project` runs the per-channel ``PartitionedLSI`` loop
@@ -27,10 +27,10 @@ import tracemalloc
 
 import numpy as np
 
-from dtfit import PartitionedLSI
-from dtfit import PartitionedBatchLSI, fit_lsi_batched
-from dtfit.scale import project_spectra
 from dtfit_experimental import available_backends, resolve_backend
+from dtfit_experimental.scale import (
+    PartitionedLSI, PartitionedBatchLSI, fit_lsi_batched, project_spectra,
+)
 
 try:  # Optional: the external nonlinear accuracy reference.
     from scipy.optimize import curve_fit
