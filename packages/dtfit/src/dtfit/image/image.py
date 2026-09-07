@@ -7,10 +7,21 @@ from functools import cached_property
 from typing import Any
 
 import numpy as np
+from scipy.linalg import cholesky
 
 from .bases import Basis, make_basis, u_of
 from .grid import Grid
 from .original import Original
+
+
+def gram_whitener(G: np.ndarray) -> np.ndarray:
+    """Lower Cholesky factor of ``G`` with a relative jitter of ``1e-14``
+    times the mean diagonal, so a Gram that is singular to rounding still
+    factors. ``G`` is a square symmetric matrix; the factor ``L`` satisfies
+    ``L @ L.T = G + jitter * I``."""
+    k = G.shape[0]
+    jitter = 1e-14 * float(np.trace(G)) / k
+    return cholesky(G + jitter * np.eye(k), lower=True)
 
 
 def huber_weights(
@@ -231,6 +242,59 @@ class Image:
             self.n, self.sumsq, self.sumy, self.wsum,
             self.grid, self.w.copy() if self.w is not None else None,
             self.robust,
+        )
+
+    def transfer(
+        self, domain: tuple[float, float], order: int | None = None
+    ) -> "Image":
+        """This image expressed in the same basis on a coarser ``domain``
+        that contains this one, at ``order`` (default this order).
+
+        Exact for the Legendre basis when ``order`` is at most this order
+        (``S_c = A^T S``, ``G_c = A^T G A`` with the change-of-basis matrix
+        of :func:`~dtfit.image.transfer.legendre_transfer`); for the block
+        basis every fine window must lie inside one coarse window. The
+        sample grid, weights, counts and sums are unchanged.
+
+        Raises:
+            ValueError: ``domain`` does not contain this domain; for the
+                Legendre basis ``order`` above this order; for the block
+                basis a coarse window that is not a union of fine windows
+                (window counts are not compared, the domains differ).
+        """
+        from .transfer import block_transfer, legendre_transfer
+
+        order = self.order if order is None else int(order)
+        d0, d1 = float(domain[0]), float(domain[1])
+        tol = 1e-9 * max(d1 - d0, 0.0)
+        if self.domain[0] < d0 - tol or self.domain[1] > d1 + tol:
+            raise ValueError(
+                f"the coarse domain {domain} must contain this image's "
+                f"domain {self.domain}"
+            )
+        if self.basis.name == "legendre":
+            if order > self.order:
+                raise ValueError(
+                    f"coarse order {order} above this image's order "
+                    f"{self.order}"
+                )
+            A = legendre_transfer(
+                self.domain, (d0, d1), self.order, order
+            )
+        else:
+            A = block_transfer(self.domain, (d0, d1), self.order, order)
+        return Image(
+            basis=make_basis(self.basis.name, order),
+            domain=(d0, d1),
+            S=A.T @ self.S,
+            G=A.T @ self.G @ A,
+            n=self.n,
+            sumsq=self.sumsq,
+            sumy=self.sumy,
+            wsum=self.wsum,
+            grid=self.grid,
+            w=None if self.w is None else self.w.copy(),
+            robust=self.robust,
         )
 
     def reconstruct(self, x: np.ndarray) -> np.ndarray:

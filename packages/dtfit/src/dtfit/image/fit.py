@@ -8,23 +8,15 @@ from typing import Any, Callable
 
 import numpy as np
 import numpy.polynomial.legendre as leg
-from scipy.linalg import cholesky, solve_triangular
+from scipy.linalg import solve_triangular
 from scipy.optimize import differential_evolution, least_squares, minimize
 
 from dtfit._signal import dominant_period
 from dtfit.methods._common import _validate_p0, normalize_bounds, normalize_p0
 from dtfit.methods._modelinput import ModelSpec, resolve_model, result_kwargs
 from dtfit.types import FittingResult
-from .image import Image
+from .image import Image, gram_whitener
 from .original import Original
-
-
-def _whitener(G: np.ndarray) -> np.ndarray:
-    """Lower Cholesky factor of ``G`` with a relative jitter for near-
-    singular Grams."""
-    k = G.shape[0]
-    jitter = 1e-14 * float(np.trace(G)) / k
-    return cholesky(G + jitter * np.eye(k), lower=True)
 
 
 def _solve(
@@ -567,7 +559,7 @@ def fit(
     Phi = image.phi()
     x = image.grid.positions()
     w = image.w if image.w is not None else np.ones(image.n)
-    Lc = _whitener(image.G)
+    Lc = gram_whitener(image.G)
 
     def model_image(theta: np.ndarray) -> np.ndarray:
         return Phi.T @ (w * spec.eval(x, theta))
