@@ -22,3 +22,7 @@ def test_example_runs(script):
     assert proc.returncode == 0, (
         f"{script.name} failed:\n{proc.stdout}\n{proc.stderr}"
     )
+    if script.stem == "05_streaming":
+        # A regression that stopped the pooled nis_ from ever crossing
+        # the threshold would still exit 0 and print "t = None" here.
+        assert "first flag at t = None" not in proc.stdout, proc.stdout
