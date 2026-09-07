@@ -8,6 +8,7 @@ more check contradicts the deliberate 1-D-input API. Each is declared below
 with its own reason; everything else must pass.
 """
 
+import pytest
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 from dtfit import NonlineRegressor
@@ -64,8 +65,15 @@ def _expected_failed_checks(estimator: NonlineRegressor) -> dict[str, str]:
     }
 
 
-@parametrize_with_checks(
+# parametrize_with_checks hands pytest.mark.parametrize a generator, which
+# pytest deprecates; materialise it into a list so the file collects clean
+# under -W error::PytestRemovedIn10Warning.
+_mark = parametrize_with_checks(
     [NonlineRegressor()], expected_failed_checks=_expected_failed_checks
 )
+_argnames, _argvalues = _mark.args
+
+
+@pytest.mark.parametrize(_argnames, list(_argvalues), **_mark.kwargs)
 def test_sklearn_compat(estimator, check):
     check(estimator)

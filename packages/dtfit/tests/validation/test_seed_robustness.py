@@ -63,9 +63,7 @@ def test_basin_stability_to_seed_perturbation(name, factor):
     names = ordered_params(scn)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        # filter_data=True turns on the LSI pre-filter. It is off by default;
-        # this basin corpus was tuned with it on.
-        res = fit_lsi(x, y, m.expr, m.var, p0=perturbed, filter_data=True)
+        res = fit_lsi(x, y, m.expr, m.var, p0=perturbed)
     assert np.all(np.isfinite(res.coeffs))
     assert param_err(scn, names, res.coeffs) <= 0.12, (
         f"{name} from {factor}x seed: "

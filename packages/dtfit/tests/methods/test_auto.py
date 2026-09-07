@@ -38,12 +38,13 @@ def test_auto_estimate_auto_detects_oscillation():
     assert abs(r.coeffs[1] - 1.2) < 0.1
 
 
-def test_auto_estimate_transient_uses_adaptive():
-    rng = np.random.default_rng(3)
-    t = np.linspace(0, 3, 400)
-    y = 2.0 * (1 - np.exp(-3.0 * t)) + rng.normal(0, 0.02, t.size)
-    r = auto_estimate(t, y, "K*(1-exp(-a*x))", "x", shape="transient", p0=[1.0, 1.0])
-    assert abs(r.coeffs[0] - 2.0) < 0.2 and abs(r.coeffs[1] - 3.0) < 0.6
+def test_auto_estimate_transient_uses_block_basis():
+    x = np.linspace(0.0, 10.0, 300)
+    y = (2.0 * (1.0 - np.exp(-x / 1.5))
+         + 0.02 * np.random.default_rng(0).standard_normal(300))
+    r = auto_estimate(x, y, "K*(1 - exp(-x/tau))", "x", shape="transient",
+                       p0=[1.0, 1.0])
+    assert abs(r.params["K"] - 2.0) < 0.05 and abs(r.params["tau"] - 1.5) < 0.1
 
 
 def test_auto_estimate_unknown_shape_raises():

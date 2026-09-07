@@ -64,31 +64,21 @@ def test_robust_integral_beats_nonrobust_under_dense_outliers(fitter):
     assert relerr(fitter(x, yc, "a*exp(b*t)", "t", robust=True)) < 0.05
 
 
-def test_soft_l1_beats_linear_under_outliers():
-    rng = np.random.default_rng(3)
-    x = np.linspace(0.1, 4.0, 240)
-    true = (2.5, -0.6)
-    y = true[0] * np.exp(true[1] * x) + 0.02 * rng.standard_normal(x.size)
-    idx = rng.choice(x.size, size=24, replace=False)
-    y[idx] += rng.uniform(3, 6, size=idx.size)
+def test_robust_image_beats_plain_under_dense_outliers():
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 4.0, 300)
+    truth = 2.5 * np.exp(-0.9 * x)
+    y = truth + 0.03 * rng.standard_normal(300)
+    idx = rng.choice(300, 30, replace=False)
+    y[idx] += rng.choice([-1.0, 1.0], 30) * 1.5
+    plain = fit_lsi(x, y, "a*exp(-b*x)", "x", p0=[2.0, 1.0])
+    rob = fit_lsi(x, y, "a*exp(-b*x)", "x", p0=[2.0, 1.0], robust=True)
 
-    def relerr(r):
-        return (abs(r.params["a"] - true[0]) / abs(true[0])
-                + abs(r.params["b"] - true[1]) / abs(true[1]))
+    def err(r):
+        return max(abs(r.params["a"] - 2.5) / 2.5,
+                    abs(r.params["b"] - 0.9) / 0.9)
 
-    # active_ratio=0.8 confines the fit to the leading transient. The default
-    # keeps every sample; this case was tuned for the transient recipe.
-    lin = fit_eac(x, y, "a*exp(b*t)", "t", active_ratio=0.8)
-    rob = fit_eac(x, y, "a*exp(b*t)", "t", active_ratio=0.8,
-                  loss="soft_l1")  # auto f_scale
-    assert relerr(rob) < 0.6 * relerr(lin), "robust loss did not engage"
-
-
-def test_curvature_falls_back_on_short_flat_data():
-    x = np.linspace(0.0, 1.0, 9)
-    y = 1.0 + 0.5 * x  # nearly flat -> curvature edges may collapse
-    r = fit_eac(x, y, "a + b*t", "t", window_mode="curvature")
-    assert np.all(np.isfinite(r.coeffs))
+    assert err(rob) < 0.5 * err(plain)
 
 
 def test_single_member_ensemble_not_overconfident():

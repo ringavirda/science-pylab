@@ -11,7 +11,7 @@ python packages/dtfit/examples/01_quickstart.py
 | Script | Covers |
 |--------|--------|
 | `01_quickstart.py` | first fit with `fit_lsi`, `FittingResult` (params / stderr / CI / prediction band), `auto_estimate` |
-| `02_fitting_methods.py` | the three batch fitters: `fit_lsi` (+ oscillatory recipe), `fit_eac` (robust `loss=`, `window_mode="curvature"`), `fit_dsb` (+ `find_degree`) |
+| `02_fitting_methods.py` | the three batch fitters: `fit_lsi` (+ oscillatory recipe), `fit_eac` (block preset, `robust=True`), `fit_dsb` (+ `find_degree`) |
 | `03_models_and_auto.py` | the model catalog, self-seeding `Model.fit`, composition with `+`, `suggest_models`, `auto_estimate` / `auto_forecast` |
 | `04_sklearn_estimator.py` | `NonlineRegressor` with `fit` / `predict` / `score`, `GridSearchCV`, `cross_val_score` |
 | `05_streaming.py` | `EACFilter` (+ `.tracking()` / `.robust()` presets), `LSIFilter`, `FilterBank`, `FusedChiSquareDetector` |

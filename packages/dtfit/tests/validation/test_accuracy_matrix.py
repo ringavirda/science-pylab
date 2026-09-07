@@ -67,13 +67,9 @@ def test_recovery_matrix(scn, noise):
             f"and below baseline {cf_r2:.4f}. {scn.note}")
 
 
-# This corpus was tuned with the LSI pre-filter on and the EAC active region
-# confined to the leading transient. Both are opt-in; passing them explicitly
-# keeps the sweep judging the tuned recipe rather than the bare defaults.
 _METHODS = {
-    "lsi": lambda x, y, e, v, p0: fit_lsi(x, y, e, v, p0=p0, filter_data=True),
-    "eac": lambda x, y, e, v, p0: fit_eac(x, y, e, v, p0=p0, active_ratio=0.8),
-    "adaptive": lambda x, y, e, v, p0: fit_eac(x, y, e, v, window_mode="curvature", p0=p0),
+    "lsi": lambda x, y, e, v, p0: fit_lsi(x, y, e, v, p0=p0),
+    "eac": lambda x, y, e, v, p0: fit_eac(x, y, e, v, p0=p0),
 }
 _RUN_CASES = [(s, m) for s in SCENARIOS for m in _METHODS]
 _RUN_IDS = [f"{s.name}-{m}" for s, m in _RUN_CASES]

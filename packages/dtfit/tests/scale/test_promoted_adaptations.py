@@ -1,7 +1,7 @@
-"""Adaptive EAC windows, the LSI oscillatory recipe and the fused detector.
+"""The EAC block preset, the LSI oscillatory recipe and the fused detector.
 
-* ``fit_eac(window_mode="curvature")``: curvature-adaptive EAC windows, aimed
-  at concentrated transients;
+* ``fit_eac``, the uniform-window block preset, aimed at concentrated
+  transients;
 * the ``fit_lsi`` oscillatory recipe (``oscillatory=`` / ``freq_param=`` with
   ``fft_frequency_seed``), which recovers a sinusoid the smoothed default
   erases;
@@ -22,22 +22,12 @@ from dtfit import (
 )
 
 
-def test_adaptive_eac_recovers_transient():
+def test_eac_recovers_transient():
     rng = np.random.default_rng(4)
     t = np.linspace(0, 3, 400)
     y = 2.0 * (1 - np.exp(-3.0 * t)) + rng.normal(0, 0.02, t.size)
-    r = fit_eac(t, y, "K*(1-exp(-a*x))", "x", window_mode="curvature",
-                p0=[1.0, 1.0])
+    r = fit_eac(t, y, "K*(1-exp(-a*x))", "x", p0=[1.0, 1.0])
     assert abs(r.coeffs[0] - 2.0) < 0.2 and abs(r.coeffs[1] - 3.0) < 0.5
-
-
-def test_adaptive_eac_uniform_mode_runs():
-    rng = np.random.default_rng(5)
-    t = np.linspace(0, 3, 300)
-    y = 1.5 * (1 - np.exp(-2.0 * t)) + rng.normal(0, 0.02, t.size)
-    r = fit_eac(t, y, "K*(1-exp(-a*x))", "x", window_mode="uniform",
-                p0=[1.0, 1.0])
-    assert abs(r.coeffs[0] - 1.5) < 0.3
 
 
 def test_fft_frequency_seed_finds_dominant_cycle():
@@ -57,13 +47,13 @@ def test_oscillatory_recipe_recovers_sine_where_default_fails():
     w_osc = osc.coeffs[names.index("w")]
     assert abs(w_osc - w_true) < 0.1
 
-    # without the recipe the smoothed low-order default cannot lock the cycle
+    # without the recipe the default order at p0 need not resolve the cycle
     plain = fit_lsi(t, y, "A*sin(w*x)", "x", p0=[1.0, 1.0])
     w_plain = plain.coeffs[names.index("w")]
     assert abs(w_osc - w_true) <= abs(w_plain - w_true)
 
 
-def test_oscillatory_flag_forces_filter_off_and_raises_order():
+def test_oscillatory_flag_raises_order_under_bounds():
     rng = np.random.default_rng(2)
     t = np.linspace(0, 6 * np.pi, 400)
     y = np.sin(2.0 * t) + rng.normal(0, 0.05, t.size)

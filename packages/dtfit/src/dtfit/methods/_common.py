@@ -43,61 +43,6 @@ def taylor_coeffs(f_sym: sp.Expr, t: sp.Symbol, order: int) -> list[sp.Expr]:
     return coeffs
 
 
-# input validation (shared by the batch fitters)
-def _validate_xy(
-    data_x: np.ndarray,
-    data_y: np.ndarray,
-    *,
-    min_size: int = 2,
-    nan_policy: str = "raise",
-) -> tuple[np.ndarray, np.ndarray]:
-    """Coerce and validate a 1-D ``(x, y)`` sample pair.
-
-    Returns float arrays. A shape mismatch, a non-1-D input or fewer than
-    ``min_size`` samples raises :class:`ValueError`.
-
-    ``nan_policy`` controls non-finite handling. ``"raise"`` (the default)
-    rejects any NaN/inf; ``"omit"`` drops the offending ``(x, y)`` pairs
-    before fitting, which is what gappy telemetry with dropped GPS or sensor
-    samples needs. The ``min_size`` floor applies after omission.
-    """
-    x = np.asarray(data_x, dtype=float)
-    y = np.asarray(data_y, dtype=float)
-    if x.ndim != 1 or y.ndim != 1:
-        raise ValueError(
-            f"data_x and data_y must be 1-D; got shapes {x.shape} and {y.shape}. "
-            "dtfit's integral criteria (LSI project onto Legendre polynomials over "
-            "a scalar interval; EAC integrates windows on a scalar axis) are "
-            "one-dimensional, so multivariate X (several predictors) is not "
-            "supported. If instead you have a 1-D signal that is a sum of "
-            "components along one axis (e.g. trend + cycle), compose 1-D models "
-            "with `+` (models.linear() + models.sine()); see the 'Multivariate "
-            "data' note in the docs."
-        )
-    if x.size != y.size:
-        raise ValueError(
-            f"data_x and data_y must have the same length; got {x.size} and {y.size}."
-        )
-    if nan_policy not in ("raise", "omit"):
-        raise ValueError(
-            f"nan_policy must be 'raise' or 'omit', got {nan_policy!r}."
-        )
-    if nan_policy == "omit":
-        good = np.isfinite(x) & np.isfinite(y)
-        x, y = x[good], y[good]
-    if x.size < min_size:
-        raise ValueError(
-            f"need at least {min_size} samples to fit; got {x.size}."
-            + (" (after dropping non-finite pairs)" if nan_policy == "omit" else "")
-        )
-    if nan_policy == "raise":
-        if not np.all(np.isfinite(x)):
-            raise ValueError("data_x contains non-finite values (NaN/inf).")
-        if not np.all(np.isfinite(y)):
-            raise ValueError("data_y contains non-finite values (NaN/inf).")
-    return x, y
-
-
 def _validate_p0(p0, params: list) -> np.ndarray:
     """Coerce an initial guess to a float vector and length-check it against
     the parameter list.
@@ -266,49 +211,6 @@ def _check_bounds(
                 "constant, substitute the value into the model expression."
             )
     return out
-
-
-# per-sample measurement weights
-def _resolve_sigma(
-    sigma: np.ndarray | Sequence[float] | None,
-    data_x: np.ndarray,
-    data_y: np.ndarray,
-    x: np.ndarray,
-    nan_policy: str,
-) -> np.ndarray | None:
-    """Validate ``sigma`` and align it with the post-validation samples ``x``.
-
-    ``sigma`` is the per-sample measurement standard deviation of ``data_y``
-    and carries the same length as the raw input, matching
-    :func:`scipy.optimize.curve_fit`. Returns a float array aligned with the
-    validated ``x``, with the same non-finite ``(x, y)`` pairs dropped under
-    ``nan_policy="omit"``, or ``None`` when no ``sigma`` was supplied. A
-    length mismatch, or a non-finite or non-positive entry among the retained
-    samples, raises :class:`ValueError`.
-    """
-    if sigma is None:
-        return None
-    # ``_validate_xy`` has already run, so the raw inputs are 1-D and equal
-    # length; ``reshape(-1)`` is an identity here and just fixes the dtype.
-    raw_x = np.asarray(data_x, dtype=float).reshape(-1)
-    raw_y = np.asarray(data_y, dtype=float).reshape(-1)
-    s = np.asarray(sigma, dtype=float).reshape(-1)
-    if s.size != raw_y.size:
-        raise ValueError(
-            f"sigma must have the same length as data_y; got {s.size} and "
-            f"{raw_y.size}."
-        )
-    if nan_policy == "omit":
-        s = s[np.isfinite(raw_x) & np.isfinite(raw_y)]
-    if s.size != x.size:  # defensive: cannot happen once the mask matches
-        raise ValueError(
-            f"sigma length {s.size} does not match the {x.size} fitted samples."
-        )
-    if not np.all(np.isfinite(s)):
-        raise ValueError("sigma contains non-finite values (NaN/inf).")
-    if np.any(s <= 0.0):
-        raise ValueError("sigma must be strictly positive.")
-    return s
 
 
 # numeric statistics
