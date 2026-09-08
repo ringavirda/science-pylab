@@ -1,0 +1,2 @@
+host,n_stations,rate_requested,samples_per_second,n_frames,n_samples,n_dropped,bytes_sent,n_frames_back,seconds
+Finality,20,100000.0,2703.5,15,67219,5,1077997,199,24.8635

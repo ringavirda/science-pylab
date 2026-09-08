@@ -349,12 +349,26 @@ requested rate at which neither side drops a chunk, and `flags_match` says
 whether the flags the Pi raised over the wire are the flags the same
 filter raised locally on the same 20 stations.
 
-At 1,000 samples per second the Pi kept up with no drops on either side,
-raising the same 22 flags it raises locally. Since the direct connection
-now works, the 10,000/s, 100,000/s and unbounded requests can be swept
-without the tunnel; that sweep is the one open item, bounded by the Pi's
-own per-update cost of about 400 microseconds (near 2,500 samples per
-second), above which the tracker is the limiter.
+The Pi filters one sample in about 370 microseconds, so it saturates
+near 2,700 samples per second, and that ceiling shapes the sweep.
+
+| requested rate | achieved | dropped | flags | samples tracked |
+|---|---|---|---|---|
+| 1,000/s | 999.6/s | 0 | 22 | 95,388 |
+| 10,000/s | 2,677/s | 3 | 16 | 80,892 |
+| 100,000/s | 2,703/s | 5 | 11 | 67,219 |
+| unbounded | 2,670/s | 0 | 22 | 95,388 |
+
+Below the ceiling the Pi keeps up losslessly and raises the same 22 flags
+it raises in batch. A fixed rate above the ceiling is the wrong way to
+push it: the replayer schedules sends at the requested rate, falls behind
+when the Pi cannot drain them, and drops the chunks it cannot send on
+time, so samples and the flags that depend on them are lost. The
+unbounded request has no schedule to fall behind, so the socket's own flow
+control paces the replayer to exactly the Pi's rate: it lands at the same
+2,700 per second but with zero drops and all 22 flags. The lesson is that
+back-pressure, not a fixed high rate, is how a fast source feeds a slower
+recursive consumer without loss.
 
 | requested | achieved | dropped (sender / receiver) | per-sample cost on the Pi | blocks back | flags match |
 |---|---|---|---|---|---|

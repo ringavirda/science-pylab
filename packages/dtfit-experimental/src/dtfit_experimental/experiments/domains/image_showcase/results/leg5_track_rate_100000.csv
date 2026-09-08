@@ -1,0 +1,2 @@
+host,config,n_frames,n_samples,n_dropped,seconds,samples_per_second,us_per_update,n_flags,n_blocks,bytes_back,flag_times
+felled-pi,detection,15,67219,4,24.8614,2703.7,365.789,11,199,908592,8.585900 0.761200 3.835800 10.417500 5.262200 5.054100 6.841900 9.040400 11.792000 8.407900 18.343600
