@@ -35,7 +35,6 @@ domain-standard methods compared against, and includes **real-data** tests.
 
 ```bash
 pip install -e '.[bench]'              # matplotlib, torch, statsmodels, pandas, jupyter
-python build_native.py                 # build the GIL-released C kernels
 
 # each domain is a backend.py (compute) + a notebook (report); open and re-run it
 jupyter lab experiments/domains/forecasting/forecasting.ipynb

@@ -39,7 +39,7 @@ pip install -e 'packages/dtfit-hardware[bench]'        # pulls dtfit-experimenta
 
 ```
 packages/
-  dtfit/                     # stable library (pyproject, src/dtfit, tests, examples, build_native.py)
+  dtfit/                     # stable library (pyproject, src/dtfit, tests, examples)
   dtfit/examples/            # runnable, headless example scripts (the guides)
   dtfit-experimental/        # experimental package (pyproject, src/dtfit_experimental, tests)
   dtfit-hardware/            # real-silicon rig (src/dtfit_hardware: firmware + host link; mobile/ phone app)
