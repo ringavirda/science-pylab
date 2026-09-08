@@ -302,13 +302,12 @@ class FusedChiSquareDetector:
     A fault that moves every stream (a damping fault on all axes of an
     oscillator, a regime shift in a sensor array) leaves only a weak signature
     in any single stream's innovation but a strong one in the sum across
-    streams. This detector sums each filter's own ``nis_`` (already a
-    chi-square statistic with ``n_coef`` degrees of freedom under the model)
-    into one fused ``chi2(sum n_coef)`` statistic. Passing the
-    ``alpha``-level threshold flags a fault and optionally re-arms each
-    filter via :meth:`~dtfit.EACFilter.inflate`. In the embedded-control
-    domain study a 3-axis damping fault was flagged within one window at
-    zero false alarms.
+    streams. This detector sums each filter's own ``nis_`` (approximately a
+    chi-square statistic with ``n_coef`` degrees of freedom under the
+    model) into one fused ``chi2(sum n_coef)`` statistic. Passing the
+    ``alpha``-level threshold flags a synchronized multi-axis fault that
+    any single stream's innovation would miss, and optionally re-arms
+    each filter via :meth:`~dtfit.EACFilter.inflate`.
 
     Usage::
 
