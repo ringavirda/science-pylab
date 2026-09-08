@@ -235,6 +235,10 @@ class SecondOrderImage:
         ``t0 + n``. Cost is one FFT autocorrelation and one FFT
         cross-correlation per lagged-sum series, plus O(chunk) work.
 
+        Args:
+            y: the next 1-D array of finite sample values, at unit spacing
+                continuing the record.
+
         Raises:
             ValueError: an empty chunk, a chunk that is not 1-D, or non-finite
                 values.
@@ -331,6 +335,10 @@ class SecondOrderImage:
         """A new image of both records, the other's samples following this
         one's. Exact: the lagged sums gain the cross terms between this
         image's tail carry and the other's head carry.
+
+        Args:
+            other: the image of the record immediately following this one's,
+                on the same budgets and sample grid.
 
         Raises:
             ValueError: different budgets or sample grids, or records that
@@ -489,7 +497,11 @@ class SecondOrderImage:
 
     def acov_increments(self) -> np.ndarray:
         """Centred autocovariance of the increments ``dy_t = y_t - y_{t-1}``,
-        length ``lag + 1``, divided by the increment count ``n - 1``."""
+        length ``lag + 1``, divided by the increment count ``n - 1``.
+
+        Raises:
+            ValueError: the image holds no samples.
+        """
         d_head = np.diff(self.head)
         d_tail = np.diff(self.tail)
         s = self.last() - self.first()
@@ -608,7 +620,11 @@ class SecondOrderImage:
     def detrended_acov(self) -> np.ndarray:
         """Centred autocovariance of the residual about the least-squares
         line, ``gamma_e[0..lag]`` divided by ``n``. Exact from the stored
-        cross-sums and the carries."""
+        cross-sums and the carries.
+
+        Raises:
+            ValueError: the image holds no samples.
+        """
         n, k = self.n, np.arange(self.lag + 1)
         sl, ic = self._trend_index()
         t0 = self.t0
@@ -667,6 +683,9 @@ class SecondOrderImage:
         own autocovariance ``sum_j (A_j^2 / 2) cos(2 pi j f k)`` and neglects
         the sample cross-covariance between the harmonics and the residual,
         which is ``O(1/sqrt(n))``.
+
+        Raises:
+            ValueError: the image holds no samples.
         """
         g = self.detrended_acov()
         if freq is None or coef is None or len(coef) == 0:
@@ -762,6 +781,14 @@ class SecondOrderImage:
 
         Non-finite ``period`` and zero ``amp`` come back when the record is
         too short for an interior bin (``n < 8``).
+
+        Raises:
+            ValueError: the image holds no samples.
+
+        Warns:
+            UserWarning: the record is longer than ``2 nfreq`` samples, so
+                the frequency grid is coarser than one bin per record
+                frequency.
         """
         from scipy.optimize import minimize_scalar
 
@@ -859,6 +886,9 @@ class SecondOrderImage:
         Returns:
             The ``tau`` statistic; ``nan`` when the normal equations are
             singular.
+
+        Raises:
+            ValueError: the image holds no samples.
         """
         g = self.detrended_acov()
         n, lag = self.n, self.lag
@@ -879,7 +909,7 @@ class SecondOrderImage:
         a[0, 0] = g[0]
         b[0] = g[1] - g[0]
         for j in range(1, p + 1):
-            a[0, j] = a[j, 0] = g[j] - g[j + 1] if j + 1 <= lag else 0.0
+            a[0, j] = a[j, 0] = g[j - 1] - g[j] if j <= lag else 0.0
             b[j] = gd(j)
             for i in range(1, p + 1):
                 a[i, j] = gd(i - j)
@@ -925,6 +955,9 @@ class SecondOrderImage:
 
     def restore(self, d: dict[str, Any]) -> "SecondOrderImage":
         """Load a :meth:`state` into this image and return it.
+
+        Args:
+            d: a dict as returned by :meth:`state`, on the same budgets.
 
         Raises:
             ValueError: an unknown state version or different budgets.

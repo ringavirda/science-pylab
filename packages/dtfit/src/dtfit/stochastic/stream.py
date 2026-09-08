@@ -92,11 +92,16 @@ class SecondOrderStream:
         block that fills is imaged, retained and returned.
 
         Raises:
-            ValueError: an empty chunk or non-finite values.
+            ValueError: an empty chunk, a chunk that is not 1-D, or
+                non-finite values.
         """
-        y = np.asarray(y, dtype=float).reshape(-1)
+        y = np.asarray(y, dtype=float)
+        if y.ndim != 1:
+            raise ValueError(f"a chunk must be 1-D, got {y.ndim} dimensions")
         if y.size == 0:
             raise ValueError("a chunk needs at least one sample")
+        if not np.all(np.isfinite(y)):
+            raise ValueError("the series must be finite")
         if self.block is None:
             self._current.update(y)
             self.n += y.size

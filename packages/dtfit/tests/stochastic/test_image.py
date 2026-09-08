@@ -6,6 +6,7 @@ import pytest
 
 from dtfit.image import Original
 from dtfit.stochastic import SecondOrderImage
+from dtfit.stochastic._stats import _adf_design
 
 
 def ar1(n, phi, seed, sigma=1.0, burn=200):
@@ -39,6 +40,38 @@ def chunked(y, cuts, lag, nfreq, scales):
     for p in parts[1:]:
         out = out.merge(p)
     return out
+
+
+def chunked_right(y, cuts, lag, nfreq, scales):
+    """The image of ``y`` built as consecutive images and merged right to
+    left, so each merge's receiver is the shorter, earlier chunk rather
+    than the long running total."""
+    parts = []
+    prev = 0
+    for c in list(cuts) + [y.size]:
+        if c <= prev:
+            continue
+        parts.append(SecondOrderImage(lag, nfreq, scales, t0=prev)
+                     .update(y[prev:c]))
+        prev = c
+    out = parts[-1]
+    for p in reversed(parts[:-1]):
+        out = p.merge(out)
+    return out
+
+
+def direct_dickey_fuller(y, lags):
+    """The tau statistic of a direct OLS of the constant+trend ADF
+    regression at a fixed lag, the reference dickey_fuller is checked
+    against."""
+    y1, x1 = _adf_design(np.asarray(y, dtype=float), lags)
+    beta, *_ = np.linalg.lstsq(x1, y1, rcond=None)
+    resid = y1 - x1 @ beta
+    dof = y1.size - x1.shape[1]
+    s2 = float(resid @ resid) / dof
+    xtx_inv = np.linalg.inv(x1.T @ x1)
+    se = np.sqrt(s2 * xtx_inv[0, 0])
+    return float(beta[0] / se)
 
 
 def test_autocovariance_is_exact_under_chunking_and_merging():
@@ -94,6 +127,53 @@ def test_aggregated_variance_is_exact_and_matches_direct_blocks():
         assert v == pytest.approx(float(blocks.var(ddof=1)), rel=1e-12)
 
 
+def test_merge_is_exact_under_a_right_fold_and_a_binary_tree():
+    y = ar1(4000, 0.7, 5)
+    whole = SecondOrderImage(16, 32, 10).update(y)
+    scale = float(np.max(np.abs(whole.acov())))
+    fields = ("ss", "nb", "lead_sum", "lead_len", "part_sum", "part_len")
+
+    # a right fold makes each merge's receiver the short, earlier chunk,
+    # the one that may not itself reach a block boundary at every scale
+    right = chunked_right(y, range(500, 4000, 500), 16, 32, 10)
+    assert np.max(np.abs(right.acov() - whole.acov())) < 1e-10 * scale
+    for name in fields:
+        assert np.max(np.abs(
+            getattr(right, name) - getattr(whole, name))) < 1e-9
+    mw, vw = whole.aggregated_variance()
+    mr, vr = right.aggregated_variance()
+    assert np.array_equal(mw, mr)
+    assert np.max(np.abs(vw - vr)) < 1e-9
+
+    # a binary-tree merge of unaligned leaves
+    parts = [SecondOrderImage(16, 32, 10, t0=500 * i)
+             .update(y[500 * i:500 * (i + 1)]) for i in range(8)]
+    while len(parts) > 1:
+        parts = [parts[i].merge(parts[i + 1])
+                 for i in range(0, len(parts), 2)]
+    tree = parts[0]
+    assert np.max(np.abs(tree.acov() - whole.acov())) < 1e-10 * scale
+    for name in fields:
+        assert np.max(np.abs(
+            getattr(tree, name) - getattr(whole, name))) < 1e-9
+
+
+def test_merge_handles_an_empty_image_on_either_side():
+    y = ar1(500, 0.7, 6)
+    img = SecondOrderImage(16, 32, 4).update(y)
+    left = SecondOrderImage(16, 32, 4).merge(img)
+    right = img.merge(SecondOrderImage(16, 32, 4, t0=500))
+    assert left.n == img.n == right.n
+    assert np.array_equal(left.acov(), img.acov())
+    assert np.array_equal(right.acov(), img.acov())
+
+
+def test_mean_matches_the_sample_mean():
+    y = ar1(500, 0.5, 8)
+    img = SecondOrderImage(16, 32, 4).update(y)
+    assert img.mean() == pytest.approx(float(np.mean(y)), rel=1e-12)
+
+
 def test_fixed_grid_dft_is_exact_under_merging_and_matches_the_direct_sum():
     y = ar1(5000, 0.7, 31)
     whole = SecondOrderImage(64, 128, 8).update(y)
@@ -106,8 +186,8 @@ def test_fixed_grid_dft_is_exact_under_merging_and_matches_the_direct_sum():
 
 
 def test_exactness_holds_over_random_chunkings_and_budgets():
-    # the cuts run down to a single sample and are not multiples of any 2^j,
-    # so every part starts at an unaligned global index
+    # the fixed cut at 1 leaves a single-sample first part, an unaligned
+    # global index; the rest are random cuts, down to a single sample
     rng = np.random.default_rng(7)
     for trial in range(12):
         n = int(rng.integers(200, 1500))
@@ -260,6 +340,19 @@ def test_the_grid_resolves_the_record_and_says_so_when_it_cannot():
     assert abs(under["amp"] - 3.0) > 0.5
 
 
+def test_seasonal_recovers_two_harmonics_by_bic():
+    t = np.arange(600.0)
+    y = (2.0 * np.sin(2 * np.pi * t / 50.0)
+         + 1.0 * np.sin(2 * np.pi * 2 * t / 50.0 + 0.3) + 0.5)
+    img = SecondOrderImage.of(y, lag=64, nfreq=512)
+    d = img.seasonal(max_harmonics=2)
+    assert d["n_harmonics"] == 2
+    a, b = d["coef"][0], d["coef"][1]
+    a2, b2 = d["coef"][2], d["coef"][3]
+    assert np.hypot(a, b) == pytest.approx(2.0, abs=0.05)
+    assert np.hypot(a2, b2) == pytest.approx(1.0, abs=0.05)
+
+
 def test_seasonal_is_empty_on_a_record_too_short_to_carry_a_cycle():
     d = SecondOrderImage.of(np.arange(4.0), lag=2, nfreq=8).seasonal()
     assert d["n_harmonics"] == 0 and d["amp"] == 0.0
@@ -276,6 +369,31 @@ def test_dickey_fuller_separates_a_walk_from_a_stationary_series():
     assert tau_walk > -3.42 > tau_ar
     # a degenerate record leaves the normal equations singular
     assert not np.isfinite(SecondOrderImage.of(np.zeros(200)).dickey_fuller())
+
+
+def test_dickey_fuller_matches_a_direct_ols_regression():
+    rng = np.random.default_rng(11)
+    noise = rng.standard_normal(2000)
+    shipped = SecondOrderImage.of(noise, lag=64, nfreq=64).dickey_fuller(12)
+    assert shipped == pytest.approx(direct_dickey_fuller(noise, 12), rel=0.03)
+
+    x = ar1(800, 0.5, 3)
+    shipped = SecondOrderImage.of(x, lag=64, nfreq=64).dickey_fuller(12)
+    assert shipped == pytest.approx(direct_dickey_fuller(x, 12), rel=0.03)
+
+
+def test_dickey_fuller_does_not_over_reject_a_unit_root_with_ma_noise():
+    # the augmentation lags exist for exactly this family: a unit root whose
+    # innovation is a moving average, not white noise
+    trials = 40
+    rejections = 0
+    for seed in range(trials):
+        e = np.random.default_rng(seed).standard_normal(801)
+        y = np.cumsum(e[1:] - 0.8 * e[:-1])
+        tau = SecondOrderImage.of(y, lag=64, nfreq=64).dickey_fuller()
+        if tau < -3.42:
+            rejections += 1
+    assert rejections / trials < 0.25
 
 
 def test_residual_autocovariance_removes_the_trend_exactly():
@@ -295,8 +413,8 @@ def test_residual_autocovariance_removes_the_trend_exactly():
     g_e = direct_acov(e, 32)
     # the harmonic's own autocovariance goes; what is left of the amplitude's
     # sampling error moves the variance by a few percent of A^2/2
-    assert gr[0] == pytest.approx(g_e[0], rel=0.25)
-    assert gr[1] / gr[0] == pytest.approx(g_e[1] / g_e[0], abs=0.1)
+    assert gr[0] == pytest.approx(g_e[0], rel=0.03)
+    assert gr[1] / gr[0] == pytest.approx(g_e[1] / g_e[0], abs=0.012)
     # without the subtraction the harmonic dominates the lag-1 correlation
     gd = imgs.detrended_acov()
     assert gd[1] / gd[0] > 0.85

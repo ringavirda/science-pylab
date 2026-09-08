@@ -116,10 +116,30 @@ def test_stream_rejects_the_wrong_mode_and_a_foreign_checkpoint():
             SecondOrderStream(**kwargs)
 
 
+def test_update_rejects_non_finite_and_non_1d_chunks_in_block_mode():
+    # a partial block never reaches SecondOrderImage.update, so the stream
+    # must check finiteness and shape itself
+    st = SecondOrderStream(500, lag=8, nfreq=16, scales=3)
+    with pytest.raises(ValueError, match="finite"):
+        st.update(np.full(10, np.nan))
+    with pytest.raises(ValueError, match="1-D"):
+        st.update(np.zeros((4, 5)))
+    with pytest.raises(ValueError, match="at least one sample"):
+        st.update(np.zeros(0))
+
+
+def test_close_drops_a_partial_block_of_a_single_sample():
+    st = SecondOrderStream(500, lag=8, nfreq=16, scales=3)
+    st.update(np.zeros(1))
+    assert st.close() == []
+
+
 def test_block_images_reach_the_filter_accuracy_on_an_ar1_coefficient():
     """At equal memory the block form and the exponentially weighted filter
-    have the same steady-state error on the AR(1) coefficient; the blocks
-    resolve the change at block granularity, the filter within a half-life."""
+    have the same steady-state error on the AR(1) coefficient; a block's
+    estimate becomes available only once the block closes, so the filter,
+    which updates every sample, resolves a change sooner than the block
+    size."""
     n, block, halflife = 6000, 500, 173.0
     errs = {"filter": [], "blocks": []}
     delays = {"filter": [], "blocks": []}
@@ -140,7 +160,10 @@ def test_block_images_reach_the_filter_accuracy_on_an_ar1_coefficient():
         for s0 in range(0, n, block):
             for img in st.update(y[s0:s0 + block]):
                 g = img.acov()
-                track[pos:pos + img.n] = g[1] / g[0]
+                # the block's own estimate is only known once it closes, at
+                # pos + img.n; it stays the read-out until the next block
+                # closes
+                track[pos + img.n:pos + 2 * img.n] = g[1] / g[0]
                 pos += img.n
         est["blocks"] = track
         for key, e in est.items():
@@ -150,4 +173,4 @@ def test_block_images_reach_the_filter_accuracy_on_an_ar1_coefficient():
             delays[key].append(int(cross[0]) if cross.size else n)
     assert np.mean(errs["blocks"]) < 0.05
     assert np.mean(errs["blocks"]) < np.mean(errs["filter"]) + 0.01
-    assert np.median(delays["blocks"]) < np.median(delays["filter"])
+    assert np.median(delays["filter"]) < np.median(delays["blocks"])
