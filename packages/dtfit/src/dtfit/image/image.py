@@ -14,7 +14,7 @@ from .grid import Grid
 from .original import Original
 
 if TYPE_CHECKING:
-    from .analytics import Decay
+    from .analytics import ChiSquareTest, Decay
 
 
 def gram_whitener(G: np.ndarray) -> np.ndarray:
@@ -197,11 +197,17 @@ class Image:
         var: str | None = None,
         domain: tuple[float, float] | None = None,
         w: np.ndarray | None = None,
+        param_names: Any = None,
     ) -> "Image":
-        """The image the model ``f(x; params)`` would have on ``grid``."""
+        """The image the model ``f(x; params)`` would have on ``grid``.
+
+        ``param_names`` names the parameters of a callable model whose
+        signature cannot be introspected; see
+        :func:`~dtfit.methods.resolve_model`.
+        """
         from dtfit.methods._modelinput import resolve_model
 
-        spec = resolve_model(model, var)
+        spec = resolve_model(model, var, param_names=param_names)
         x = grid.positions()
         f = spec.eval(x, np.asarray(params, dtype=float))
         dom = domain if domain is not None else (float(x[0]), float(x[-1]))
@@ -397,6 +403,58 @@ class Image:
         from .analytics import decay
 
         return decay(self)
+
+    def test_equal(
+        self, other: "Image", alpha: float = 0.05, *,
+        sigma: float | None = None,
+    ) -> "ChiSquareTest":
+        """Chi-square test that ``other`` is an image of the same signal.
+
+        Returns:
+            A :class:`~dtfit.image.analytics.ChiSquareTest`; ``reject``
+            is ``True`` when the images differ by more than noise.
+
+        Raises:
+            ValueError: the two images differ in basis, order or domain;
+                ``alpha`` outside ``(0, 1)``; ``sigma`` not finite and
+                positive; or, with ``sigma=None``, neither image has a
+                residual degree of freedom to pool a noise scale from.
+
+        See :func:`~dtfit.image.analytics.test_equal` for the formula.
+        """
+        from .analytics import test_equal
+
+        return test_equal(self, other, alpha, sigma=sigma)
+
+    def test_structure(
+        self, model: Any, params: Any, var: str | None = None, *,
+        alpha: float = 0.05, param_names: Any = None,
+        sigma: float | None = None, fitted: bool = True,
+    ) -> "ChiSquareTest":
+        """Chi-square test that a model explains everything in the span.
+
+        Returns:
+            A :class:`~dtfit.image.analytics.ChiSquareTest`; ``reject``
+            is ``True`` when the model leaves structure in the span
+            unexplained.
+
+        Raises:
+            ValueError: ``alpha`` outside ``(0, 1)``; ``sigma`` not
+                finite and positive; the model is not finite on the
+                image's grid; the image has no degrees of freedom left
+                after the model's parameters; the noise scale cannot be
+                estimated.
+            RuntimeError: the model has no free parameters.
+
+        See :func:`~dtfit.image.analytics.test_structure` for the
+        formula.
+        """
+        from .analytics import test_structure
+
+        return test_structure(
+            self, model, params, var, alpha=alpha, param_names=param_names,
+            sigma=sigma, fitted=fitted,
+        )
 
     def fit(self, model: Any, var: str | None = None, **kwargs: Any):
         from .fit import fit

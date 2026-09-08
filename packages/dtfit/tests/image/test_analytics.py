@@ -1,10 +1,16 @@
-"""The image's own statistics: noise level, resolved order and decay."""
+"""The image's own statistics: noise level, resolved order, decay, and the
+two chi-square tests."""
 
 import numpy as np
 import pytest
 
-from dtfit.image import Original
-from dtfit.image.analytics import Decay, decay, effective_order, noise_sigma
+from dtfit.image import Original, analytics
+from dtfit.image.analytics import (
+    ChiSquareTest, Decay, decay, effective_order, noise_sigma,
+)
+
+# analytics.test_equal and analytics.test_structure are reached through the
+# module: imported by name, pytest would collect them as test functions.
 
 X = np.linspace(-1.0, 1.0, 400)
 
@@ -124,3 +130,149 @@ def test_decay_rejects_a_non_legendre_basis():
     img = Original(X, np.exp(X)).image("block", 8)
     with pytest.raises(ValueError, match="legendre"):
         decay(img)
+
+
+def _exp_image(seed, slope=0.0, sigma=0.05, order=10, basis="legendre"):
+    """An image of a decaying exponential plus noise; ``slope`` tilts it."""
+    x = np.linspace(0.0, 4.0, 500)
+    y = (2.0 * np.exp(-0.7 * x) + 0.3 + slope * x
+         + sigma * np.random.default_rng(seed).standard_normal(x.size))
+    return Original(x, y).image(basis, order)
+
+
+def test_test_equal_passes_two_images_of_one_signal():
+    t = analytics.test_equal(_exp_image(1), _exp_image(2))
+    assert isinstance(t, ChiSquareTest)
+    assert t.dof == 11 and not t.reject and t.pvalue > 0.05
+    assert 0.0 <= t.statistic
+
+
+def test_test_equal_fails_two_different_signals():
+    t = _exp_image(1).test_equal(_exp_image(3, slope=0.04))
+    assert t.reject and t.pvalue < 1e-6
+
+
+def test_test_equal_works_on_the_block_basis():
+    a = _exp_image(1, basis="block", order=8)
+    b = _exp_image(2, basis="block", order=8)
+    c = _exp_image(3, slope=0.04, basis="block", order=8)
+    assert a.test_equal(b).dof == 8 and not a.test_equal(b).reject
+    assert a.test_equal(c).reject
+
+
+def test_test_equal_accepts_different_sample_sets():
+    """Only basis, order and domain must agree; the grids need not."""
+    x = np.linspace(0.0, 4.0, 500)
+    yc = 2.0 * np.exp(-0.7 * x) + 0.3
+    rng = np.random.default_rng(4)
+    a = Original(x, yc + 0.05 * rng.standard_normal(x.size)).image(
+        "legendre", 10)
+    xb = np.sort(rng.uniform(0.0, 4.0, 300))
+    yb = 2.0 * np.exp(-0.7 * xb) + 0.3 + 0.05 * rng.standard_normal(xb.size)
+    b = Original(xb, yb, domain=(0.0, 4.0)).image("legendre", 10)
+    assert not a.test_equal(b).reject
+
+
+def test_test_equal_rejects_mismatched_images():
+    a = _exp_image(1)
+    for other in (
+        _exp_image(2, order=8),
+        _exp_image(2, basis="block", order=10),
+    ):
+        with pytest.raises(ValueError, match="basis, order and domain"):
+            a.test_equal(other)
+    x = np.linspace(0.0, 4.0, 500)
+    wide = Original(x, np.exp(-x), domain=(0.0, 5.0)).image("legendre", 10)
+    with pytest.raises(ValueError, match="basis, order and domain"):
+        a.test_equal(wide)
+
+
+def test_test_equal_validates_alpha_and_sigma():
+    a, b = _exp_image(1), _exp_image(2)
+    with pytest.raises(ValueError, match="alpha"):
+        analytics.test_equal(a, b, alpha=0.0)
+    with pytest.raises(ValueError, match="sigma"):
+        analytics.test_equal(a, b, sigma=0.0)
+
+
+def test_test_equal_takes_a_known_sigma():
+    a, b = _exp_image(1), _exp_image(2)
+    tight = analytics.test_equal(a, b, sigma=0.005)
+    loose = analytics.test_equal(a, b, sigma=0.5)
+    assert tight.statistic > loose.statistic
+    assert tight.reject and not loose.reject
+
+
+def test_test_structure_passes_the_generating_model():
+    """Hands the true generating parameters, not a fit: fitted=False takes
+    the full coefficient count, since no degree of freedom was spent."""
+    img = _exp_image(1)
+    t = analytics.test_structure(
+        img, "a*exp(-b*t) + c", [2.0, 0.7, 0.3], "t", fitted=False,
+    )
+    assert t.dof == 11 and not t.reject
+    assert t.pvalue > 0.05
+
+
+def test_test_structure_fails_a_wrong_model():
+    img = _exp_image(1)
+    t = img.test_structure("a + b*t", [2.0, -0.4], "t")
+    assert t.dof == 11 - 2 and t.reject and t.pvalue < 1e-6
+
+
+def test_test_structure_at_the_fitted_parameters():
+    from dtfit.image import fit
+
+    img = _exp_image(1)
+    res = fit("a*exp(-b*t) + c", img, "t", p0=[2.0, 0.7, 0.3])
+    t = img.test_structure("a*exp(-b*t) + c", res.coeffs, "t")
+    assert not t.reject and t.statistic < 11.0
+
+
+def test_test_structure_counts_free_parameters_only_when_fitted():
+    img = _exp_image(1)
+    expr, p = "a*exp(-b*t) + c", [2.0, 0.7, 0.3]
+    fitted = analytics.test_structure(img, expr, p, "t")
+    fixed = analytics.test_structure(img, expr, p, "t", fitted=False)
+    assert fitted.dof == 8 and fixed.dof == 11
+    assert fitted.statistic == pytest.approx(fixed.statistic)
+
+
+def test_test_structure_on_a_weighted_and_a_robust_image():
+    x = np.linspace(0.0, 4.0, 500)
+    y = (2.0 * np.exp(-0.7 * x) + 0.3
+         + 0.05 * np.random.default_rng(1).standard_normal(x.size))
+    weighted = Original(x, y, sigma=0.5 + 0.1 * x).image("legendre", 10)
+    robust = Original(x, y, sigma=0.5 + 0.1 * x).image(
+        "legendre", 10, robust=True)
+    for img in (weighted, robust):
+        t = img.test_structure("a*exp(-b*t) + c", [2.0, 0.7, 0.3], "t")
+        assert t.pvalue > 0.01
+
+
+def test_test_structure_takes_a_callable_model():
+    def model(x, a, b, c):
+        return a * np.exp(-b * x) + c
+
+    img = _exp_image(1)
+    assert not img.test_structure(model, [2.0, 0.7, 0.3]).reject
+
+
+def test_test_structure_validates_its_arguments():
+    img = _exp_image(1)
+    with pytest.raises(ValueError, match="alpha"):
+        img.test_structure("a + b*t", [1.0, 1.0], "t", alpha=1.0)
+    with pytest.raises(ValueError, match="sigma"):
+        img.test_structure("a + b*t", [1.0, 1.0], "t", sigma=-1.0)
+    small = _exp_image(1, order=3)
+    with pytest.raises(ValueError, match="degrees of freedom"):
+        small.test_structure(
+            "a + b*t + c*t**2 + d*t**3 + e*t**4",
+            [1.0, 1.0, 1.0, 1.0, 1.0], "t",
+        )
+
+
+def test_chi_square_test_reject_follows_alpha():
+    t = ChiSquareTest(statistic=3.0, dof=1, pvalue=0.083, alpha=0.05)
+    assert not t.reject
+    assert ChiSquareTest(3.0, 1, 0.083, 0.10).reject
