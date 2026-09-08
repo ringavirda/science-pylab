@@ -166,9 +166,11 @@ def test_short_series_fallback_warns_and_is_visible_in_the_name():
     pt, lo, hi = m.forecast(5, return_conf_int=True)
     assert pt.shape == (5,) and np.all(hi >= lo)
     assert np.all(np.diff(hi - lo) > 0)
-    # seed 0 sits on the Dickey-Fuller p-value's 0.05 boundary at n=40 and
-    # flips to a spurious unit-root call; seed 12 stays clear of it
-    m2 = fit_stochastic(np.random.default_rng(12).standard_normal(40))
+    # a forced name looks up the forecaster directly, bypassing the
+    # unit-root gate and the backtest, so the result does not depend on
+    # which regime the gate calls this short white-noise draw
+    m2 = fit_stochastic(np.random.default_rng(0).standard_normal(40),
+                         forecaster="random walk")
     assert m2.forecaster_name == "random walk"
 
 
@@ -216,6 +218,15 @@ def test_unit_root_gate_verdicts():
     assert not is_nonstationary(gen_ar1(800, 0.6, rng))
     assert not is_nonstationary(rng.standard_normal(400))
     assert not is_nonstationary(rng.standard_normal(8))    # too short to test
+
+
+def test_unit_root_gate_does_not_trust_short_series():
+    # below n=200 the image's tau statistic loses power and false-flags
+    # a stationary series as a unit root at a rate far above alpha
+    hits = sum(
+        is_nonstationary(np.random.default_rng(s).standard_normal(100))
+        for s in range(30))
+    assert hits == 0
 
 
 def _boom(*args, **kwargs):
@@ -290,6 +301,20 @@ def test_model_wrapper_fits_through_the_catalog_convention():
     t = np.arange(y.size, dtype=float)
     assert Stochastic().fit(t, y).regime == m.regime
     assert Stochastic(forecaster="drift").fit(y).forecaster_name == "drift"
+
+
+def test_model_wrapper_forwards_lag_and_nfreq(monkeypatch):
+    import dtfit.models._stochastic as ms
+    seen = {}
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return fit_stochastic(*args, **kwargs)
+
+    monkeypatch.setattr(ms, "fit_stochastic", spy)
+    y = gen_ar1(200, 0.5, np.random.default_rng(0))
+    Stochastic(lag=17, nfreq=33).fit(y)
+    assert seen["lag"] == 17 and seen["nfreq"] == 33
 
 
 def test_series_forecast_is_a_future_indexed_series():

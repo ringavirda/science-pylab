@@ -65,7 +65,19 @@ def make_seasonal_fc(
 
     The harmonics are referenced to the global sample index, the one ``t0``
     counts from, so a block image forecasts the phase the whole record
-    would."""
+    would.
+
+    Args:
+        period: seasonal period in samples of the record, above 0.
+        max_harmonics: cap on the Fourier harmonics refit at forecast time,
+            at least 1.
+        with_trend: continue the fitted trend under the cycle; ``False``
+            continues the flat sample mean instead.
+
+    Returns:
+        A forecaster ``(img, h) -> array`` of length ``h``, the trend (or
+        mean) plus cycle extended past ``img``'s last sample.
+    """
     def fc(img: SecondOrderImage, h: int) -> np.ndarray:
         seas = img.seasonal(max_harmonics=max_harmonics, freq=1.0 / period)
         idx = float(img.n - 1) + np.arange(1, h + 1, dtype=float)
@@ -86,7 +98,20 @@ def make_seasonal_fc_anchored(
     clean series whose last sample is itself a good level estimate.
 
     The harmonics are referenced to the global sample index, as in
-    :func:`make_seasonal_fc`."""
+    :func:`make_seasonal_fc`.
+
+    Args:
+        period: seasonal period in samples of the record, above 0.
+        max_harmonics: cap on the Fourier harmonics refit at forecast time,
+            at least 1.
+        with_trend: continue the fitted trend slope under the cycle,
+            anchored at the last observation rather than the fitted
+            intercept; ``False`` continues flat.
+
+    Returns:
+        A forecaster ``(img, h) -> array`` of length ``h``, ``img.last()``
+        plus the trend and cycle displacement past ``img``'s last sample.
+    """
     def fc(img: SecondOrderImage, h: int) -> np.ndarray:
         seas = img.seasonal(max_harmonics=max_harmonics, freq=1.0 / period)
         last = float(img.n - 1)
@@ -121,6 +146,29 @@ def select_forecaster(
     series too short to backtest (``n <= 50``) falls back to the first
     candidate with the suffix ``" (short-series fallback)"``. A candidate that
     raises during a fold is warned about and scored infinite for it.
+
+    Args:
+        y: the training series, or ``None`` for an image-only fit.
+        img: the image of the full training stretch; only its ``lag`` and
+            ``nfreq`` budgets are read here, to size each fold's image.
+        candidates: ``(name, forecaster)`` pairs, at least one; ``"random
+            walk"`` is treated as the baseline every other candidate is
+            measured against.
+        max_h: cap on the backtest horizon in samples, at least 1.
+        folds: number of rolling-origin folds attempted; a fold below 40
+            training samples stops the loop early, so fewer may run.
+        margin: a non-random-walk candidate wins when its mean RMSE is at
+            most ``margin`` times the random walk's, above 0; below 1.0
+            requires it to beat the random walk outright.
+
+    Returns:
+        The winning ``(name, forecaster)`` pair, unsuffixed when a full
+        backtest ran.
+
+    Warns:
+        UserWarning: as described above -- no series to backtest on, a
+            series too short to backtest, or a candidate raising during a
+            fold.
     """
     if len(candidates) == 1:
         return candidates[0]
@@ -172,6 +220,17 @@ def build_named_forecaster(
     name: str, per: float, max_harmonics: int
 ) -> tuple[str, Forecaster]:
     """One built-in candidate by name.
+
+    Args:
+        name: a name from :data:`FORECASTERS`.
+        per: seasonal period in samples of the record, needed by
+            ``"seasonal"`` and ``"trend+seasonal"``; ``nan`` otherwise.
+        max_harmonics: cap on the Fourier harmonics of a seasonal
+            candidate, at least 1.
+
+    Returns:
+        The ``(name, forecaster)`` pair, ``forecaster`` a callable
+        ``(image, h) -> array``.
 
     Raises:
         ValueError: an unknown name, or a seasonal name without a period.
@@ -225,10 +284,32 @@ def resolve_forecaster(
     """Turn the caller's ``forecaster=`` argument into a chosen
     ``(name, fn)``.
 
+    Args:
+        forecaster: ``"auto"`` or ``None`` backtest-selects among
+            ``auto_candidates``; a name from :data:`FORECASTERS`; a
+            callable ``(train, h) -> array``; or a list mixing names,
+            callables and ``(name, callable)`` pairs, itself
+            backtest-selected.
+        auto_candidates: the regime-appropriate ``(name, forecaster)``
+            pairs tried under ``forecaster="auto"``.
+        per: seasonal period in samples of the record, forwarded to a
+            named seasonal candidate; ``nan`` when none applies.
+        max_harmonics: cap on the Fourier harmonics of a seasonal
+            candidate, at least 1.
+        img: the image of the full training stretch, forwarded to
+            :func:`select_forecaster`.
+        y: the training series, or ``None`` for an image-only fit; a
+            callable forecaster needs this to have a series to close over.
+        margin: forwarded to :func:`select_forecaster`.
+
+    Returns:
+        The chosen ``(name, fn)`` pair.
+
     Raises:
         ValueError: an unknown built-in name or an empty candidate list.
         TypeError: a candidate that is neither a name, a callable nor a
-            ``(name, callable)`` pair.
+            ``(name, callable)`` pair; or a callable candidate with ``y``
+            ``None``.
     """
     if forecaster is None or forecaster == "auto":
         return select_forecaster(y, img, auto_candidates, margin=margin)

@@ -31,6 +31,14 @@ def test_sample_acf_white_noise_is_a_spike():
     assert np.all(np.abs(acf[1:]) < 0.12)
 
 
+def test_sample_acf_truncates_at_an_image_s_own_lag_budget():
+    y = np.random.default_rng(0).standard_normal(4000)
+    img = SecondOrderImage.of(y, lag=32)
+    acf = sample_acf(img, 128)
+    assert acf.shape == (33,)
+    assert acf.shape == (min(128, img.lag) + 1,)
+
+
 @pytest.mark.parametrize("phi", [0.6, 0.9])
 def test_ar1_reversion_recovers_phi(phi):
     est = np.mean([ar1_reversion(
@@ -159,6 +167,59 @@ def test_decompose_recovers_trend_and_cycle():
     assert same["slope"] == pytest.approx(dec["slope"])
     with pytest.raises(ValueError, match="an Original"):
         decompose_trend_cycle(SecondOrderImage.of(y))
+
+
+def _adf_design(x, lag):
+    """ADF (ct) regression design at ``lag`` difference lags, built directly
+    in numpy so this reference stays independent of the shipped estimator.
+    The response is the difference ``dy_t``; the columns are
+    ``[y_{t-1}, dy_{t-1}, .., dy_{t-lag}, 1, t]``, with the level lag first so
+    that its coefficient is the gamma being tested."""
+    dx = np.diff(x)
+    nobs = dx.size - lag
+    cols = [x[lag:lag + nobs]]                          # level lag y_{t-1}
+    for j in range(1, lag + 1):
+        cols.append(dx[lag - j:lag - j + nobs])         # dy_{t-j}
+    cols.append(np.ones(nobs))                          # const
+    cols.append(np.arange(1, nobs + 1, dtype=float))    # linear trend
+    return dx[lag:], np.column_stack(cols)
+
+
+def _direct_dickey_fuller(y, lags):
+    """The tau statistic of a direct OLS of the constant+trend ADF
+    regression at a fixed lag, the reference ``dickey_fuller`` is checked
+    against."""
+    y1, x1 = _adf_design(np.asarray(y, dtype=float), lags)
+    beta, *_ = np.linalg.lstsq(x1, y1, rcond=None)
+    resid = y1 - x1 @ beta
+    dof = y1.size - x1.shape[1]
+    s2 = float(resid @ resid) / dof
+    xtx_inv = np.linalg.inv(x1.T @ x1)
+    se = np.sqrt(s2 * xtx_inv[0, 0])
+    return float(beta[0] / se)
+
+
+def test_dickey_fuller_agrees_with_a_direct_ols_reference():
+    """A numpy-only reference, checked without skipping so the parity claim
+    behind dropping the vendored ADF regression stays verified when
+    statsmodels is not installed."""
+    agree = 0
+    cases = []
+    for s in range(3):
+        r = np.random.default_rng(200 + s)
+        cases.append(np.cumsum(r.standard_normal(600)))
+        cases.append(0.05 * np.arange(600) + r.standard_normal(600) * 3.0)
+        cases.append(gen_ar1(600, 0.9, r))
+        cases.append(3.0 * np.sin(2 * np.pi * np.arange(600) / 20.0)
+                     + 0.5 * r.standard_normal(600))
+    for x in cases:
+        n = x.size
+        p = max(1, int(min(12.0 * (n / 100.0) ** 0.25, 12, 64 - 2)))
+        img = SecondOrderImage.of(x, lag=64, nfreq=64)
+        shipped = dickey_fuller(img, lags=p)["tau"]
+        ref = _direct_dickey_fuller(x, p)
+        agree += (adf_pvalue(shipped) < 0.05) == (adf_pvalue(ref) < 0.05)
+    assert agree == len(cases)
 
 
 def test_dickey_fuller_reads_the_unit_root_off_the_image():

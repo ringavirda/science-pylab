@@ -458,7 +458,10 @@ def decompose_trend_cycle(
         ``forecast(h, dt=None)`` closure continuing trend plus cycle.
 
     Raises:
-        ValueError: a non-uniform time axis, or fewer than two samples.
+        ValueError: a non-uniform time axis, fewer than two samples, or
+            neither ``(t, y)`` nor an Original is given (``t`` a
+            :class:`SecondOrderImage` with ``y`` omitted, which carries no
+            axes to decompose).
     """
     if y is None:
         orig = t if isinstance(t, Original) else None

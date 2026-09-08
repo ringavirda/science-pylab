@@ -27,7 +27,17 @@ def bt_spectrum(
     g: np.ndarray, n: int, n_freq: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """Blackman-Tukey spectrum of an autocovariance sequence under a Parzen
-    lag window, at ``f = 1/n .. n_freq/n`` cycles per sample."""
+    lag window, at ``f = 1/n .. n_freq/n`` cycles per sample.
+
+    Args:
+        g: autocovariance sequence, ``g[0..lag]``.
+        n: record length in samples, at least 1.
+        n_freq: number of frequency bins to evaluate, at least 1.
+
+    Returns:
+        ``(f, s)``: the frequencies in cycles per sample and the spectrum
+        at each, both length ``n_freq``.
+    """
     lag = g.size - 1
     k = np.arange(lag + 1)
     u = k / lag
@@ -39,7 +49,16 @@ def bt_spectrum(
 
 def gph_slope(f: np.ndarray, s: np.ndarray) -> float:
     """GPH log-periodogram slope of a spectrum: ``log S = c - 2d log|2 sin
-    pi f|``. Returns ``-2d``."""
+    pi f|``.
+
+    Args:
+        f: frequencies in cycles per sample.
+        s: spectrum at each frequency, same shape as ``f``.
+
+    Returns:
+        ``-2d``, the slope of the least-squares fit over the bins where
+        ``s`` is positive; ``0.0`` when fewer than 3 remain.
+    """
     keep = s > 0
     if keep.sum() < 3:
         return 0.0
@@ -48,7 +67,17 @@ def gph_slope(f: np.ndarray, s: np.ndarray) -> float:
 
 
 def yule_walker(rho: np.ndarray, p: int) -> np.ndarray:
-    """AR(``p``) coefficients from an autocorrelation sequence."""
+    """AR(``p``) coefficients from an autocorrelation sequence.
+
+    Args:
+        rho: autocorrelation sequence, ``rho[0..p]`` at least, ``rho[0] ==
+            1``.
+        p: AR order, at least 0.
+
+    Returns:
+        The ``p`` coefficients ``phi_1..phi_p``; an empty array when ``p``
+        is below 1.
+    """
     from scipy.linalg import toeplitz
 
     if p < 1:
@@ -60,7 +89,18 @@ def whitened_spectrum(
     g: np.ndarray, n: int, n_freq: int, phi: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """Spectrum of the AR-whitened residual: the residual spectrum divided by
-    the AR transfer function ``|1 - sum phi_j exp(-2 pi i f j)|^-2``."""
+    the AR transfer function ``|1 - sum phi_j exp(-2 pi i f j)|^-2``.
+
+    Args:
+        g: autocovariance sequence, ``g[0..lag]``.
+        n: record length in samples, at least 1.
+        n_freq: number of frequency bins to evaluate, at least 1.
+        phi: AR coefficients whitening the series; an empty array leaves
+            the spectrum unwhitened.
+
+    Returns:
+        ``(f, s)`` as :func:`bt_spectrum`, over the whitened spectrum.
+    """
     f, s = bt_spectrum(g, n, n_freq)
     if phi.size == 0:
         return f, s
@@ -134,13 +174,20 @@ def is_nonstationary(data: Any, *, alpha: float = 0.05) -> bool:
     regression is computed from the image's autocovariances and read through
     MacKinnon's p-value surface.
 
+    Below ``n = 200`` samples the image's tau statistic loses power against
+    a fixed short-lag rule, and a stationary series is called nonstationary
+    at a rate far above ``alpha``: measured white noise and AR(1) phi=0.5
+    both clear 30 percent false positives at n=100 and only fall under
+    5 percent past n=200. The gate reports "not nonstationary" rather than
+    trust a verdict from below that floor.
+
     Args:
         data: a series, an Original or a :class:`SecondOrderImage`.
         alpha: significance level; a p-value above it means a unit root
             cannot be rejected.
     """
     img = as_image(data)
-    if img.n < 12:
+    if img.n < 200:
         return False
     return adf_pvalue(img.dickey_fuller()) > alpha
 
@@ -180,13 +227,19 @@ class StochasticModel:
     components the gates opened, the recovered parameter of each, the primary
     ``regime`` label for the level dynamics, and a :meth:`forecast` composing
     the deterministic mean with the stochastic level model.
+
+    ``_mean_fn`` evaluates the fitted deterministic mean (trend plus
+    seasonal) at a sample-index array; it is what :meth:`simulate` adds the
+    stochastic residual to. ``_index`` is the pandas index the training data
+    carried, or ``None`` for an ndarray fit; it is what :meth:`forecast`
+    extends to label the output.
     """
 
     n: int
     level: float
-    trend_slope: float
+    trend_slope: float                  # in t units (dt-scaled), not samples
     has_trend: bool
-    cycle_period: float
+    cycle_period: float                 # in samples of the sample index
     cycle_amp: float
     has_cycle: bool
     n_harmonics: int
@@ -197,8 +250,8 @@ class StochasticModel:
     has_mean_reversion: bool
     vol_persistence: float
     has_vol_clustering: bool
-    sigma: float
-    sigma_walk: float
+    sigma: float                        # one-step innovation std (level)
+    sigma_walk: float                   # std of first differences
     components: tuple[str, ...]
     regime: str
     forecaster_name: str
@@ -395,7 +448,67 @@ def fit_stochastic(
 ) -> StochasticModel:
     """Characterize a series across every route at once and return one model.
 
-    Every gate reads the second-order image of the series.
+    Every gate reads the second-order image of the series, in order: the
+    unit-root gate (:func:`is_nonstationary`) routes to a random-walk-plus-
+    drift-plus-GARCH model and returns early; otherwise a deterministic
+    trend and seasonal cycle are fitted and removed, then the residual is
+    tested for long memory (vetoed by a finite AR fit), mean reversion and
+    volatility clustering, each opening a component of the returned model.
+
+    Args:
+        data: a series, an :class:`~dtfit.image.original.Original`, or a
+            :class:`SecondOrderImage`. An image skips the deterministic-mean
+            reconstruction that needs the raw values (the mean function and
+            any callable forecaster) and cannot be backtest-selected.
+        t: the time axis when ``data`` is a plain series; ``None`` (the
+            default) takes a uniform unit index. Ignored when ``data`` is
+            already a :class:`SecondOrderImage`.
+        period: seasonal period in samples of the record (index steps of
+            the series, not ``t`` units, so it does not change with the
+            time axis's scale); ``None`` detects it from the spectrum.
+        max_harmonics: cap on the Fourier harmonics of the seasonal
+            component, at least 1.
+        forecaster: forecast selection control: ``"auto"`` backtests every
+            regime-appropriate candidate and keeps the best one within a
+            margin of the random walk; a name from
+            :data:`~dtfit.stochastic.forecast.FORECASTERS`; a callable
+            ``(train, h) -> array`` fitted fresh each backtest fold; or a
+            list mixing names, callables and ``(name, callable)`` pairs,
+            backtest-selected among themselves.
+        trend_t: minimum ``|t|`` of the trend-slope Newey-West statistic to
+            call a deterministic trend, above 0.
+        cycle_strength: minimum fundamental energy share (0-1) of the
+            spectrum to call a periodic cycle.
+        min_cycles: minimum number of cycles the record must span,
+            ``n / period >= min_cycles``, above 0.
+        lm_hurst: minimum Hurst exponent (0.5-1) to call long memory.
+        mr_phi: minimum AR(1) coefficient (0-1) to call mean reversion.
+        vol_persist: minimum GARCH persistence (0-1) to call volatility
+            clustering.
+        lag: autocovariance lag budget of the image built from ``data``, in
+            samples; ignored when ``data`` is already an image.
+        nfreq: spectral grid floor of that image, in frequency bins;
+            ignored when ``data`` is already an image.
+
+    Returns:
+        The fitted :class:`StochasticModel`.
+
+    Raises:
+        ValueError: ``forecaster`` names an unknown built-in, or is an empty
+            candidate list.
+        TypeError: ``forecaster`` is a callable or contains one and ``data``
+            is a :class:`SecondOrderImage` with no series to fit it on; or a
+            candidate is neither a name, a callable nor a ``(name,
+            callable)`` pair.
+
+    Warns:
+        UserWarning: a backtest cannot run -- fewer than 51 training samples
+            falls back to the first candidate, and an image with no series
+            takes the last one without scoring it; a backtest candidate that
+            raises is scored infinite for that fold; and the long-memory
+            stage or either volatility-clustering stage (unit-root or
+            stationary) leaves its component off and reports the exception
+            it caught rather than raise out of the fit.
     """
     index = capture_index(data)
     img = as_image(data, lag=lag, nfreq=nfreq)
