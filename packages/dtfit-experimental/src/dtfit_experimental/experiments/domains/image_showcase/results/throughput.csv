@@ -1,0 +1,5 @@
+dataset,route,workers,n_files,samples,seconds,samples_per_second,peak_mib,peak_rss_mib,raw_bytes,coef_bytes,gram_bytes,grid_bytes,image_bytes,reduction_ratio,host,backend,note
+ngl,disk,0,200,,0.15455992599891033,,,,199590132,,,,,,Finality,none,1291.34 MB/s raw read
+ngl,cpu-1,1,200,971609,58.971,16476.0,53.93,797.53,198249036,1562784,106749456,49372824,157685064,1.257,Finality,numpy,0 failed
+ngl,cpu-12,12,200,971609,2.616,371461.0,0.79,797.53,198249036,1562784,106749456,49372824,157685064,1.257,Finality,numpy,0 failed
+ngl,float32,0,1,6840,,,,,,,,,,,Finality,numpy,"rel S float32 2.09e-08, float64 0.00e+00"
