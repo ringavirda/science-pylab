@@ -28,6 +28,14 @@ _BACKENDS = {
     "stochastic_series": ("exp_ar_discrimination", "exp_ar_order_recovery",
                           "exp_fracdiff_whitening", "exp_student_t"),
     "realtime_gps": (),
+    "image_showcase": ("reduce_station", "reduce_to_file",
+                       "reduce_station_year", "day_batch", "station_rows",
+                       "exactness_rows", "year_rows", "normals_rows",
+                       "run_filter", "match_flags", "reachable_events",
+                       "event_window_share", "send_image", "recv_frame",
+                       "replay", "track", "gpu_probe", "reduce_rate",
+                       "peak_rss_mib", "save_images", "load_images",
+                       "write_table"),
 }
 
 
