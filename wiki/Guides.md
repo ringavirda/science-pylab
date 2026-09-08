@@ -183,9 +183,10 @@ You can call the methods directly, but dtfit also gives you friendlier layers:
   for `models.logistic()`, and it even reads good starting guesses off your data.
   `suggest_models(x, y)` will try a shortlist and rank them for you.
   -> [api/models.md](API-Models)
-- **One-call entry points** -- `auto_estimate(x, y, expr, var)` looks at your
-  data's shape and routes to the best method automatically; `auto_forecast(x, y,
-  horizon)` does a structured fit-then-extrapolate forecast with safety guards.
+- **One-call entry points** -- `fit(model, data, basis="auto")` fits the
+  candidate bases and keeps the one with the lowest residual, so you never
+  pick the basis yourself; `auto_forecast(x, y, horizon)` does a structured
+  fit-then-extrapolate forecast with safety guards.
   -> [api/auto.md](API-Auto)
 - **A scikit-learn estimator** -- `NonlineRegressor` plugs into `Pipeline`,
   `GridSearchCV`, `cross_val_score`. -> [api/estimator.md](API-Estimator)

@@ -74,7 +74,9 @@ result = dt.fit_eac(x, y, "a*atan(w*x)", "x")
 print(result.params)
 
 # ...or through the scikit-learn compatible estimator:
-reg = dt.NonlineRegressor("a0 + a1*x + a2*exp(a3*x)", "x", method="lsi")
+from dtfit.sklearn import NonlineRegressor
+
+reg = NonlineRegressor("a0 + a1*x + a2*exp(a3*x)", "x")
 reg.fit(x, y)
 y_hat = reg.predict(x)
 ```
@@ -145,9 +147,9 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 
 ## Methods
 
-- **LSI** (`method="lsi"`) - least-squares integral; numeric integral-OLS in the
-  differential-transformation scheme (successor to DSBI).
-- **EAC** (`method="eac"`) - equal-areas criterion; numeric,
+- **LSI** (`fit_lsi`, `basis="legendre"`) - least-squares integral; numeric
+  integral-OLS in the differential-transformation scheme (successor to DSBI).
+- **EAC** (`fit_eac`, `basis="block"`) - equal-areas criterion; numeric,
   integration-based and noise-robust (successor to DSBE).
 - **ImageFilter** - recursive/online tracker on the window image, with NIS
   drift detection; **LSIFilter** and **EACFilter** fix its basis to Legendre
@@ -157,8 +159,9 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
   coefficients decay (`decay`), whether it matches another image
   (`test_equal`) or a model (`test_structure`), and draws synthetic records
   from itself (`simulate`).
-- **DSB** (`method="dsb"`) - symbolic differential spectra balance; kept as the
-  analytical reference (requires a polynomial fit first in the pipeline).
+- **DSB** (`dtfit.reference.fit_dsb`) - symbolic differential spectra
+  balance; kept as the analytical reference, out of `fit` (it takes the
+  coefficients of a polynomial pre-fit, not samples).
 - **Stochastic** (`fit_stochastic`) - second-order characterization of a
   random series: every gate, estimator and forecaster reads one additive
   image of the record (`SecondOrderImage`), with a block-stream form

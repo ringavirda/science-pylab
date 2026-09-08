@@ -255,12 +255,6 @@ lowering the variance of the estimate -- and it lets EAC report a parameter
 - `robust=True` -- the robust image: Huber-reweights the block regression
   before the model is fit, the outlier defence for a single fit.
 - `bounds` -- constrained fits (switches to a trust-region solver).
-- **Overlapping-window ensemble** (`ensemble_fit`): for a *densely*
-  contaminated record, fit many overlapping sub-windows and take the
-  **median** of the per-window estimates -- whole corrupted windows are
-  outvoted, with no scale to tune, and the inter-window spread is a free
-  uncertainty band. On clean data prefer a single fit.
-  -> [../methods/ensemble.md](Methods-Ensemble)
 
 ---
 

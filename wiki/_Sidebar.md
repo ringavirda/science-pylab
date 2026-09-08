@@ -43,7 +43,6 @@
 - [Image](Methods-Image)
 - [LSI](Methods-LSI)
 - [EAC](Methods-EAC)
-- [Ensemble](Methods-Ensemble)
 - [ImageFilter](Methods-Legendre-Filter)
 - [EACFilter](Methods-Equal-Areas-Filter)
 - [Streams](Methods-Scaling)

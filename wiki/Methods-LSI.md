@@ -5,7 +5,7 @@
 > machinery is in
 > [`image/bases.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/bases.py).
 > Invoke via `fit_lsi(x, y, expr, var, ...)`, `fit(model, data,
-> basis="legendre")`, or `NonlineRegressor(..., method="lsi")`.
+> basis="legendre")`, or `NonlineRegressor(..., basis="legendre")`.
 
 LSI is [`fit`](Methods-Image#the-projected-estimator) in the Legendre image:
 the projected least-squares estimator restricted to the span of the Legendre

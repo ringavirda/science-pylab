@@ -4,9 +4,9 @@ Models and automatic fitting.
 
 Picking the structurally-correct model is most of the battle. dtfit.models is a
 catalog of named, self-seeding families (they read p0/bounds off the data),
-composable with "+", plus a recommender that ranks families by AIC. auto_estimate
-and auto_forecast route by signal shape for callers who do not want the model
-framework.
+composable with "+", plus a recommender that ranks families by AIC. Model.fit
+and fit(basis="auto") pick the basis by outcome; auto_forecast picks a model
+class for callers who want an extrapolation rather than parameters.
 
 Run headless:   python examples/03_models_and_auto.py
 
@@ -17,7 +17,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from dtfit import models, suggest_models, auto_estimate, auto_forecast
+from dtfit import Original, fit, models, suggest_models, auto_forecast
 from dtfit.models import CATALOG
 
 
@@ -57,11 +57,14 @@ def recommend(rng) -> None:
 
 
 def routing(rng) -> None:
+    # basis="auto" fits the candidate bases and keeps the one with the lowest
+    # residual sum of squares over the samples; the result records which won.
     x = np.linspace(0, 10, 300)
     y = 1.5 * np.sin(2.1 * x) + rng.normal(0, 0.1, x.size)
-    res = auto_estimate(x, y, "A*sin(w*x)", "x", freq_param="w")
-    print("\n== auto_estimate (oscillatory route) ==")
+    res = fit("A*sin(w*x)", Original(x, y), "x", basis="auto", freq_param="w")
+    print("\n== fit(basis=\"auto\") ==")
     print("params:", {k: round(v, 3) for k, v in res.params.items()})
+    print("chose:", res.basis_name, "at order", res.image_order)
 
     t = np.arange(120)
     series = 10.0 / (1 + np.exp(-0.12 * (t - 45))) + rng.normal(0, 0.015, t.size)
@@ -98,21 +101,22 @@ if __name__ == "__main__":
   oscillatory: sine, damped_oscillation
 
 == models.logistic().fit (self-seeded) ==
-params: {'L': 7.994, 'k': 0.887, 'x0': 4.99}
+params: {'L': 7.994, 'k': 0.889, 'x0': 4.991}
 
 == models.linear() + models.sine() ==
 model: Model('linear+sine', expr='(a0 + a1*x) + (A*sin(p + w*x) + c)', shape='composite')
 rmse: 0.2074
 
 == suggest_models (ranked by AIC) ==
-  gaussian                 r2=0.9985  aic= -1287.2
-  double_gaussian          r2=0.9985  aic= -1286.2
-  lorentzian               r2=0.9536  aic=  -601.5
+  gaussian                 r2=0.9985  aic= -1288.0
+  double_gaussian          r2=0.9985  aic= -1286.4
+  lorentzian               r2=0.9578  aic=  -620.3
   quadratic                r2=0.5221  aic=  -135.0
   cubic                    r2=0.5221  aic=  -133.0
 
-== auto_estimate (oscillatory route) ==
+== fit(basis="auto") ==
 params: {'A': 1.505, 'w': 2.099}
+chose: legendre at order 18
 
 == auto_forecast (saturating growth -> logistic) ==
 forecast end: 10.0  actual end: 9.95

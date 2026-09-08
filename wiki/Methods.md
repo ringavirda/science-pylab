@@ -25,11 +25,10 @@ right variant automatically.
 | **core** | **Image** -- the discrete differential transform | [image.md](Methods-Image) | numeric (offline) | the statistic every batch method fits on |
 | **batch** | **LSI** -- Least-Squares Integral | [lsi.md](Methods-LSI) | numeric (offline) | accurate batch fit in the Legendre image, model selection, oscillatory recipe |
 | **batch** | **EAC** -- Equal-Areas Criterion | [eac.md](Methods-EAC) | numeric (offline) | fast batch fit in the block image, the robust image |
-| **batch** | **Ensemble** -- overlapping-window aggregation | [ensemble.md](Methods-Ensemble) | numeric (offline) | **outlier-robust** bagging over EAC/LSI window fits (median + spread) |
 | **streaming** | **EACFilter** -- recursive EAC | [equal_areas_filter.md](Methods-Equal-Areas-Filter) | numeric (online) | real-time tracking via an **area** measurement + drift detection |
 | **streaming** | **LSIFilter** -- recursive LSI | [legendre_filter.md](Methods-Legendre-Filter) | numeric (online) | real-time tracking via a **spectrum** measurement (oscillatory plants) |
 | **scale** | **ImageStream** -- streams, blocks, channels | [scaling.md](Methods-Scaling) | numeric (offline/online) | one-pass / block / many-channel image map-reduce |
-| **compose** | **auto_estimate / auto_forecast** | [auto.md](Methods-Auto) | numeric (offline) | shape-routed estimation and structured forecasting |
+| **compose** | **auto_forecast** | [auto.md](Methods-Auto) | numeric (offline) | structured fit-then-extrapolate forecasting |
 | **stochastic** | **Stochastic series** -- fit the functionals of a *random* process | [stochastic.md](Methods-Stochastic) | numeric (offline + online) | characterize / forecast / generate / track random (economic, financial) data |
 
 The production methods (LSI, EAC, the filters, ImageStream) are **numeric
@@ -96,7 +95,7 @@ analytically in the spectrum and can be solved for or fitted.
 order $k$, so the $H^{k}$ factor cancels on both sides (see [DSB](Methods-DSB)) and the
 balance reduces to matching plain Maclaurin coefficients $g^{(k)}(0)/k!$. Those
 are produced for any expression by generic SymPy differentiation
-([`methods/_common.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_common.py)), which
+([`_symbolic.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/_symbolic.py)), which
 both reproduces the table above and extends the scheme to *any* differentiable
 model (rational, logarithmic, mixed) without a per-function rule. The numeric
 methods go further and replace the monomial spectrum with a better-conditioned
@@ -114,9 +113,9 @@ methods go further and replace the monomial spectrum with a better-conditioned
  exact balance  weighted-L2    integral / area   additive over       compose /
  F(k;theta)=Z(k)    of spectra     matching          domain & channels   route
    |              |               |                |                  |
-  DSB            LSI             EAC              ImageStream          auto_estimate
- (symbolic     (Legendre image      (block image           (streams, blocks,      auto_forecast
-  solve)        residual)        residual)         channels, map-reduce)  (shape routing)
+  DSB            LSI             EAC              ImageStream          auto_forecast
+ (symbolic     (Legendre image      (block image           (streams, blocks,      (structured
+  solve)        residual)        residual)         channels, map-reduce)  forecasting)
                   |               |
           run recursively, one sample at a time
                   |               |
@@ -142,8 +141,9 @@ methods go further and replace the monomial spectrum with a better-conditioned
   chunk-by-chunk, and blocks assemble through the basis transfer) and
   **linear across channels** (so many channels share one Gram) -- exact
   batch fitting at scale.
-- **auto_estimate / auto_forecast** route a signal to the variant its shape calls
-  for, composing only the validated levers.
+- **auto_forecast** routes a series to the model class its structure calls for,
+  composing only the validated levers; a *parameter* fit needs no router --
+  `fit(..., basis="auto")` picks the basis by outcome.
 
 ---
 

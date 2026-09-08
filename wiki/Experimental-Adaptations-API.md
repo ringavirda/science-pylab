@@ -6,10 +6,8 @@ APIs and may change** until promoted. For the *ideas* behind them see
 [README.md](Experimental); for where they sit in the lineage see
 [../guides/lineage-and-variants.md](Guides-Lineage-and-Variants).
 
-> **#3 the overlapping-window ensemble has been promoted** to stable `dtfit` --
-> `from dtfit import ensemble_fit, EnsembleResult`. See
-> [../methods/ensemble.md](Methods-Ensemble) and
-> [../api/fitting.md#ensemble_fit](API-Fitting#ensemble_fit).
+> #3, the overlapping-window ensemble, is retired; the robust image covers it
+> (see [Methods-EAC](Methods-EAC)).
 
 ```python
 from dtfit_experimental import (

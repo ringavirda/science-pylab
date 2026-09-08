@@ -17,7 +17,8 @@ Source: [`packages/dtfit/examples/08_stochastic.py`](https://github.com/ringavir
 ```python
 import numpy as np
 
-from dtfit import fit_stochastic, StochasticFilter, Stochastic
+from dtfit.models import Stochastic
+from dtfit.stochastic import StochasticFilter, fit_stochastic
 from dtfit.stochastic import SecondOrderImage, SecondOrderStream
 
 
@@ -100,7 +101,7 @@ def model_wrapper(rng) -> None:
     for t in range(1, n):
         x[t] = 0.7 * x[t - 1] + rng.normal(0, 1.0)
     model = Stochastic().fit(x)
-    print("\n== dtfit.Stochastic model wrapper ==")
+    print("\n== dtfit.models.Stochastic wrapper ==")
     print("regime:", model.regime, " | forecaster:", model.forecaster_name)
 
 
@@ -147,6 +148,6 @@ regime from the image   : mean-reverting
 final ar1_phi  : 0.956  (tracked up from 0.4 as persistence rose)
 regime label   : mean-reverting
 
-== dtfit.Stochastic model wrapper ==
+== dtfit.models.Stochastic wrapper ==
 regime: mean-reverting  | forecaster: mean-reversion
 ```

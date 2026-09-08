@@ -16,7 +16,8 @@ Source: [`packages/dtfit/examples/06_scaling.py`](https://github.com/ringavirda/
 ```python
 import numpy as np
 
-from dtfit import fit_many, FittingProblem, ImageStream, fit
+from dtfit import fit_many, ImageStream, fit
+from dtfit.image import FittingProblem
 
 
 def parallel_fits(rng) -> None:

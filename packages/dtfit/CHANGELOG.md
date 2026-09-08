@@ -42,6 +42,19 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   percent of the true sigma on six smooth families) and on the equality
   test's false-alarm rate (nightly: within `[0.03, 0.08]` under Gaussian,
   Student-t and Laplace noise) in `tests/image/test_gates.py`.
+- `dtfit.reference`: the exact-balance ancestor, `fit_dsb` and `find_degree`,
+  documented as the method the image core is derived against rather than one
+  of its routes.
+- `dtfit.sklearn`: `NonlineRegressor` over `fit`, with `basis` and `order` as
+  estimator parameters so a `GridSearchCV` tunes the basis and the resolution
+  of the image. `import dtfit` no longer imports scikit-learn.
+- `Model.fit(data)` and `suggest_models(data)` accept an `Original`, an
+  `Image`, or the sample positions with values. An Image seeds from its
+  reconstruction over 400 points and is fitted, and ranked, as itself: the
+  criteria come off the image identity, so `suggest_models` on an image gives
+  the ranking its samples would.
+- `dtfit.models` exports the shared input seam: `resolve_model`, `ModelSpec`,
+  `result_kwargs`, `normalize_p0`, `normalize_bounds`.
 
 ### Changed
 
@@ -74,6 +87,41 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   defaults to `noise_sigma()`. A non-integer `n` raises `TypeError`.
 - `Image.of_model` accepts `param_names` for a callable model whose
   signature cannot be introspected.
+- `Model.fit`, `suggest_models` and `NonlineRegressor` take `basis` and
+  `order` in place of `method`, and all three call `fit`. On the validation
+  corpus at 20 noise draws and 5 percent noise, the recovery error of the
+  self-seeded path measured against `scipy.optimize.curve_fit` seeded the same
+  way drops from a worst case of 1.212 to 1.054: on 99 of the 100 peaked
+  family-seed draws the route lands on the Legendre basis at `order_for`
+  rather than the block basis at `4 * n_params` windows, which measured 1.04
+  to 1.22 times the Legendre error (lorentzian 1.21, michaelis_menten 1.08,
+  gaussian 1.07, hill 1.07, double_gaussian 1.05).
+- `fft_frequency_seed` removes the least-squares straight line before the FFT,
+  so a cycle riding on a trend is seen: on a four-cycle trend-plus-cycle
+  series it reads 1.2535 rad per unit against the true 1.257, where before it
+  read 0.313, the lowest non-zero bin. `osc_order` and `fit`'s `freq_param`
+  seeding read the same number.
+- `fit(basis="auto")` with a `freq_param` fits two candidates instead of
+  three: the flag turns the oscillatory recipe on inside every candidate, so
+  the plain Legendre one repeated the oscillatory one. Measured per fit: sine
+  35.4 -> 26.6 ms, damped_oscillation 43.9 -> 31.2 ms, fourier_series
+  61.1 -> 40.0 ms.
+- The golden accuracy corpus (`tests/accuracy/golden_baseline.json`) pins the
+  median over five noise draws instead of the value at one. A single draw of a
+  recovery error moves by up to 8.1x (90th percentile) between disjoint seed
+  blocks, against 3.8x for the median of five, so the old snapshot pinned the
+  seed rather than the method. The gate costs 35.1 s against 20.0 s.
+- The top-level namespace is fifteen names and three subpackages:
+  `Original`, `Image`, `ImageStream`, `ImageFilter`, `fit`, `fit_lsi`,
+  `fit_eac`, `LSIFilter`, `EACFilter`, `order_for`, `fit_many`,
+  `suggest_models`, `auto_forecast`, `FittingResult`, `ForecastResult`, plus
+  `models`, `stochastic` and `diagnostics`. Everything else is reached through
+  its own module: `dtfit.models` (`Model`, `Stochastic`, `register`,
+  `unregister`), `dtfit.stochastic` (`fit_stochastic`, `StochasticModel`,
+  `StochasticFilter`), `dtfit.sklearn` (`NonlineRegressor`), `dtfit.reference`
+  (`fit_dsb`, `find_degree`), `dtfit.image` (`FittingProblem`,
+  `fft_frequency_seed`, `coverage`) and `dtfit.log` (`enable_logging`,
+  `logger`).
 
 ### Removed
 
@@ -93,6 +141,25 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   `order` and `result()`.
 - `FilterBank` and `FusedChiSquareDetector`, moved to
   `dtfit_experimental.streaming`.
+- `auto_estimate`. Its routing is `fit(..., basis="auto")`, which chooses by
+  outcome rather than by a shape statistic; `auto_forecast` stays, in
+  `dtfit.forecast`.
+- `ensemble_fit` and `EnsembleResult`. On the case their documentation gave --
+  the validation corpus with 4 percent of samples replaced by 8-sigma spikes,
+  five families, six noise draws -- the robust image `fit_eac(robust=True)`
+  recovers to a pooled median relative parameter error of 0.008 and a pooled
+  mean of 0.010, against the ensemble's 0.065 and 0.089 and the plain block
+  preset's 0.114 and 0.143, and costs 0.06 s against 0.71 s for the same 30
+  fits. The ensemble's own claim, roughly halving the error of a plain fit,
+  held; it was never measured against the robust image that replaced the
+  robust loss.
+- The `dtfit.methods` and `dtfit.estimators` packages. Model and parameter
+  input resolution is `dtfit.models` (`resolve_model`, `normalize_p0`,
+  `normalize_bounds`), the presets are `dtfit.fit_lsi` / `dtfit.fit_eac`, DSB
+  is `dtfit.reference`, and the estimator is `dtfit.sklearn`.
+- `NonlineRegressor`'s `method`, `k_star`, `alpha`, `filter_data`,
+  `active_ratio`, `poly_degree`, `huber_c`, `loss` and `window_mode`
+  arguments, and its DSB route.
 
 ## [0.4.0] - 2026-07-09
 

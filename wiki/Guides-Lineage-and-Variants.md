@@ -161,8 +161,7 @@ the complete list across the stable API.
 | **Robust image** | `robust=True` on `fit`, `fit_lsi`, `fit_eac` | Huber-reweights the image before any model is fit -- self-scaling, no scale to tune |
 | **EAC, bounded** | `fit_eac(..., bounds=...)` | constrained trust-region fit |
 | **Missing data** | `fit_lsi/fit_eac(..., nan_policy="omit")` | drop NaNs instead of raising |
-| **Ensemble** | `ensemble_fit(...)` | overlapping-window median + spread -- outlier-robust, no scale to tune |
-| **DSB** | `fit_dsb(...)` | symbolic exact balance (reference only) |
+| **DSB** | `fit_dsb(...)` (in `dtfit.reference`) | symbolic exact balance (reference only) |
 | **EACFilter** | `EACFilter(...)` | streaming EAC (area measurement) |
 | **LSIFilter** | `LSIFilter(...)` | streaming LSI (spectrum measurement) -- for oscillatory plants |
 | **Gap coasting** | `filter.coast(...)`, `coast_cov(...)` | dead-reckon a streaming fit through measurement dropouts (uncertainty grows with the gap) |
@@ -171,8 +170,8 @@ the complete list across the stable API.
 | **Stochastic streaming** | `StochasticFilter(...)` | per-sample regime tracking + change detection |
 | **Stochastic estimators** | `hurst_aggvar`, `hurst_spectral`, `ar1_reversion`, `garch_persistence`, `cycle_period`, `ar_order`, `fit_ar`, `fractional_difference` | read one process parameter from a functional (all in `dtfit.stochastic`) |
 | **Model wrapper** | `Stochastic().fit(series)` | the catalog `.fit()` convention over `fit_stochastic` |
-| **sklearn estimator** | `NonlineRegressor(..., method=)` | LSI/EAC/DSB behind `fit`/`predict`/`score` |
-| **Auto-estimate** | `auto_estimate(...)` | routes to the variant matching the signal's shape |
+| **sklearn estimator** | `NonlineRegressor(..., basis=, order=)` (in `dtfit.sklearn`) | `fit` behind `fit`/`predict`/`score`, with the basis and the order tunable |
+| **Auto basis** | `fit(..., basis="auto")` | fits the candidate bases and keeps the lowest-residual one |
 | **Auto-forecast** | `auto_forecast(...)` | structured fit-then-extrapolate, with guards |
 | **Model catalog** | `models.<family>()` | self-seeding named families; `+` to compose |
 | **Model inference** | `suggest_models(x, y)` | fit a shortlist, rank by AIC |
@@ -197,7 +196,6 @@ kept experimental until it proves itself. Here is the complete list with status.
 | **#1** | one-pass / distributed map-reduce | `ImageStream` accumulator | the image is **additive over the domain** (a sum of per-chunk projections), so a dataset too big for memory is reduced chunk-by-chunk in one pass, and distributed workers' partial images `merge()` exactly on contiguous chunks of a uniform grid (or `grid="explicit"` for other sample sets); the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
 | **--** | GEMM-batched projection | `ImageStream(channels=B)` | the image is **linear across channels**, so `B` channels' projections are one matrix multiply over one shared Gram, on CPU/GPU by swapping only the backend; the estimators of the original study live in `dtfit_experimental.scale`. -> [../api/scaling.md](API-Scaling) |
 | **--** | LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` | high order + FFT-seeded frequency, so a cycle isn't erased. -> [../api/fitting.md#fit_lsi](API-Fitting#fit_lsi) |
-| **#3** | overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` | fit on many overlapping sub-windows and take the **median** of the per-window estimates -- bagging over time; rejects outlier windows and yields a spread. Outlier-robust with no scale to tune. -> [../methods/ensemble.md](Methods-Ensemble) |
 
 ### Still experimental (in `dtfit-experimental`)
 
@@ -230,11 +228,11 @@ adaptation is measured against are in
 
 ```
 dtfit (stable, public)
-+-- batch fitting          fit_lsi . fit_eac . fit_dsb . ensemble_fit
++-- batch fitting          fit . fit_lsi . fit_eac
 |   support                find_degree . fft_frequency_seed
 +-- result type            FittingResult
 +-- sklearn estimator      NonlineRegressor
-+-- one-call entry points  auto_estimate . auto_forecast
++-- one-call entry points  auto_forecast
 +-- model framework        models.<family> . Model . suggest_models
 +-- streaming / online     EACFilter . LSIFilter
 |                          (coast/coast_cov dead-reckon through gaps)

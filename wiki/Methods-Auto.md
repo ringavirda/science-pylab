@@ -1,8 +1,8 @@
-# auto_estimate & auto_forecast -- composed, shape-routed pipelines
+# auto_forecast -- the structured forecasting router
 
 > High-level **composition** layer. Source:
-> [`auto.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/auto.py).
-> `auto_estimate(x, y, expr, var, ...)`, `auto_forecast(x, y, horizon, ...)`.
+> [`forecast.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/forecast.py).
+> `auto_forecast(x, y, horizon, ...)`.
 > API: [../api/auto.md](API-Auto).
 
 These are not new fitting math -- they are the **decision logic** distilled from the
@@ -12,25 +12,17 @@ solver. Each function composes only the validated, stable levers behind one call
 and keeps the studies' honest ceilings (near-random-walk series fall back to
 persistence; clean bulk shapes match but do not beat a well-initialized NLLS).
 
-## auto_estimate -- route the estimator to the signal's shape
+## Routing an estimator is not a router any more
 
-The parameter-estimation study produced an **applicability map**: with the
-shape-matched variant, dtfit's integral estimators tie the NLLS gold standard
-across model families. `auto_estimate` encodes that map. Given `(x, y, expr, var)`
-it selects the variant whose criterion suits the signal's shape:
-
-| detected/[requested] shape | routes to | why |
-|---|---|---|
-| **oscillatory** (`freq_param` given, or FFT power share > 0.10) | [`fit_lsi`](Methods-LSI) oscillatory recipe | the spectrum (not an area) observes a cycle |
-| **transient / peak** | [`fit_eac`](Methods-EAC) (the block image) | each window is a local area, so a localized feature is not averaged into a global expansion |
-| **robust** (outliers) | [`fit_eac`](Methods-EAC) with `robust=True` | the robust image down-weights outliers by Huber IRLS on the basis regression |
-| **bulk** (default) | the better of `fit_lsi` / `fit_eac` by in-sample RMSE | smooth shapes; pick the lower-residual fit |
-
-**Shape detection** (`shape="auto"`) is an FFT test: a linearly-detrended series is
-transformed, and if the dominant spectral peak carries more than 10 % of the
-detrended power the signal is treated as oscillatory, else as bulk. Naming a
-`freq_param` forces the oscillatory branch. The result is an ordinary
-[`FittingResult`](API-Types) from the selected estimator.
+Recovering parameters needs no shape rules. `fit(model, data, basis="auto")`
+fits the candidate bases and returns whichever leaves the smallest residual
+over the samples, which is a measurement rather than a guess; the shape
+statistics that a router would need do not separate the cases anyway (the
+detrended spectral peak share of a logistic is 0.44 to 0.48, of a damped
+oscillation 0.52, of a noisy ten-cycle sine 0.45 to 0.56). Measured over the
+whole validation corpus at 20 noise draws, the route recovers parameters
+within 1.054 of `scipy.optimize.curve_fit` on every family, against 1.212 for
+the shape router it replaces.
 
 ## auto_forecast -- structured fit-then-extrapolate, with guards
 
@@ -90,15 +82,15 @@ The return is the length-`horizon` forecast on the extrapolated grid.
 
 ## Why this belongs in the method reference
 
-`auto_estimate` / `auto_forecast` are where the per-method math is *operationalized*
+`fit(..., basis="auto")` and `auto_forecast` are where the per-method math is *operationalized*
 into a usable default. They compose only stable pieces ([`fit_lsi`](Methods-LSI),
 [`fit_eac`](Methods-EAC) (the block image),
 [`fft_frequency_seed`](API-Fitting#fft_frequency_seed)) -- the conservative
 merges the domain studies validated -- and they preserve the honest negatives those
 studies reported:
 
-- `auto_estimate` matches, but does not beat, a well-initialized NLLS on clean bulk
-  shapes; its edge is robustness, shape-routing and interpretable parameters.
+- the basis route matches, but does not beat, a well-initialized NLLS on clean
+  bulk shapes; its edge is robustness and interpretable parameters.
 - `auto_forecast` persists on near-random-walk series by design -- the guards are
   features, not workarounds.
 
@@ -114,8 +106,8 @@ back to persistence rather than chasing the noise with a polynomial.
 
 ## Where it is best applied
 
-**Use `auto_estimate`** when you have a known model form and want the
-right-for-the-shape estimator without choosing it yourself; **use `auto_forecast`**
+**Use `fit(..., basis="auto")`** when you have a known model form and want the
+right basis without choosing it yourself; **use `auto_forecast`**
 for a structured, guarded forecast of a series with real extrapolable structure
 (growth, saturation, a clean cycle). For deliberate control over the estimator,
 call the individual methods ([LSI](Methods-LSI), [EAC](Methods-EAC)); for *model* inference

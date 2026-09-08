@@ -36,7 +36,7 @@ same idea (match integral fingerprints) applied differently:
 On top of those sit convenience layers: a [scikit-learn estimator](API-Estimator)
 (`NonlineRegressor`), a [model catalog](API-Models) so you pick a *shape*
 instead of writing a formula, [one-call "just fit it" entry points](API-Auto)
-(`auto_estimate`, `auto_forecast`), and [scaling backends](API-Scaling) for
+(`fit(..., basis="auto")`, `auto_forecast`), and [scaling backends](API-Scaling) for
 big or multi-channel data.
 
 For genuinely **random** data (economic / financial series) there is a dedicated

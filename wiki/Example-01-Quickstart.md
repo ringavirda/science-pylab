@@ -14,7 +14,7 @@ Source: [`packages/dtfit/examples/01_quickstart.py`](https://github.com/ringavir
 ```python
 import numpy as np
 
-from dtfit import fit_lsi, auto_estimate
+from dtfit import Original, fit, fit_lsi
 
 
 def main() -> None:
@@ -51,9 +51,10 @@ def main() -> None:
         res.predict(np.array([x.max() + 5.0]), warn_extrapolation=True)
     print("extrapolation warned:", bool(caught))
 
-    # 3. Don't want to choose the estimator? auto_estimate routes by signal shape.
-    res2 = auto_estimate(x, y, "a*exp(b*t)", "t")
-    print("\n== auto_estimate ==")
+    # 3. Don't want to choose the basis? basis="auto" fits the candidates and
+    # keeps whichever leaves the smallest residual over the samples.
+    res2 = fit("a*exp(b*t)", Original(x, y), "t", basis="auto")
+    print("\n== fit(basis=\"auto\") ==")
     print("params:", {k: round(v, 4) for k, v in res2.params.items()})
 
 
@@ -78,6 +79,6 @@ stderr: {'a': 0.009, 'b': 0.0026}
 predict(return_std) sd: [0.009  0.0115 0.0128 0.0128 0.0325]
 extrapolation warned: True
 
-== auto_estimate ==
+== fit(basis="auto") ==
 params: {'a': 1.4077, 'b': 0.7975}
 ```

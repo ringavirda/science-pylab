@@ -194,10 +194,10 @@ print(fc.to_series().head(3))   # future dates -> forecast values
 
 | Tier | You do this | Entry points |
 |---|---|---|
-| **Methods** | choose the engine | `fit`, `fit_lsi`, `fit_eac`, `fit_dsb`, `ensemble_fit` |
+| **Methods** | choose the engine | `fit`, `fit_lsi`, `fit_eac` |
 | **Estimator** | plug into scikit-learn | `NonlineRegressor` |
 | **Models** | pick a shape, not a formula | `models`, `Model`, `suggest_models`, `register` |
-| **High-level** | let dtfit choose | `auto_estimate`, `auto_forecast` |
+| **High-level** | let dtfit choose | `fit(..., basis="auto")`, `auto_forecast` |
 | **Streaming** | track live parameters | `ImageFilter`, `LSIFilter`, `EACFilter` |
 | **Scale** | run big / many | `ImageStream`, `fit_many` |
 | **Stochastic** | genuinely random series | `fit_stochastic`, `StochasticModel` |

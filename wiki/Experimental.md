@@ -42,7 +42,7 @@ re-export shim, so the dependency only ever points one way.
 |---|---|
 | the LSI oscillatory recipe | `fit_lsi(oscillatory=..., freq_param=...)`, `fft_frequency_seed` |
 | fused multi-axis fault detection | `FusedChiSquareDetector` |
-| #3 overlapping-window ensemble | `ensemble_fit`, `EnsembleResult` |
+| #3 overlapping-window ensemble | retired -- the robust image (`fit_eac(robust=True)`) |
 
 The map-reduce estimators (`PartitionedLSI`, `PartitionedEAC`) and the
 GEMM-batched projection (`fit_lsi_batched`, `project_spectra`,
@@ -82,11 +82,12 @@ conditioning.
 on the interval; nothing about it is specific to Legendre. Swap in any orthogonal
 family and the same diagonal least-squares match holds.
 
-### #3 -- Overlapping-window ensemble (`ensemble_fit`) -- **promoted**
+### #3 -- Overlapping-window ensemble -- **retired**
 
-This adaptation graduated to stable `dtfit` after the validation suite showed a
-consistent outlier-robustness win. It now lives at `from dtfit import
-ensemble_fit` -- full write-up in [../methods/ensemble.md](Methods-Ensemble).
+Retired: the robust image (`fit_eac(robust=True)`) covers the same
+contamination at a twelfth of the cost and a pooled median recovery error of
+0.008 against the ensemble's 0.065 (five families, 4 percent of samples
+replaced by 8-sigma spikes, six draws).
 
 ### #4 -- Joint shared-parameter fit (`fit_joint`)
 

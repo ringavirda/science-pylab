@@ -309,5 +309,7 @@ Legendre and block bases; [ImageStream](Methods-Scaling) runs the same `S`
 and `G` update over a running accumulator, block images or channel batches;
 the [EACFilter](Methods-Equal-Areas-Filter) and
 [LSIFilter](Methods-Legendre-Filter) read a window image each step; and the
-stochastic tier fits the functionals of a random process through the same
-Legendre image -- see [the stochastic tier](Methods-Stochastic).
+stochastic tier builds its own second-order image -- lagged sums, dyadic block
+sums and a fixed-grid DFT -- and fits the functionals it reads off that with
+the same LSI and EAC presets -- see
+[the stochastic tier](Methods-Stochastic).

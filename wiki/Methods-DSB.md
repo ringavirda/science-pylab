@@ -1,11 +1,11 @@
 # DSB -- Differential Spectra Balance
 
 > Symbolic, analytical reference method. Source:
-> [`methods/_dsb.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_dsb.py),
-> [`methods/_common.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_common.py).
-> Invoke via `fit_dsb(coeffs_poly, expr, var)` or
-> `NonlineRegressor(expr, var, method="dsb")` (which runs the polynomial
-> pre-fit for you).
+> [`reference/dsb.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/reference/dsb.py),
+> [`reference/dsb.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/reference/dsb.py).
+> Invoke via `from dtfit.reference import fit_dsb, find_degree`, then
+> `fit_dsb(coeffs_poly, expr, var, ...)`. It is not part of `fit`: it is the
+> exact-balance ancestor the image methods are derived against.
 
 DSB is the **foundational method** of the scheme: it is the direct, exact
 realization of "two analytic functions are equal iff their differential spectra
@@ -39,7 +39,7 @@ $$
 F(k;\theta) \;=\; \frac{1}{k!}\,\frac{\partial^{k} f}{\partial t^{k}}\Big|_{t=0},
 $$
 
-(see [`taylor_coeffs`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_common.py)). This is the key
+(see [`taylor_coeffs`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/_symbolic.py)). This is the key
 simplification over the original implementation: there is **no table of
 closed-form discretes** for $e^{wt},\sin,\cos$, monomials, and no symbolic
 "reflection" pass -- so DSB now works for *any* differentiable model expression
@@ -64,11 +64,11 @@ reference against which the numeric methods are judged.
 When the balance has more equations than unknowns ($R+1 > m$) the system is
 overdetermined; DSB then solves the leading $m$ equations symbolically and
 **refines** against the full system by nonlinear least squares
-([`_solve_numeric`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_dsb.py)).
+([`_solve_numeric`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/reference/dsb.py)).
 
 ## Algorithm
 
-1. **Polynomial pre-fit** (handled by `NonlineRegressor`): fit
+1. **Polynomial pre-fit** (`find_degree` plus `numpy.polyfit`): fit
    $P(t)=\sum_k c_k t^k$ by OLS; the degree is chosen by BIC with a floor of
    $m-1$ so the transfer system is not underdefined.
 2. **Empirical spectrum**: $Z(k)=c_k$ -- the polynomial's ascending
@@ -99,8 +99,8 @@ overdetermined; DSB then solves the leading $m$ equations symbolically and
 - **Root filtering** (`_solve_symbolic`) drops complex and degenerate roots that
   `nonlinsolve` returns, so a usable real solution is selected automatically.
 - **Underdefined-system guard**: `fit_dsb` raises if the polynomial carries
-  fewer coefficients than the nonlinear spectrum needs, and `NonlineRegressor`
-  enforces a degree floor of $m-1$.
+  fewer coefficients than the nonlinear spectrum needs, which is why the
+  pre-fit floors the degree at $m-1$.
 
 ## Worked example
 
@@ -129,6 +129,20 @@ exist.
 **Use DSB for:** analytical derivation and validation -- establishing the exact
 parameter mapping for a model, generating ground-truth fits on clean/analytic
 signals, and serving as the reference the numeric methods are checked against.
+
+From samples the call is two lines, the pre-fit and the balance:
+
+```python
+import numpy as np
+from dtfit.reference import find_degree, fit_dsb
+
+expr, n_params = "a0 + a1*exp(a2*x)", 3
+deg = max(find_degree(x, y, method="bic"), n_params - 1, 1)
+res = fit_dsb(np.polyfit(x, y, deg)[::-1], expr, "x")
+```
+
+The floor matters: below `n_params - 1` polynomial coefficients the balance is
+underdefined and `fit_dsb` raises.
 
 **Do not use DSB for** noisy data, production fitting, or any runtime/streaming
 path: `sympy.nonlinsolve` has unbounded, input-dependent latency, and the

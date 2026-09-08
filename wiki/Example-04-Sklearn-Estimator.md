@@ -2,9 +2,11 @@
 
 The scikit-learn estimator -- NonlineRegressor.
 
-NonlineRegressor wraps the LSI / EAC / DSB methods behind the standard estimator
-API (fit / predict / score), so it composes with Pipeline, GridSearchCV and
-cross_val_score. It takes a single input feature (the model's variable).
+NonlineRegressor wraps dtfit.fit behind the standard estimator API (fit /
+predict / score), so it composes with Pipeline, GridSearchCV and
+cross_val_score. It takes a single input feature (the model's variable), and
+the basis and the order of the image are estimator parameters, so a grid
+search can tune them.
 
 Run headless:   python examples/04_sklearn_estimator.py
 
@@ -13,16 +15,18 @@ Source: [`packages/dtfit/examples/04_sklearn_estimator.py`](https://github.com/r
 ```python
 import numpy as np
 
-from dtfit import NonlineRegressor
+from dtfit.sklearn import NonlineRegressor
 
 
 def fit_predict_score(rng):
     X = np.linspace(0, 3, 200).reshape(-1, 1)
     y = 1.4 * np.exp(0.8 * X.ravel()) + rng.normal(0, 0.15, X.shape[0])
-    reg = NonlineRegressor("a*exp(b*x)", "x", method="lsi").fit(X, y)
+    reg = NonlineRegressor("a*exp(b*x)", "x").fit(X, y)
     print("== fit / predict / score ==")
     print("coef_:", np.round(reg.coef_, 4))
     print("R2   :", round(float(reg.score(X, y)), 4))
+    print("basis:", reg.result_.basis_name, "at order",
+          reg.result_.image_order)
     return X, y
 
 
@@ -33,7 +37,7 @@ def grid_search(X, y) -> None:
     pipe = Pipeline([("fit", NonlineRegressor("a0 + a1*exp(a2*x)", "x"))])
     grid = GridSearchCV(
         pipe,
-        {"fit__method": ["lsi", "eac"], "fit__k_star": [4, 6]},
+        {"fit__basis": ["legendre", "block"], "fit__order": [4, 6]},
         cv=3, scoring="r2",
     )
     grid.fit(X, y)
@@ -68,11 +72,12 @@ if __name__ == "__main__":
 
 ```text
 == fit / predict / score ==
-coef_: [1.4078 0.7975]
+coef_: [1.4077 0.7975]
 R2   : 0.9986
+basis: legendre at order 4
 
 == GridSearchCV ==
-best params: {'fit__k_star': 4, 'fit__method': 'lsi'}
+best params: {'fit__basis': 'legendre', 'fit__order': 4}
 best CV R2 : 0.9682
 
 == cross_val_score ==
