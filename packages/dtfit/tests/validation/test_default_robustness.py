@@ -67,9 +67,13 @@ def test_nonline_regressor_defaults(name, basis):
 
 
 def test_bare_defaults_recover_a_cycle_through_the_auto_route():
-    """From ``p0=None`` (ones) a cycle is out of reach of the Legendre basis
-    at its order rule, which smooths it away; the auto route finds a basis
-    that holds it, without a frequency seed or a hand-made p0."""
+    """At this scenario's noise (0.03) and seed (0), ``p0=None`` (ones)
+    puts a cycle out of reach of the Legendre basis at its order rule,
+    which smooths it away, while the auto route reaches it through the
+    block basis. This is a seed-specific existence proof, not a general
+    guarantee: the block candidate's own bare-default seed can itself
+    miss the cycle at other seeds, and the auto route then lands on
+    Legendre too (see the accuracy corpus sweep)."""
     scn = next(s for s in SCENARIOS if s.name == "sine")
     x, y, clean = scn.make(0.03, seed=0)
     with warnings.catch_warnings():

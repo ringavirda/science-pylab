@@ -223,7 +223,7 @@ black-box learner to contrast with dtfit's online structured filter.
 
 ## 4. The classical stochastic model (the same-model, classical-estimator foil)
 
-`dtfit.fit_stochastic` characterizes a random series by fitting the
+`dtfit.stochastic.fit_stochastic` characterizes a random series by fitting the
 *deterministic functionals* of the process (its ACF, spectrum, aggregated
 variance, trend/cycle) with dtfit's own integral fitters. To test whether that
 route actually **improves on the textbook toolkit**, the suite ships a *classical

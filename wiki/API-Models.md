@@ -59,6 +59,7 @@ catalog and for `suggest_models`, not a route), `category`, `freq_param`,
 `params` (the parameter-name tuple, in **sorted** order for a symbolic model,
 **signature** order for a callable).
 
+<a name="modelfit"></a>
 ### `fit(data, y=None, *, basis="auto", order=None, p0=None, bounds=None) -> FittingResult`
 Fit this family to the data, **self-seeding** `p0`/`bounds` from the model's
 seeder unless you override them.
@@ -167,7 +168,7 @@ Fit candidate families to `(x, y)` and rank them **best-first by AIC**.
 | arg | default | meaning |
 |---|---|---|
 | `candidates` | `None` | models to try; default is a **shape-based shortlist** of the catalog (oscillatory data skips peak/monotone families, etc.; ambiguous data falls back to the whole catalog so the true family is never dropped) |
-| `method` | `"auto"` | fitting method passed to each model |
+| `basis` | `"auto"` | basis forwarded to every candidate's [`Model.fit`](#modelfit) |
 | `top` | `None` | if given, return only the best `top` |
 | `include` | `None` | keep only candidates whose **name** (e.g. `"logistic"`) or **category** (e.g. `"decay"`, `"oscillatory"`) is in this list -- restrict the search to families you believe plausible |
 | `exclude` | `None` | drop candidates whose name or category is in this list -- prune families you know don't apply (e.g. `exclude=["oscillatory"]` on a monotone series) without post-filtering. Applied **after** `include` |
@@ -332,13 +333,18 @@ removing the straight line before the FFT is what lets that seed see a cycle
 riding on a trend (R^2 0.999990 and `w` 1.3003 against a true 1.3, where the
 undetrended seed gave 0.794 and 0.376).
 
-Without a `freq_param` the route still finds the cycle, by outcome rather than
-by recipe: on the validation corpus's `c + A*sin(w*x + p)` scenario from bare
-defaults, [`NonlineRegressor("c + A*sin(w*x + p)", "x")`](API-Estimator)
-reaches R^2 1.00000 by routing to the block basis at 16 windows, where the
-same fit pinned to `basis="legendre"` at its order rule (9) reaches 0.078.
-Fixing the basis is what loses a cycle, not the estimator. See the
-[LSI oscillatory recipe](Methods-LSI#the-oscillatory-recipe).
+Without a `freq_param` the route can still find the cycle, by outcome
+rather than by recipe, but only some of the time: on the validation
+corpus's `c + A*sin(w*x + p)` scenario at 3% noise, bare-default
+[`NonlineRegressor("c + A*sin(w*x + p)", "x")`](API-Estimator) reaches
+R^2 1.00000 by routing to the block basis at 16 windows on 4 of 10
+seeds; on the other 6 the same `p0=ones` seed already misses the cycle
+inside the block candidate, so the route lands on `basis="legendre"`
+at its order rule (9), reaching R^2 0.078 -- the same floor a fit
+pinned to `basis="legendre"` reaches. Fixing the basis is not what
+loses the cycle at those seeds; the shared bare seed is. A
+`freq_param` or a hand-seeded `p0` removes the seed dependence. See
+the [LSI oscillatory recipe](Methods-LSI#the-oscillatory-recipe).
 
 ### `suggest_models` coverage
 

@@ -26,7 +26,7 @@ NonlineRegressor(expr="a0 + a1*x", var="x", param_names=None, basis="auto",
 | `var` | `"x"` | main variable name (the single input feature); a label only for a callable model |
 | `param_names` | `None` | parameter names for a **callable** model, in signature order (the parameters after the leading `x`); introspected from the callable's signature when omitted, and only required when that signature cannot be introspected (a `*args` model). For a symbolic model, optional and validated against the parsed names |
 | `basis` | `"auto"` | the basis to image the samples in: `"auto"` fits the candidates and keeps the lowest-residual one, `"legendre"` and `"block"` fix it. See [`fit`](API-Fitting#fit) |
-| `order` | `None` | the basis order (polynomial degree for `"legendre"`, window count for `"block"`); `None` takes `fit`'s order rule, which `basis="auto"` requires |
+| `order` | `None` | the basis order (polynomial degree for `"legendre"`, window count for `"block"`); `None` takes `fit`'s order rule for `"legendre"`/`"block"`, and is forwarded verbatim to every candidate for `basis="auto"` |
 | `bounds` | `None` | per-parameter bounds; same forms as the fitters (pair list, partial `{name: (lo, hi)}` dict, scipy tuple). Fully finite bounds enable a global search |
 | `p0` | `None` | initial guess: positional or `{name: value}` dict, passed through to `fit` |
 | `random_state` | `0` | seed for the deterministic global / differential-evolution search used when `bounds` are given, so a bounded fit is reproducible under `GridSearchCV` / `clone`; `None` uses the global RNG |
@@ -46,9 +46,6 @@ search = GridSearchCV(
 )
 search.fit(x.reshape(-1, 1), y)   # a 2-D column of the single feature
 ```
-
-(`x` and `y`, not `X`: the snippet runner seeds a page's namespace with a
-lowercase record and runs every block.)
 
 DSB is not one of the routes: it is the exact-balance reference method and
 lives in [`dtfit.reference`](Methods-DSB), where the polynomial pre-fit is two

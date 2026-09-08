@@ -1,7 +1,6 @@
 # DSB -- Differential Spectra Balance
 
 > Symbolic, analytical reference method. Source:
-> [`reference/dsb.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/reference/dsb.py),
 > [`reference/dsb.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/reference/dsb.py).
 > Invoke via `from dtfit.reference import fit_dsb, find_degree`, then
 > `fit_dsb(coeffs_poly, expr, var, ...)`. It is not part of `fit`: it is the
@@ -166,7 +165,8 @@ Two intrinsic caveats remain (unchanged in character from before):
   do not separate its parameters (e.g. $\arctan$, whose even orders vanish, so
   amplitude and frequency only split at order 3) requires a higher polynomial
   degree. DSB raises a clear error if too few parameter-bearing orders are
-  available rather than returning garbage; raise `poly_degree` / `rank`.
+  available rather than returning garbage; raise the degree passed to
+  `numpy.polyfit` (`deg` above) / `rank`.
 - **Reference, not robust estimator.** The balance is matched against the
   polynomial pre-fit's high-order coefficients, which are ill-conditioned under
   noise. On clean/analytic data DSB identifies parameters well; on noisy data it
