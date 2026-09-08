@@ -35,10 +35,11 @@ Scale:
     independent fits across processes or threads.
 
 Stochastic series:
-    fit_stochastic, StochasticModel and Stochastic fit the deterministic
-    functionals of a random process (autocovariance, spectrum, trend/cycle) to
-    characterize, forecast and generate it. StochasticFilter tracks that
-    structure online. See ``dtfit.stochastic``.
+    fit_stochastic, StochasticModel and Stochastic characterize a random
+    series from its second-order image: the autocovariance, the spectrum,
+    the aggregated variance and the trend plus seasonal cycle, each read off
+    one additive statistic. The fitted model forecasts, bands and generates.
+    StochasticFilter tracks the same structure per input.
 
 Every fit returns a FittingResult: named parameters, uncertainty, an optimizer
 ``converged`` flag, and extrapolation-aware ``predict``. enable_logging and

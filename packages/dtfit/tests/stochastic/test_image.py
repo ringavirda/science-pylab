@@ -6,7 +6,22 @@ import pytest
 
 from dtfit.image import Original
 from dtfit.stochastic import SecondOrderImage
-from dtfit.stochastic._stats import _adf_design
+
+
+def _adf_design(x, lag):
+    """ADF (ct) regression design at ``lag`` difference lags, built directly
+    in numpy so this reference stays independent of the shipped estimator.
+    The response is the difference ``dy_t``; the columns are
+    ``[y_{t-1}, dy_{t-1}, .., dy_{t-lag}, 1, t]``, with the level lag first so
+    that its coefficient is the gamma being tested."""
+    dx = np.diff(x)
+    nobs = dx.size - lag
+    cols = [x[lag:lag + nobs]]                          # level lag y_{t-1}
+    for j in range(1, lag + 1):
+        cols.append(dx[lag - j:lag - j + nobs])         # dy_{t-j}
+    cols.append(np.ones(nobs))                          # const
+    cols.append(np.arange(1, nobs + 1, dtype=float))    # linear trend
+    return dx[lag:], np.column_stack(cols)
 
 
 def ar1(n, phi, seed, sigma=1.0, burn=200):

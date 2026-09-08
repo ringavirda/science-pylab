@@ -33,6 +33,10 @@ class Stochastic:
         forecaster: Forecast control. ``"auto"`` backtest-selects; a name from
             :data:`dtfit.stochastic.FORECASTERS`, a callable
             ``(train, h) -> arr``, or a list of candidates also works.
+        lag: Lag budget of the second-order image every gate reads, in
+            samples.
+        nfreq: Smallest frequency grid of that image; it is raised to
+            resolve the record.
         **gates: Detection-gate overrides forwarded to
             :func:`~dtfit.stochastic.fit_stochastic` (``trend_t``,
             ``cycle_strength``, ``min_cycles``, ``lm_hurst``, ``mr_phi``,
@@ -43,10 +47,13 @@ class Stochastic:
     category = "stochastic"
 
     def __init__(self, *, period: float | None = None, max_harmonics: int = 4,
-                 forecaster: object = "auto", **gates: float) -> None:
+                 forecaster: object = "auto", lag: int = 256,
+                 nfreq: int = 512, **gates: float) -> None:
         self.period = period
         self.max_harmonics = int(max_harmonics)
         self.forecaster = forecaster
+        self.lag = int(lag)
+        self.nfreq = int(nfreq)
         self.gates = gates
         self.model_: StochasticModel | None = None
 
@@ -70,5 +77,6 @@ class Stochastic:
             series, t = y, x
         self.model_ = fit_stochastic(
             series, t, period=self.period, max_harmonics=self.max_harmonics,
-            forecaster=self.forecaster, **self.gates)
+            forecaster=self.forecaster, lag=self.lag, nfreq=self.nfreq,
+            **self.gates)
         return self.model_

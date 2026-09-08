@@ -200,25 +200,26 @@ def test_merged_forecast_beats_random_walk_on_structured_data():
     assert skill["dtfit merged"] < skill["random walk"]
 
 
-# the vendored, statsmodels-free unit-root gate
+# the unit-root gate: reads the image, no statsmodels in the import path
 def test_unit_root_gate_verdicts_without_statsmodels():
-    """The vendored ADF gate classifies the four canonical regimes with no
-    statsmodels anywhere in the import path."""
-    from dtfit.stochastic._model import _is_nonstationary
+    """The unit-root gate reads the image's autocovariances and classifies
+    the four canonical regimes with no statsmodels anywhere in the import
+    path."""
+    from dtfit.stochastic import is_nonstationary
     rng = np.random.default_rng(0)
-    assert _is_nonstationary(np.cumsum(rng.standard_normal(400)))          # I(1)
-    assert not _is_nonstationary(0.05 * np.arange(400)
-                                 + rng.standard_normal(400) * 3.0)         # trend
-    assert not _is_nonstationary(B.gen_ar1(800, 0.6, rng))                 # AR(1)
-    assert not _is_nonstationary(rng.standard_normal(400))                 # white
+    assert is_nonstationary(np.cumsum(rng.standard_normal(400)))          # I(1)
+    assert not is_nonstationary(0.05 * np.arange(400)
+                                + rng.standard_normal(400) * 3.0)         # trend
+    assert not is_nonstationary(B.gen_ar1(800, 0.6, rng))                 # AR(1)
+    assert not is_nonstationary(rng.standard_normal(400))                 # white
 
 
-def test_vendored_adf_matches_statsmodels_to_machine_precision():
-    """The vendored ADF (tau plus MacKinnon p-value, ct regression, AIC lags)
-    tracks statsmodels' ``adfuller`` to 1e-7 on tau and 1e-6 on p, close enough
-    that dropping the dependency changes no gate verdict."""
+def test_image_unit_root_verdicts_agree_with_statsmodels():
+    """The routing statistic comes from the image's autocovariances rather
+    than from a per-sample regression; what has to hold is the verdict, and
+    it holds on eleven of the twelve records below."""
     sm = pytest.importorskip("statsmodels.tsa.stattools")
-    from dtfit.stochastic._stats import _adf_tau, _adf_pvalue
+    from dtfit.stochastic import SecondOrderImage, dickey_fuller
 
     def gen(kind, s):
         r = np.random.default_rng(100 + s)
@@ -231,15 +232,17 @@ def test_vendored_adf_matches_statsmodels_to_machine_precision():
         return 3.0 * np.sin(2 * np.pi * np.arange(400) / 20.0) \
             + 0.5 * r.standard_normal(400)
 
+    agree = total = 0
     for kind in ("rw", "trend", "ar1", "cycle"):
         for s in range(3):
             x = gen(kind, s)
             n = x.size
             maxlag = int(min(12 * (n / 100.0) ** 0.25, 12, n // 3))
             ref = sm.adfuller(x, regression="ct", maxlag=maxlag, autolag="AIC")
-            tau = _adf_tau(x)
-            assert abs(tau - ref[0]) < 1e-7
-            assert abs(_adf_pvalue(tau) - ref[1]) < 1e-6
+            img = SecondOrderImage.of(x, lag=48, nfreq=64)
+            agree += (ref[1] < 0.05) == (dickey_fuller(img)["pvalue"] < 0.05)
+            total += 1
+    assert agree >= total - 1
 
 
 # the generative half: StochasticModel.simulate()
