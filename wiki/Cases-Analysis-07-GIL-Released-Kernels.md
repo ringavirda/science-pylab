@@ -1,5 +1,9 @@
 # GIL-released compiled kernels
 
+> **Status (2026-09):** the compiled kernel was removed in the image-core
+> migration; the projections it accelerated now run on numpy. The sections
+> below describe the study as it was run.
+
 **Verdict: WORKS -- the clean parallelization win.** Releasing the GIL around the
 pure-C numeric loops lets a thread pool drive every physical core at near-linear
 efficiency.
