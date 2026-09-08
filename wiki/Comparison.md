@@ -85,14 +85,16 @@ per step.
 
 ### Robustness without tuning
 
-- **Self-seeding models.** `models.logistic().fit(x, y)` or `auto_estimate`
-  derive `p0`/`bounds` from the data, so you are not hand-feeding a starting guess
-  (the thing `curve_fit` most often fails without).
+- **Self-seeding models.** `models.logistic().fit(x, y)` or
+  `fit(model, data, basis="auto")` derive `p0`/`bounds` from the data, so you
+  are not hand-feeding a starting guess (the thing `curve_fit` most often
+  fails without).
 - **Integral criteria denoise by construction.** EAC matches *areas*; integration
   is a low-pass operator, so it degrades gracefully as noise rises instead of
   chasing a high-order polynomial.
-- **Outliers.** `ensemble_fit` (overlapping-window median) and the robust image
-  (`fit_eac(..., robust=True)`) reject contamination with no scale to tune.
+- **Outliers.** the robust image (`robust=True`), basis-agnostic under
+  scattered outliers and best on the Legendre basis for a contiguous burst,
+  rejects contamination with no scale to tune.
 
 ### Embedded / real-time
 
