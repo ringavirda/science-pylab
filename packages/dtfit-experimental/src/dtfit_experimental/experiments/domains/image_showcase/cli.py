@@ -8,6 +8,12 @@ Each subcommand writes one or two CSV files into the domain's tracked
 output (the Pi's runs use ``--suffix _pi``), so the two machines' numbers
 sit side by side. The exactness subcommands exit 1 when any station misses
 the gate, so a run that breaks the claim fails visibly.
+
+Every process runs one BLAS thread: the parent through
+:func:`threadpoolctl.threadpool_limits`, a pool's workers through
+the ``*_NUM_THREADS`` variables they inherit. A ``cpu-N`` row then
+counts N cores, and N workers never spawn N times the core count
+in threads.
 """
 
 from __future__ import annotations
@@ -15,11 +21,13 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+from threadpoolctl import threadpool_limits
 
 from dtfit.image import ImageStream
 from dtfit.streaming import LSIFilter
@@ -616,6 +624,10 @@ def cmd_stream_track(args: argparse.Namespace) -> int:
     return 0
 
 
+BLAS_THREAD_VARS = (
+    "OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+)
+
 _COMMANDS = {
     "ngl-reduce": cmd_ngl_reduce,
     "ngl-fits": cmd_ngl_fits,
@@ -711,9 +723,12 @@ def main(argv: list[str] | None = None) -> int:
             else base / "isd" if args.command.startswith("isd")
             else base
         )
+    for name in BLAS_THREAD_VARS:
+        os.environ.setdefault(name, "1")
     _WRITTEN[0] = 0
     started = time.perf_counter()
-    code = _COMMANDS[args.command](args)
+    with threadpool_limits(limits=1, user_api="blas"):
+        code = _COMMANDS[args.command](args)
     seconds = round(time.perf_counter() - started, 3)
     write_table(
         _out(RESULTS[args.command] + "_timing", args.suffix),

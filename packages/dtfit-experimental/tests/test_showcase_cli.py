@@ -4,6 +4,7 @@ test lays out exactly as the real one is laid out."""
 from __future__ import annotations
 
 import csv
+import os
 import threading
 import time
 
@@ -152,6 +153,29 @@ def test_cli_exact_fails_visibly_when_a_station_misses_the_gate(
 def test_cli_reports_an_unknown_subcommand(tmp_path):
     with pytest.raises(SystemExit):
         cli.main(["not-a-command"])
+
+
+def test_cli_runs_every_process_on_one_blas_thread(tmp_path, monkeypatch):
+    from threadpoolctl import threadpool_info
+
+    seen: dict[str, object] = {}
+
+    def probe(args):
+        seen["threads"] = {
+            (p["internal_api"], p["num_threads"]) for p in threadpool_info()
+            if p["user_api"] == "blas"
+        }
+        seen["env"] = {n: os.environ.get(n) for n in cli.BLAS_THREAD_VARS}
+        return 0
+
+    for name in cli.BLAS_THREAD_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setitem(cli._COMMANDS, "probe", probe)
+    monkeypatch.setitem(cli.RESULTS, "probe", "probe")
+    monkeypatch.setattr(paths, "results_dir", lambda: tmp_path / "results")
+    assert cli.main(["probe"]) == 0
+    assert seen["env"] == {n: "1" for n in cli.BLAS_THREAD_VARS}
+    assert all(n == 1 for _, n in seen["threads"])
 
 
 def test_cli_throughput_writes_a_row(tmp_path, monkeypatch):
