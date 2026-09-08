@@ -70,6 +70,8 @@ dtfit = [
 [tool.ruff]
 line-length = 79
 target-version = "py310"
+# the mkdocs build output is a generated copy of the docs tools; do not lint it
+extend-exclude = ["site"]
 
 [tool.ruff.lint]
 # The rule set is explicit so a newer ruff cannot change it under CI.
