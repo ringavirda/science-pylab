@@ -15,7 +15,7 @@ curvature-weighted placement -- so resolution concentrates where the signal
 actually changes, instead of being spread uniformly.
 
 ```
-fit_eac(t, y, "K*(1-exp(-a*x))", "x", window_mode="curvature", p0=[1.0, 1.0])
+fit_eac(t, y, "K*(1-exp(-a*x))", "x", p0=[1.0, 1.0])
 ```
 
 ## Measured result

@@ -1,13 +1,17 @@
 # #3 -- Overlapping-window ensemble + robust aggregation
 
-**Verdict: PROMOTED as `dtfit.ensemble_fit` -- a specialized tool.** It ships in
-stable `dtfit` as the whole-window-rejection complement to `fit_eac`'s in-fit
-robust loss: the route that stays stable where the robust loss diverges. Read it as
-a specialist, not a default -- it helps EAC at *low* outlier rates, but its
-aggregation breaks down once *many* overlapping windows are corrupted, and plain
-**LSI is both simpler and more robust** at high contamination.
+> **Status (2026-09):** The overlapping-window ensemble is not part of
+> `dtfit`. The whole-window-rejection idea it tested helps a contiguous
+> burst; the shipped robustness tool for that case is the basis-agnostic
+> robust image (`robust=True`), best on the Legendre basis for a burst. The
+> sections below describe the study as it was run.
 
-Source: [`methods/_ensemble.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/methods/_ensemble.py).
+**Verdict: not promoted.** The experiment showed that whole-window rejection
+helps a contiguous burst, but the median-of-coefficients aggregation
+collapses once *many* overlapping windows are corrupted, and plain **LSI is
+both simpler and more robust** at high contamination. It is a specialist
+finding, not a default, and it does not ship.
+
 Tested in: [Noise & robustness (3)](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit-experimental/src/dtfit_experimental/experiments/cases/03_noise_robustness/03_noise_robustness.ipynb).
 
 ## What it is

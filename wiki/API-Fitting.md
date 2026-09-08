@@ -441,7 +441,7 @@ here behaves exactly as documented there.
 | `solver_options` | dict \| None | `None` | forwarded to the least-squares stage; see [`fit`](#fit) |
 | `nan_policy` | str | `"raise"` | `"raise"` rejects a non-finite sample; `"omit"` drops it before fitting |
 | `param_names` | list[str] \| None | `None` | parameter names for a callable model, in signature order; cross-checked for a symbolic model |
-| `**legacy` | -- | -- | retired keywords accepted for source compatibility and ignored: `active_ratio`, `window_mode`, `f_scale`, `huber_c`. Any other keyword raises `TypeError` |
+| `**legacy` | -- | -- | unrecognized keywords for the preset raise `TypeError`; a small set of superseded EAC keywords is accepted and ignored for source compatibility |
 
 **Raises**
 

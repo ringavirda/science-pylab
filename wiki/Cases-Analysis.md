@@ -16,7 +16,7 @@ each one across all the experiments that exercised it.
 |---|---|---|
 | [01_map_reduce_partitioned.md](Cases-Analysis-01-Map-Reduce-Partitioned) | #1 map-reduce / partitioned LSI*EAC | In `dtfit_experimental.scale` -- covered by `ImageStream` (accumulator, `merge`) |
 | [02_pluggable_basis.md](Cases-Analysis-02-Pluggable-Basis) | #2 pluggable orthogonal basis | Experimental -- vocabulary, not power |
-| [03_overlapping_ensemble.md](Cases-Analysis-03-Overlapping-Ensemble) | #3 overlapping-window ensemble | **Promoted** (`dtfit.ensemble_fit`) -- the whole-window-rejection complement to `fit_eac`'s robust image |
+| [03_overlapping_ensemble.md](Cases-Analysis-03-Overlapping-Ensemble) | #3 overlapping-window ensemble | Study finding: whole-window rejection helps a contiguous burst; the shipped robustness tool is the robust image (`robust=True`), best on the Legendre basis for a burst. |
 | [04_joint_multichannel.md](Cases-Analysis-04-Joint-Multichannel) | #4 joint shared-parameter fit | Experimental -- loss where tested |
 | [05_stagewise_boosting.md](Cases-Analysis-05-Stagewise-Boosting) | #5 stage-wise boosting | Experimental -- win, 1 domain |
 | [06_adaptive_window_eac.md](Cases-Analysis-06-Adaptive-Window-EAC) | #6 adaptive-window EAC | Retired -- `fit_eac` places equal windows |

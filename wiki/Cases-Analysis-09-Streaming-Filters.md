@@ -119,10 +119,11 @@ filter's own convergence transient and stays hard -- an honest startup/SNR limit
 
 This is built on two small, reusable library primitives added to both filters:
 `last_residual_` (the exposed one-step innovation) and a public `inflate()`
-(covariance re-arming hook for an external detector). The fused detector itself is
-now a **stable library primitive** -- `dtfit.FusedChiSquareDetector` (in
-`streaming/_bank.py`), constructed via `FilterBank.fused_detector(...)` -- a general
-multi-stream chi^2 change-detector promoted into `dtfit`, even though the *tracking*
+(covariance re-arming hook for an external detector). The fused detector itself
+lives in `dtfit_experimental.streaming` -- `FusedChiSquareDetector` (in
+`streaming/_bank.py`), constructed via `FilterBank.fused_detector(...)` -- a
+general multi-stream chi^2 change-detector; the stable in-core equivalent for
+one filter type is summing `ImageFilter.nis_`, even though the *tracking*
 payoff of acting on it was demonstrated on one domain here.
 
 **Does acting on detection help tracking?** Only in a narrow regime -- the most
