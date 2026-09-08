@@ -1,2 +1,2 @@
 direction,rate_requested,rate_achieved,n_samples,n_frames,dropped_sender,dropped_receiver,us_per_update,n_flags,n_blocks_back,bytes_forward,bytes_back,seconds,flags_match
-pc->pi,1000.0,999.6,95388,965,0,0,399.752,22,280,1684052,2274480,95.4193,False
+pc->pi,1000.0,999.6,95388,965,0,0,399.752,22,280,1684052,2274480,95.4193,True
