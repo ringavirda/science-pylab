@@ -102,9 +102,13 @@ correlation the test functions have, exactly, and is whitened by its own
 Cholesky factor either way. A `Basis` exposes `evaluate(u) -> Phi` and
 `n_coef`; the transfer between domains is `Image.transfer`
 ([the bases section](image.md#bases)). The Legendre basis is the one LSI
-is built around; the block basis is [EAC](eac.md)'s. The experimental
-package carries Fourier, Chebyshev and Laguerre bases on its own spectral
-machinery through `fit_lsi_basis` -- see
+is built around; the block basis is [EAC](eac.md)'s. LSI is the
+p-version (global Legendre) of the same weighted-residual image EAC refines
+locally; see the [h/p crossover](eac.md#the-hp-crossover-when-eac-beats-lsi)
+for which basis wins on which target. The experimental package carries
+Fourier, Chebyshev and Laguerre bases on its own spectral machinery through
+`fit_lsi_basis`, alongside the image-interface bases fit through
+`dtfit.fit(basis=FourierBasis(K))` -- see
 [the experimental adaptations API](https://github.com/ringavirda/science-nonline/wiki/Experimental-Adaptations-API).
 
 ## Relation to classical (Western) methods
@@ -214,6 +218,6 @@ dynamic-range caveat: a wide or narrow domain is rescaled to `[-1, 1]`
 before any projection happens.
 
 For real-time/streaming use the [LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter) /
-[EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter); for the most noise-robust batch fit
-with few parameters, [EAC](eac.md); at scale (streams, blocks, many
-channels), [ImageStream](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling).
+[EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter); for a jump or regime change aligned
+to a window edge, or at very high order, [EAC](eac.md); at scale
+(streams, blocks, many channels), [ImageStream](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling).

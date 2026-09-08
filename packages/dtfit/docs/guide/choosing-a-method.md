@@ -3,10 +3,10 @@
 !!! note
     Adapted from the project [wiki](https://github.com/ringavirda/science-nonline/wiki/Guides-Choosing-a-Method). The wiki has the full set of method, domain and case-study pages.
 A practical decision guide. If you just want *something that works*, the very
-short answer is: **call `auto_estimate` (to recover parameters) or `auto_forecast`
-(to forecast)** and let dtfit route for you
-([api/auto.md](../api/forecasting.md)). The rest of this page is for when you want to
-choose deliberately.
+short answer is: **call `fit(model, data, basis="auto")` or `Model.fit` (to
+recover parameters) or `auto_forecast` (to forecast)** and let dtfit route
+for you ([api/auto.md](../api/forecasting.md)). The rest of this page is for when you
+want to choose deliberately.
 
 ---
 
@@ -44,8 +44,8 @@ Is the data arriving live / do the parameters change over time?
          +- a sinusoid / clear cycle               > LSI oscillatory recipe
          |                                           (fit_lsi(..., freq_param="w"))
          +- outliers / glitches present            > robust image (robust=True on
-                                                      fit_lsi / fit_eac); ensemble_fit
-                                                      for a densely contaminated record
+                                                      fit_lsi / fit_eac), on whichever
+                                                      basis the shape chose
 ```
 
 **DSB** is not in this tree on purpose: it is a reference/derivation tool, not a
@@ -55,15 +55,18 @@ production fitter (see [methods-explained.md#dsb](https://github.com/ringavirda/
 
 - **Start with LSI.** It's the accurate general default and handles most smooth,
   nonlinear-in-parameters models.
-- **Switch to EAC when noise is high or you need speed**, and the model has few
-  (2-4) parameters. EAC is ~5x faster than LSI and the most noise-robust.
+- **Switch to EAC for a jump or regime change, at very high order, or when
+  you need speed** and the model has few (2-4) parameters. EAC is ~5x faster
+  than LSI; it is not more noise-robust -- robustness comes from
+  `robust=True`, not the basis.
 - **Use the oscillatory recipe for anything with a cycle.** A plain fit
   erases cycles; you must pass `freq_param`/`oscillatory=True`.
 - **Use the robust image when outliers/glitches contaminate a record.**
   `robust=True` on `fit_lsi` / `fit_eac` Huber-reweights the image before any
-  model is fit -- no scale to tune. For a *densely* contaminated record,
-  `ensemble_fit` fits overlapping windows and takes the median instead,
-  rejecting whole corrupted windows outright.
+  model is fit -- no scale to tune. For a *densely* contaminated record use
+  the robust image on the global (Legendre) basis: a contiguous burst fills
+  whole block windows the per-window reweighting cannot isolate, so
+  `fit_lsi(..., robust=True)` beats `fit_eac(..., robust=True)` there.
 - **One image, several models.** Build the image once --
   `Original(x, y).image("legendre", order)` -- and `fit` each candidate on it;
   the fits are exact in the span and cost no further data pass.

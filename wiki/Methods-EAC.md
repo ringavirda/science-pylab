@@ -49,13 +49,15 @@ identification. Two analytic functions sharing $m$ such independent moments
 agree where the model has $m$ degrees of freedom, so the parameters are
 recovered.
 
-**Why it is robust.** A window sum averages zero-mean observation noise
-toward zero as the window widens: $\sum_{k \in W_i} w_k \varepsilon_k$ grows
-slower than the window's own signal content. The data enter EAC only through
-these window sums, never through a derivative or a high-order polynomial fit
--- so EAC degrades gracefully as noise rises. The worked example below
-recovers a transcendental curve from a visibly noisy cloud by matching window
-sums alone.
+**What it is for.** A window sum is a moment of the differential spectrum,
+so matching M shifted window sums is a piecewise-constant (Haar) Galerkin
+identification: the h-version of the same weak-form fit LSI runs with a
+global polynomial basis. EAC owns the h-version's regime -- a jump or a
+regime change aligned to a window edge -- and the diagonal block Gram makes
+it the cheap, well-conditioned image at high order and the basis of the
+streaming EACFilter and the map-reduce tiers. It is not more robust to
+noise or outliers than LSI: robustness is a property of the robust image
+(below), not of the block basis.
 
 ## Windows
 
@@ -126,22 +128,48 @@ In one line: **EAC is the $h$-version (local Haar) Galerkin / GMM** counterpart 
 [LSI](Methods-LSI)'s $p$-version (global spectral) projection -- two faces of the
 same weighted-residual identification.
 
+## The h/p crossover: when EAC beats LSI
+
+LSI (Legendre, p-refinement) and EAC (block, h-refinement) are two bases on
+the same image, so the classical h/p rule decides between them: p-refinement
+wins wherever the target is globally smooth (spectral convergence), h-
+refinement wins at a local non-smoothness a polynomial cannot follow without
+ringing. Image reconstruction RMSE at an equal coefficient budget K
+(n = 2000) makes the crossover concrete:
+
+| target | LSI (Legendre) | EAC (block) |
+|---|---|---|
+| smooth (exp, Gaussian) | 5e-16 at K>=16 | ~1e-2 (stalls) |
+| kink \|x-0.5\|, K=8 | 7.9e-3 | 3.6e-2 |
+| kink \|x-0.5\|, K=64 | 4.3e-4 | 4.5e-3 |
+| two-piece slope (continuous) | wins at every K | -- |
+| step at 0.5 on a window edge | ~5e-2 (Gibbs, K=64) | 0.00e+00 (exact) |
+
+LSI dominates smooth and continuous-but-non-smooth targets; EAC is exact
+only on a true discontinuity that lands on a block boundary. That step is
+EAC's home, together with the conditioning and streaming reasons above.
+
 ## Robustness to outliers -- the robust image
 
-EAC's outlier defense is the **robust image**: `robust=True`, or any `loss`
-other than `"linear"`, runs Huber IRLS on the block regression `y ~ Phi
-beta` -- the window means -- before the model is involved: each sample's
-weight is scaled by `min(1, c s / |r_i|)`, `c = 1.345`, `s` the MAD scale of
-the regression residual, five passes. Measured on the Legendre image at
-order 12 with 10 percent outliers at ten sigma, the robust image gives
-parameter RMSE 0.34 to 0.38 of plain NLLS -- the same reduction scipy's
-`soft_l1` loss gives.
+Robustness is a property of the **image construction, not of the basis**.
+`robust=True` (or any `loss` other than `"linear"`) runs Huber IRLS on the
+image regression before the model is involved -- each sample weighted by
+`min(1, c s / |r_i|)`, `c = 1.345`, `s` the MAD scale, five passes -- and it
+applies identically to the Legendre and the block image. Measured over 60
+seeds with 10 percent outliers at ten sigma, RMSE-to-truth relative to a
+clean-data NLLS fit:
 
-The robust image is the defence for a densely contaminated record too: on
-the validation corpus with 4 percent of samples replaced by 8-sigma spikes it
-recovers to a pooled median relative parameter error of 0.008, against 0.114
-for the plain block preset, at a twelfth of the cost of the overlapping-window
-ensemble it replaces.
+* Plain images are no more robust than NLLS: block 3.41, Legendre 3.39,
+  NLLS 3.39 under scattered outliers.
+* The robust image is basis-agnostic under scattered outliers: LSI-robust
+  1.17 and EAC-robust 1.17, matching a dedicated robust loss.
+* Under a contiguous burst the robust image on Legendre (1.41) beats it on
+  blocks (3.65): a burst fills whole windows the per-window reweighting
+  cannot isolate, so the global basis, not the block basis, is the robust
+  choice there.
+
+Reach for `robust=True` on whichever basis the signal's shape already
+chose; do not choose EAC for robustness.
 
 ## Optimizations and guards
 
@@ -185,8 +213,8 @@ Error is against the *clean* signal.
 EAC recovers the parameters essentially as well as LSI and the NLS gold standard
 while being the **fastest** of the dtfit methods (~=3 ms here -- roughly 5x LSI),
 because it solves a small area-matching system instead of a spectral least-squares
-problem. That speed and its derivative-free robustness are why EAC is the basis of
-the streaming [EACFilter](Methods-Equal-Areas-Filter).
+problem. That speed and its derivative-free, O(1)-per-sample form are why EAC is the
+basis of the streaming [EACFilter](Methods-Equal-Areas-Filter).
 
 **Real data -- COVID-19 Ukraine** (28-day take-off, 548->8617 cases),
 `y = a.exp(b.t)`:
@@ -199,18 +227,18 @@ the streaming [EACFilter](Methods-Equal-Areas-Filter).
 
 ## Where it is best applied
 
-**Use EAC for:** noise-robust batch fitting of few-parameter (2-4) transient
-and saturating shapes, when speed and a minimal statistic matter -- the block
-image is `n_windows` sums -- the batch form of the streaming
+**Use EAC for:** a jump or regime change aligned to a window edge (the h-
+version's exact case), high-order conditioning (the diagonal block Gram --
+the showcase's 1,275-station Legendre Gram hit condition 1e19 where the
+block Gram stays diagonal), and the streaming and map-reduce tiers where the
+block image is `n_windows` sums, the batch form of the streaming
 [EACFilter](Methods-Equal-Areas-Filter)'s measurement and of the MCU block
-images. For peaks and cycles the Legendre preset at
-[`order_for`](Methods-Image) is the more statistically efficient image;
-`Model.fit` and the `auto` route send peaks there rather than to the block
-basis, which measures 1.04 to 1.22 times the Legendre parameter error on the
-peaked families.
-Outlier-prone data reach for the robust image (`robust=True`), densely
-contaminated or not; a whole-record EAC fit is also a fast, stable initializer
-for a slower method.
+images. It is also a fast, stable initializer for a slower method. For peaks
+and cycles the Legendre preset at [`order_for`](Methods-Image) is the more
+efficient image, and `Model.fit` and the `auto` route send peaks there
+rather than to the block basis (1.04 to 1.22 times the Legendre parameter
+error on the peaked families). Outlier-prone data reach for the robust image
+(`robust=True`) on whichever basis the shape chose, scattered or bursty.
 
 **Caveats.** EAC's window sums partly cancel **oscillations** -- for a cycle
 use [LSI](Methods-LSI)'s oscillatory recipe or the streaming
