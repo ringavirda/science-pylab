@@ -21,7 +21,7 @@ moves to the weak machine.
   one GEMM, on numpy and on the cupy backend, swept over the batch width.
 - **`dtfit.image.fit` from a stored image** -- the batch fit the Pi runs on
   what it received. The order comes from the span-and-density rule
-  (`max(16, ceil(8 * span)) + 16`, capped at `n - 2` and `n / 4`);
+  (`max(16, ceil(8 * span) + 16)`, capped at `n - 2` and `n / 4`);
   `dtfit.image.coverage` is recorded per station beside it and marks the
   rows where that order cannot represent the model.
 - **`LSIFilter`** -- the streaming tracker and its `DriftDetector`, in a
@@ -62,16 +62,33 @@ score would read 3e-15 while the velocity and the cycle amplitudes miss
 |---|---|---|---|---|---|---|
 | NGL | 69,525 | 1135.29 | 2.90e-13 | 2,782 | 1,275 | 1,542 |
 | NOAA station-year | 12,677 | 1.06 | 1.65e-13 | 937 | 835 | 131 |
-| NOAA day images | 3,367 | 2.09e-11 | 3.87e-13 | 0 | -- | -- |
+| NOAA day images | 3,367 | 2.09e-11 | -- | 0 | -- | -- |
 
 "Over the 1e-8 gate" is every row scoring above the gate whatever its
 excuse; it is larger than the ill-conditioned count because 1,507 NGL and
 102 NOAA rows are both UNDERSAMPLED and over the gate, counted in
 "undersampled" and not repeated here. The NGL worst, 1135.29, is one such
-UNDERSAMPLED row. The day-images row is a different statistic from the
-other two: it checks the day sub-image against its own raw hourly rows
+UNDERSAMPLED row. The median column is dropped for the day-images row: the
+3,367 day scores are stored one station-year maximum at a time
+(`isd_exact_days.csv`, 465 rows), so the only median available there
+(3.87e-13) is the median of those 465 maxima, not of the 3,367 day
+scores, and reads high for it. The 2.09e-11 worst is also the worst of
+those 465 maxima; the day-image scores that `isd_exact.csv` carries
+inline for all 6,797 checked station-years reach a worse 2.17e-11. The
+day-images row is a different statistic from the other two: it checks
+the day sub-image against its own raw hourly rows
 (`day_score`) rather than the whole-station-year fit, so its count is
 checked days, not station-years.
+
+A miss inside the attainable bound (`design_cond**2 * (coverage + EPS *
+gram_cond)`) is not a pass, only an unfalsifiable row: for the 1,275 NGL
+ILL-CONDITIONED rows the bound has a median of 2.95e+04 and exceeds 1
+(a 100 percent relative miss permitted) on 1,156 of them; for the 835
+NOAA rows the bound has a median of 3.40e+10 and exceeds 1 on all 835.
+The median ratio of bound to actual score is 1.5e+11 (NGL) and 5.9e+16
+(NOAA), so on those rows the verdict says only that the raw solve is
+itself undetermined at that order and density, not that the image
+agrees with it.
 
 The Legendre order is `max(16, ceil(8 * span_years) + 16)` for NGL, capped
 at `n - 2` and at `n / 4`, and 24 for a NOAA station-year: eight
@@ -95,7 +112,7 @@ From `throughput.csv`, `throughput_n4000.csv` and `ngl_reduce.csv` /
 
 | route | samples/s | traced peak | resident peak | note |
 |---|---|---|---|---|
-| raw disk read | -- | -- | -- | 3527.67 MB/s |
+| raw disk read | -- | -- | -- | 3527.67 MB/s (page-cache speed; the files were just read by this session, not a cold drive) |
 | one process | 85,566.2 | 48.86 MiB | 674.53 MiB | |
 | 12 processes | 267,553.6 | 0.23 MiB | 747.29 MiB | traced covers the parent only |
 | float32 accumulation | -- | -- | -- | 2.09e-08 rel error against 0.00e+00 float64 |
@@ -104,9 +121,12 @@ The memory claim is stated against the resident set, not the traced
 allocation: `tracemalloc` does not follow a process pool's children, so a
 pooled traced peak means nothing. The gate is the one-process resident
 peak on 200 stations against the same on 2,000: 674.53 MiB against
-671.79 MiB. The peak is set by the largest single station, not by the
-dataset -- the reducer holds one file at a time and the explicit grid it
-stores is the station's own positions.
+671.79 MiB, which is met, but the resident number is dominated by a flat
+baseline, not by any one station: a fresh interpreter that only imports
+the reducer already sits at 197.6 MiB, and a spawned child reducing 40
+synthetic 4,000-row stations peaks at 579.2 MiB resident against an
+8.9 MiB traced peak -- it is the traced peak, not the resident one, that
+actually tracks the largest station's own grid and coefficients.
 
 | dataset | raw | arrays (S + G + grid) | ratio | stored (`.npz`) | ratio | S | G | grid |
 |---|---|---|---|---|---|---|---|---|
@@ -132,7 +152,7 @@ file larger than their own raw file. The image is a reduction for NGL
 only in what it lets the receiver do without the samples, and only once
 compressed -- not in the uncompressed arrays' own bytes.
 
-![throughput](figures/throughput.png)
+![throughput](figures/Domain-Image-Showcase-throughput.png)
 
 ### The GPU row
 
@@ -149,9 +169,14 @@ station files at 30 days.
 
 `Phi` is 24 by 17, so the arithmetic intensity is low and the Gram update
 stays on the host whatever the backend: only `S` is accelerated. The shape
-of the curve against the batch width is the result.
+of the curve against the batch width is the result. The spec's leg 1 asks
+for this rate reported next to the disk read rate so an I/O-bound result
+reads as such; that comparison exists for the CPU rows in `throughput.csv`
+only, not here -- `gemm.csv` is a projection-only sweep with the gather
+time as its own column (8 to 536 seconds against 0.0001 to 0.015 seconds
+of projection), so no GPU row sits next to a disk rate.
 
-![channel form](figures/gemm.png)
+![channel form](figures/Domain-Image-Showcase-gemm.png)
 
 ## 3. Velocities against MIDAS
 
@@ -164,7 +189,7 @@ uncertainty.
 | whole span | 64,722 | 0.658 | 61.6 percent |
 | between steps | 31,983 | 0.564 | 67.7 percent |
 
-![MIDAS agreement](figures/midas.png)
+![MIDAS agreement](figures/Domain-Image-Showcase-midas.png)
 
 ### One image, several models
 
@@ -176,7 +201,7 @@ below is a measurement.
 
 | comparison | model-component fits | same rank | top model agrees (600 components) |
 |---|---|---|---|
-| image against raw samples | 2,400 | 2,383 (99.3%) | 596 |
+| image against raw samples | 2,400 | 2,383 (99.3%) | 595 |
 | Pi against PC, image arm | 2,400 | 2,389 (99.5%) | -- |
 
 ## 4. Steps and the streaming filter
@@ -188,10 +213,11 @@ trend on a fixed 40-sample window, chosen because 60 samples span more than
 full model on 1000 samples) carries the velocity.
 
 Two things the raw recall number would hide, both stated here. First, the
-denominator: the detector is blind for three windows after each flag and
-for `min_window + 3 * window` samples at the start, and 63.8 percent of
-consecutive database steps sit closer than one blind period, so recall is
-reported over the reachable subset with the excluded count beside it.
+denominator: the detector is blind for `(warmup + 1) * window` samples
+after each flag and for `(warmup + 2) * window - 2` samples at the start
+(`min_window` plays no part), and 63.8 percent of consecutive database
+steps sit closer than one blind period, so recall is reported over the
+reachable subset with the excluded count beside it.
 Second, the null: over the 200 stations with a median 9 steps and a
 median 18.9-year span, the union of the +/- 60-day event windows already
 covers a median 15.2 percent of the timeline (mean 16.2 percent, up to
@@ -208,7 +234,7 @@ Recall over the reachable steps, binned jointly on magnitude and on
 expected: 34.6 percent of its earthquake entries are magnitude 7 or above
 and most of those are far away), with the delay distribution beside it:
 
-![step recall](figures/steps.png)
+![step recall](figures/Domain-Image-Showcase-steps.png)
 
 ### The NOAA filter's flags
 
@@ -241,10 +267,10 @@ calendar, so no phase difference comes from the leap day.
 | quantity | stations | median difference (image minus normals) |
 |---|---|---|
 | annual amplitude | 465 | -0.82 C |
-| annual phase | 465 | 4.1 days |
+| annual phase | 465 | -3.18 days signed (4.09 days median absolute) |
 | diurnal range, monthly medians | 465 | +1.6 C (+1.73 C per row) |
 
-![normals](figures/normals.png)
+![normals](figures/Domain-Image-Showcase-normals.png)
 
 ## 6. The analysis on the Pi
 
@@ -253,10 +279,14 @@ the `*_timing*.csv` files each run writes. The Pi holds the images and
 never the raw files: `ngl-rank` runs with `--no-raw`, so the ranking on
 the Pi reads no station file either.
 
-| machine | cores | RAM | fits | wall time | worst velocity difference |
-|---|---|---|---|---|---|
-| Ryzen 9 9950X3D | 16 | 54 GiB | 230,751 | 740.7 s | -- |
-| Raspberry Pi 5 | 4 | 8 GB | 32,307 | 6893.0 s | 1.32e-05 m/yr |
+| machine | cores | workers used | RAM | fits | wall time | worst velocity difference |
+|---|---|---|---|---|---|---|
+| Ryzen 9 9950X3D | 16 | 12 | 54 GiB | 230,751 | 740.7 s | -- |
+| Raspberry Pi 5 | 4 | 4 | 8 GB | 32,307 | 6893.0 s | 1.32e-05 m/yr |
+
+The worker counts are not the core counts: the PC ran with 12 workers
+against its 16 cores and the Pi with 4 against its 4, so about 3x of
+every wall-time ratio below is process count, not machine.
 
 The two rows above are not the same run: `ngl-fits` ran on the PC's full
 230,751 rows and on the Pi's 32,307-row sample, so their wall times are
@@ -271,7 +301,7 @@ reduction of raw station files on both machines (`throughput.csv` and
 `throughput_pi.csv`), the one place the Pi does touch raw files, run so
 that the same measurement exists on both hosts.
 
-![reduction rate by machine](figures/pi_vs_pc.png)
+![reduction rate by machine](figures/Domain-Image-Showcase-pi_vs_pc.png)
 
 ## 7. The stream between the machines
 
@@ -295,7 +325,7 @@ measured.
 | local | 0.25 yr | 3,210 | 6.55 MB | 4.67 MB | 22.57 | -- | 0 |
 | local | 4.0 yr | 228 | 5.35 MB | 0.33 MB | 22.59 | -- | 0 |
 
-![bytes on the wire](figures/wire.png)
+![bytes on the wire](figures/Domain-Image-Showcase-wire.png)
 
 ### The other direction: the PC replays, the Pi tracks
 
@@ -317,7 +347,7 @@ completed.
 |---|---|---|---|---|---|
 | 1,000/s (SSH tunnel) | 999.6 | 0 / 0 | 399.8 us | 280 | yes |
 
-![replay rate](figures/replay.png)
+![replay rate](figures/Domain-Image-Showcase-replay.png)
 
 ## What this domain says
 
@@ -326,9 +356,13 @@ against `lstsq` sits at rounding (2.9e-13 NGL, 1.6e-13 NOAA), and nothing
 is gated FAIL outright. That is not the same as everything scoring under
 1e-8: 2,782 NGL and 937 NOAA fits score above the gate once the excused
 gates are counted -- 1,275 NGL and 835 NOAA station-years are
-ILL-CONDITIONED within their own attainable bound, and 1,507 NGL and 102
-NOAA are UNDERSAMPLED and also over the gate (2.2 percent of NGL and 1.0
-percent of NOAA fits are UNDERSAMPLED in total). The worst score anywhere
+ILL-CONDITIONED within their own attainable bound, and that bound
+exceeds one (permits any miss at all) on 1,156 of the 1,275 NGL rows and
+on all 835 NOAA rows, so for those the verdict says only that the raw
+solve is undetermined, not that the image agrees with it. 1,507 NGL and
+102 NOAA are UNDERSAMPLED and also over the gate (2.2 percent of NGL and
+1.0 percent of NOAA fits are UNDERSAMPLED in total). The worst score
+anywhere
 is 1135.29, on one UNDERSAMPLED NGL station-component, a reminder that
 "explained" is not "small": the image agrees with the raw fit only as
 well as the model's own conditioning and density allow on that station's
@@ -354,7 +388,7 @@ percent within one sigma, and splitting on the database's own steps
 narrows that slightly (0.56, 67.7 percent) -- consistent agreement, not a
 better fit, since the two arms use the same samples. Ranking four models
 by image BIC agrees with the raw-sample ranking on 2,383 of 2,400
-model-component fits (99.3 percent) and picks the same top model on 596
+model-component fits (99.3 percent) and picks the same top model on 595
 of 600 station-components; the same comparison run again on the Pi from
 its own image arm agrees with the PC on 2,389 of 2,400.
 
@@ -370,8 +404,9 @@ by a quality failure or coordinate change, out of 26,344 events whose
 +/-2-day windows cover a median 5 percent of the year: most flags are
 unexplained noise, not detected events. The annual-cycle fit from the
 image alone reproduces NOAA's published normals to a median -0.82 C in
-amplitude (the image's swing runs smaller) and 4.1 days in phase, and its
-diurnal range runs high against the normals' by a median +1.6 C by month.
+amplitude (the image's swing runs smaller) and -3.18 days signed in
+phase (4.09 days median absolute), and its diurnal range runs high
+against the normals' by a median +1.6 C by month.
 
 The Pi reproduces the PC's whole-span velocities to a worst 1.32e-05 m/yr
 difference on its own 4,000-station sample, never touching a raw file
