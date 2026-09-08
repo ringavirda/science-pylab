@@ -37,13 +37,15 @@ def date_of(year, day, hour, minute=53):
     return f"{year}-{month:02d}-{dom:02d}T{hour:02d}:{minute:02d}:00"
 
 
-def write_year(path, sta="72278023183", year=2024, seed=3, skew=0.0):
-    """An hourly station-year at :53. ``skew`` adds a second diurnal
+def write_year(path, sta="72278023183", year=2024, seed=3, skew=0.0,
+               first=0, last=None):
+    """An hourly station-year at :53 over days ``first`` to ``last``
+    (the whole year by default). ``skew`` adds a second diurnal
     harmonic, which is what makes a real day's range exceed twice its
     first-harmonic amplitude."""
     rng = np.random.default_rng(seed)
-    days = isd.days_in_year(year)
-    t = np.arange(0.0, days, 1.0 / 24.0) + 53.0 / 1440.0
+    days = isd.days_in_year(year) if last is None else last
+    t = np.arange(float(first), days, 1.0 / 24.0) + 53.0 / 1440.0
     y = (isd_reduce.annual_design(t) @ np.array(TRUTH)
          + DIURNAL * np.cos(2.0 * np.pi * t)
          + skew * np.cos(4.0 * np.pi * t)
@@ -219,6 +221,19 @@ def test_exactness_year_meets_the_gate_on_the_year_and_the_days(tmp_path):
     assert set(isd_fits.EXACT_ISD_COLUMNS) >= set(row)
 
 
+def test_exactness_year_reports_an_ill_conditioned_station_year(tmp_path):
+    # Two months of hourly rows under the whole-year domain: the density
+    # floor is met, but the basis at the annual order is ill conditioned
+    # on that grid, so the row is reported ILL-CONDITIONED, not failed.
+    src = write_year(tmp_path / "72278023183.csv", seed=9, first=200,
+                     last=260)
+    npz, _ = isd_reduce.reduce_year_to_file(src, tmp_path / "images")
+    row = isd_fits.exactness_year(src, npz, day_sample=0)
+    assert row["n"] >= row["order"] * compare.DENSITY_PER_COEF
+    assert row["gram_cond"] > 1e10
+    assert row["gate"] == "ILL-CONDITIONED"
+
+
 def test_exactness_year_day_sample_zero_disables_the_day_arm(tmp_path):
     src = write_year(tmp_path / "72278023183.csv", seed=12)
     npz, _ = isd_reduce.reduce_year_to_file(src, tmp_path / "images")
@@ -251,16 +266,18 @@ def test_exactness_year_gates_undersampled_below_the_density_floor(
 def test_exactness_year_fails_when_the_image_disagrees_with_the_csv(
     tmp_path,
 ):
-    # the npz is built from a truncated copy of the station-year, so the
-    # stored image and the full csv exactness_year re-reads disagree
+    # the npz is built from another noise draw of the same station-year
+    # on the same hourly grid, so the stored image and the csv
+    # exactness_year re-reads disagree by far more than the well
+    # conditioned full-year image allows
     full = write_year(tmp_path / "72278023183.csv", seed=15)
-    with open(full) as fh:
-        lines = fh.readlines()
-    truncated = tmp_path / "truncated.csv"
-    with open(truncated, "w") as fh:
-        fh.writelines(lines[:3001])
-    npz, _ = isd_reduce.reduce_year_to_file(truncated, tmp_path / "images")
+    (tmp_path / "other").mkdir()
+    other = write_year(tmp_path / "other" / "72278023183.csv", seed=16)
+    npz, _ = isd_reduce.reduce_year_to_file(other, tmp_path / "images")
     row = isd_fits.exactness_year(full, npz, day_sample=0)
+    assert row["score"] > compare.attainable(
+        isd_fits.load_images(npz)[0]["year_TMP"]
+    )
     assert row["gate"] == "FAIL"
 
 

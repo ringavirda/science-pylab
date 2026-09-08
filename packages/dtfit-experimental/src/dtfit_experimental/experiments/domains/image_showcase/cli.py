@@ -176,26 +176,33 @@ def _regate(rows: Sequence[dict[str, Any]], tol: float) -> None:
     for row in rows:
         if str(row["gate"]).startswith(("UNDERSAMPLED", "ERROR")):
             continue
-        score = float(row["score"])
         day = row.get("day_score")
-        missed = score > tol or (
-            day is not None and float(day) > tol
+        row["gate"] = compare.verdict(
+            float(row["score"]), compare.EPS * float(row["gram_cond"]),
+            tol, also_missed=day is not None and float(day) > tol,
         )
-        row["gate"] = "FAIL" if missed else "ok"
 
 
 def _gate_exit(rows: Sequence[dict[str, Any]], tol: float) -> int:
     """Print the summary line and return the process exit code: 1 only
-    when a row actually failed the tolerance."""
-    scores = [
-        float(r["score"]) for r in rows if np.isfinite(float(r["score"]))
-    ]
+    when a row actually failed the tolerance. The worst score is over the
+    rows the tolerance judged; the ill-conditioned rows' own worst is
+    printed beside it."""
+    def worst(gates: tuple[str, ...]) -> float:
+        scores = [
+            float(r["score"]) for r in rows
+            if r["gate"] in gates and np.isfinite(float(r["score"]))
+        ]
+        return max(scores) if scores else float("nan")
+
     under = sum(1 for r in rows if r["gate"] == "UNDERSAMPLED")
+    ill = sum(1 for r in rows if r["gate"] == "ILL-CONDITIONED")
     failed = sum(1 for r in rows if str(r["gate"]).startswith(
         ("FAIL", "ERROR")
     ))
-    print(f"worst score {max(scores) if scores else float('nan'):.3e} "
-          f"against {tol:.1e}; {under} undersampled, {failed} failed")
+    print(f"worst score {worst(('ok', 'FAIL')):.3e} against {tol:.1e}; "
+          f"{under} undersampled, {ill} ill-conditioned (worst "
+          f"{worst(('ILL-CONDITIONED',)):.3e}), {failed} failed")
     return 1 if failed else 0
 
 

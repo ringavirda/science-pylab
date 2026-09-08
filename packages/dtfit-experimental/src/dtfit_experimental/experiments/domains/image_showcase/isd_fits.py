@@ -19,8 +19,9 @@ from dtfit.image import coverage
 
 from . import isd
 from .compare import (
-    COVERAGE_TOL, DENSITY_PER_COEF, EXACTNESS_TOL, fit_from_image,
-    param_score, raw_lstsq, worst_param,
+    COVERAGE_TOL, DENSITY_PER_COEF, EXACTNESS_TOL, attainable,
+    fit_from_image, gram_condition, param_score, raw_lstsq, verdict,
+    worst_param,
 )
 from .isd_reduce import (
     ANNUAL_EXPR, ANNUAL_NAMES, ANNUAL_OMEGA, DAY_POSITIONS, DIURNAL_EXPR,
@@ -55,8 +56,8 @@ NORMALS_ROW_COLUMNS = [
 ]
 EXACT_ISD_COLUMNS = [
     "station", "year", "field", "n", "order", "score", "coverage",
-    "day_score", "n_days_checked", "gate", "worst_param", "amp_image",
-    "amp_raw",
+    "gram_cond", "day_score", "n_days_checked", "gate", "worst_param",
+    "amp_image", "amp_raw",
 ]
 
 
@@ -344,10 +345,15 @@ def exactness_year(
     model's sensitivities, which does not move with the sample count at
     ``ANNUAL_ORDER`` (a 30-row and an 8784-row station-year measure the
     same coverage), so the density check is what actually catches a
-    station-year that kept too few rows: reported and counted, never a
-    failure of the run. ``"FAIL"`` is either score missing
-    :data:`compare.EXACTNESS_TOL` while the density and coverage checks
-    both pass; ``"ok"`` otherwise. ``day_score`` is empty and
+    station-year that kept too few rows. Otherwise ``gate`` is
+    :func:`compare.verdict` of the year score against
+    :data:`compare.EXACTNESS_TOL` and :func:`compare.attainable`: a
+    partial year under the whole-year domain, or rows clustered in a few
+    days, leave the basis ill-conditioned at ``ANNUAL_ORDER``, and a miss
+    within what that allows is ``"ILL-CONDITIONED"``. Both verdicts are
+    reported and counted, never a failure of the run. ``"FAIL"`` is a
+    year score beyond both, or a day score missing the tolerance (the day
+    images are small and well conditioned). ``day_score`` is empty and
     ``n_days_checked`` zero when no sampled day filled its 24 hour bins.
     """
     t, y, info = isd.station_year(csv_path, field)
@@ -364,20 +370,17 @@ def exactness_year(
     day_score, checked = _day_gate(
         csv_path, field, day_sample, int(info["days"])
     )
-    missed = score > EXACTNESS_TOL or (
-        day_score is not None and day_score > EXACTNESS_TOL
-    )
+    day_missed = day_score is not None and day_score > EXACTNESS_TOL
     sparse = int(image.n) < int(image.order) * DENSITY_PER_COEF
     if cover > COVERAGE_TOL or sparse:
         gate = "UNDERSAMPLED"
-    elif missed:
-        gate = "FAIL"
     else:
-        gate = "ok"
+        gate = verdict(score, attainable(image), also_missed=day_missed)
     return {
         "station": info["station"], "year": info["year"], "field": field,
         "n": int(image.n), "order": int(image.order),
         "score": float(score), "coverage": cover,
+        "gram_cond": gram_condition(image),
         "day_score": day_score, "n_days_checked": checked,
         "gate": gate, "worst_param": worst_param(got, ref),
         "amp_image": amp_phase(got["a1"], got["b1"], PERIOD)[0],

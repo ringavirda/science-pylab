@@ -16,6 +16,10 @@ EXACTNESS_TOL = 1e-8
 # dtfit.image.coverage above this says the image's order cannot represent
 # the model's sensitivities; the row is reported UNDERSAMPLED, not failed.
 COVERAGE_TOL = 0.02
+# A fit from an image is determined only to about eps * cond(G)
+# relative; where that exceeds the tolerance the row is reported
+# ILL-CONDITIONED, not failed.
+EPS = float(np.finfo(float).eps)
 # Denominator floor, as a fraction of the largest reference magnitude:
 # a parameter below one percent of the largest is scored against that
 # one-percent level, where the raw solve's rounding noise sits.
@@ -132,6 +136,44 @@ def legendre_order(
     order = max(floor, math.ceil(per_unit * float(span)) + margin)
     n = int(n_samples)
     return int(max(1, min(order, n - 2, n // max(1, int(per_coef)))))
+
+
+def gram_condition(image: Image) -> float:
+    """The condition number of ``image.G``, from its singular values.
+
+    The basis is well conditioned on a grid that fills the domain and
+    degrades exponentially with the order on one that leaves part of it
+    empty (a partial year under a whole-year domain, samples clustered
+    in a few days). Returns ``inf`` when ``G`` is singular or empty.
+    """
+    s = np.linalg.svd(np.asarray(image.G, dtype=float), compute_uv=False)
+    if s.size == 0 or not np.isfinite(s[0]) or s[-1] <= 0.0:
+        return float("inf")
+    return float(s[0] / s[-1])
+
+
+def attainable(image: Image) -> float:
+    """The relative precision a fit from ``image`` can reach,
+    ``EPS * gram_condition(image)``: the gate a station can meet however
+    exact its image is."""
+    return EPS * gram_condition(image)
+
+
+def verdict(
+    score: float, attainable_score: float, tol: float = EXACTNESS_TOL,
+    *, also_missed: bool = False,
+) -> str:
+    """The gate's word on one row: ``"ok"`` when ``score`` is within
+    ``tol`` (and nothing else missed), ``"ILL-CONDITIONED"`` when it
+    misses ``tol`` but stays within ``attainable_score`` (the image's
+    conditioning explains the miss), ``"FAIL"`` otherwise.
+    ``also_missed`` is a second arm of the same row (the day images) that
+    missed on its own; it fails the row whatever the conditioning."""
+    if score <= tol and not also_missed:
+        return "ok"
+    if score <= max(tol, attainable_score) and not also_missed:
+        return "ILL-CONDITIONED"
+    return "FAIL"
 
 
 def gram_rebuild_error(image: Image) -> float:

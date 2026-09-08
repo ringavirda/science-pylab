@@ -146,6 +146,62 @@ def test_exactness_rows_measure_a_real_gram_rebuild_error_across_chunks(
         assert r["gram_rebuild_err"] < 1e-10
 
 
+def test_attainable_precision_follows_the_grid_not_the_sample_count():
+    # The same order on a grid that fills the domain and on one that
+    # leaves the first half empty: the second image's Gram is ill
+    # conditioned and no fit from it can reach the gate.
+    from dtfit.image import Image, Original
+
+    rng = np.random.default_rng(3)
+    full = np.linspace(0.0, 1.0, 2000)
+    half = np.linspace(0.5, 1.0, 2000)
+    y = np.cos(2.0 * np.pi * full) + 0.01 * rng.standard_normal(full.size)
+    filled = Image.of(Original(full, y, domain=(0.0, 1.0)), "legendre", 24)
+    empty = Image.of(Original(half, y, domain=(0.0, 1.0)), "legendre", 24)
+    assert compare.gram_condition(filled) < 1e3
+    assert compare.attainable(filled) < compare.EXACTNESS_TOL
+    assert compare.gram_condition(empty) > 1e10
+    assert compare.attainable(empty) > compare.EXACTNESS_TOL
+
+
+def test_verdict_explains_a_miss_by_the_conditioning_it_allows():
+    assert compare.verdict(1e-12, 1e-14) == "ok"
+    assert compare.verdict(1e-6, 2.8e3) == "ILL-CONDITIONED"
+    assert compare.verdict(1e-6, 1e-14) == "FAIL"
+    # a well conditioned image that misses by less than a tightened
+    # tolerance still passes it
+    assert compare.verdict(1e-6, 1e-14, 1e-4) == "ok"
+    # a second arm's miss is never excused by the first arm's conditioning
+    assert compare.verdict(1e-12, 1e-14, also_missed=True) == "FAIL"
+    assert compare.verdict(1e-6, 2.8e3, also_missed=True) == "FAIL"
+
+
+def test_exactness_rows_never_fail_a_station_on_its_conditioning(tmp_path):
+    # Daily epochs for the first year and the last month of an eight-year
+    # span: enough rows for the full order, but the six-year hole leaves
+    # the Legendre Gram numerically singular. The pseudo-inverse drops
+    # the undetermined directions and the fit can still land on the raw
+    # solve; whether it does or not, the row is never a failure.
+    rng = np.random.default_rng(23)
+    t = np.concatenate([
+        2008.0 + np.arange(0.0, 1.0, 1.0 / 365.25),
+        2015.9 + np.arange(0.0, 0.1, 1.0 / 365.25),
+    ])
+    t = np.round(t, 4)
+    t = t[np.diff(t, prepend=t[0] - 1.0) > 0]
+    tc = t - t[0]
+    cols = {
+        k: (ngl_reduce.ngl_design(tc) @ np.array(v)
+            + 0.002 * rng.standard_normal(tc.size))
+        for k, v in TRUTH.items()
+    }
+    src = write_station(tmp_path / "FFFF.tenv3", t, cols)
+    npz, _ = ngl_reduce.reduce_to_file(src, tmp_path / "gap")
+    rows = ngl_fits.exactness_rows(src, npz)
+    assert all(r["gram_cond"] > 1e10 for r in rows)
+    assert all(r["gate"] in ("ok", "ILL-CONDITIONED") for r in rows)
+
+
 def test_exactness_rows_report_an_undersampled_station(tmp_path):
     # 40 epochs over 6 years: the density floor holds the order to 10, so
     # the model's sensitivities are not represented and the row is

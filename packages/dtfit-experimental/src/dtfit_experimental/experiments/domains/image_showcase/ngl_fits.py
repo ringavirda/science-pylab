@@ -20,8 +20,8 @@ from dtfit.image import Image, coverage
 
 from . import ngl
 from .compare import (
-    COVERAGE_TOL, EXACTNESS_TOL, fit_from_image, gram_rebuild_error,
-    param_scores, raw_bic, raw_lstsq,
+    COVERAGE_TOL, attainable, fit_from_image, gram_condition,
+    gram_rebuild_error, param_scores, raw_bic, raw_lstsq, verdict,
 )
 from .ngl_reduce import NGL_EXPR, NGL_NAMES, ngl_design
 from .store import load_images
@@ -95,7 +95,8 @@ FIT_COLUMNS = [
 ]
 EXACT_COLUMNS = [
     "sta", "component", "n", "span", "order", "score", "coverage",
-    "gram_rebuild_err", "gate", "worst_param", "v_image", "v_raw",
+    "gram_cond", "gram_rebuild_err", "gate", "worst_param", "v_image",
+    "v_raw",
 ]
 RANK_COLUMNS = [
     "sta", "component", "model", "n_params", "bic_image", "bic_raw",
@@ -217,14 +218,20 @@ def exactness_rows(
       (:func:`compare.param_scores`), against :data:`compare.EXACTNESS_TOL`;
     - ``coverage``, :func:`dtfit.image.coverage` of the fitted model on
       this image, against :data:`compare.COVERAGE_TOL`;
+    - ``gram_cond``, :func:`compare.gram_condition` of the image, whose
+      product with :data:`compare.EPS` is the precision a fit from it can
+      reach;
     - ``gram_rebuild_err``, how far ``G`` rebuilt from the grid is from
       the accumulated ``G``, which is what shipping ``S`` and the grid
       alone would cost.
 
     ``gate`` is ``"UNDERSAMPLED"`` when the coverage is above tolerance
     (the image's order cannot represent the model on this station's
-    sampling: reported and counted, never a failure of the run),
-    ``"FAIL"`` when the score misses the gate, and ``"ok"`` otherwise.
+    sampling), otherwise :func:`compare.verdict` of the score against the
+    tolerance and the attainable precision: a miss within what the gaps'
+    conditioning allows is ``"ILL-CONDITIONED"``. Both are reported and
+    counted, never a failure of the run; ``"FAIL"`` is a miss beyond
+    both.
     """
     images, info = load_images(npz_path)
     parts: dict[str, list[np.ndarray]] = {c: [] for c in ngl.COMPONENTS}
@@ -251,16 +258,14 @@ def exactness_rows(
         ))
         if cover > COVERAGE_TOL:
             gate = "UNDERSAMPLED"
-        elif score <= EXACTNESS_TOL:
-            gate = "ok"
         else:
-            gate = "FAIL"
+            gate = verdict(score, attainable(image))
         out.append({
             "sta": str(info.get("sta", Path(npz_path).stem)),
             "component": comp, "n": int(image.n),
             "span": round(float(image.domain[1]), 6),
             "order": int(image.order), "score": float(score),
-            "coverage": cover,
+            "coverage": cover, "gram_cond": gram_condition(image),
             "gram_rebuild_err": gram_rebuild_error(image),
             "gate": gate,
             "worst_param": (
