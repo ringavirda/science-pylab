@@ -460,9 +460,8 @@ class MergedTracker:
     :class:`~dtfit_experimental.streaming.FilterBank` of per-axis
     Legendre-spectrum filters driven by
     :class:`~dtfit_experimental.streaming.FusedChiSquareDetector`, which
-    pools the per-axis one-step innovations into a fused chi^2(n_axes)
-    fault statistic and re-arms the bank through ``inflate`` on a
-    detection."""
+    sums each filter's ``nis_`` into a fused chi^2(sum n_coef) fault
+    statistic and re-arms the bank through ``inflate`` on a detection."""
 
     def __init__(self, n_axes, p0, *, window=60, fuse_alpha=1e-4, inflate=4.0):
         self.bank = FilterBank.from_model(

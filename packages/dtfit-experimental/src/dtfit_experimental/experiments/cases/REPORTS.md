@@ -1,6 +1,6 @@
-# dtfit experiment suite — reports index
+# dtfit experiment suite -- reports index
 
-Each case is a self-contained folder with a `backend.py` (the compute — the
+Each case is a self-contained folder with a `backend.py` (the compute -- the
 single source of truth for its simulation/estimation/data) and a Jupyter
 notebook (the report: tables, figures, narrative) plus its `figures/`. Open a
 notebook in Jupyter and re-run it, or execute it headless with
@@ -24,19 +24,19 @@ notebook in Jupyter and re-run it, or execute it headless with
 
 ## Architecture-adaptation effectiveness matrix
 
-Each novel EAC/LSI adaptation, scored across the experiments that exercised it (win / partial / loss / n/a). **Promotion gate**: a clear win on ≥ 2 distinct application domains.
+Each novel EAC/LSI adaptation, scored across the experiments that exercised it (win / partial / loss / n/a). **Promotion gate**: a clear win on >= 2 distinct application domains.
 
 | adaptation | per-domain result | decision |
 |---|---|---|
-| #1 map-reduce LSI/EAC (PartitionedLSI/EAC) | big data: win, parallel: win, forecasting: n/a | PROMOTE — exact one-pass distributed estimator; enables the big-data scaling law and the parallel map-reduce. Clears the gate. |
-| #2 pluggable orthogonal basis (fit_lsi_basis) | control: partial, forecasting: partial, ltsf: loss | Keep experimental — Fourier basis expresses periodic models cleanly, but a window-local seasonal term only helped the cleanest periodic LTSF series (electricity) and hurt elsewhere (a 96-point period estimate drifts out of phase over long horizons); it did not beat the tuned forecasting baselines. |
-| #3 overlapping-window ensemble (ensemble_fit) | noise/outliers: partial, gps: n/a | PROMOTED (specialized tool) — on densely-contaminated data it is the whole-window rejection route that stays stable where `fit_eac`'s in-fit robust loss diverges, so it ships in stable `dtfit` as `ensemble_fit` — the complement to the robust loss, not a general-purpose default. |
-| #4 joint multi-channel fit (fit_joint) | control: loss, gps: n/a | Keep experimental — on cleanly-identifiable channels the dedicated solver already wins; value is parameter parsimony / consistency, not accuracy. |
-| #5 stage-wise boosting (boosted_fit) | forecasting: win, ltsf: n/a | Keep experimental — a clear win on CO2 (trend+season) but only one domain demonstrated; promote if a second domain confirms. |
-| #6 adaptive-window EAC (`fit_eac(window_mode="curvature")`) | transient fit: win | PROMOTED — recovers localized-transient parameters well; folded into stable `dtfit.fit_eac` as `window_mode="curvature"` (there is no separate `fit_eac_adaptive` symbol). |
+| #1 map-reduce LSI/EAC (PartitionedLSI/EAC) | big data: win, parallel: win, forecasting: n/a | PROMOTE -- exact one-pass distributed estimator; enables the big-data scaling law and the parallel map-reduce. Clears the gate. |
+| #2 pluggable orthogonal basis (fit_lsi_basis) | control: partial, forecasting: partial, ltsf: loss | Keep experimental -- Fourier basis expresses periodic models cleanly, but a window-local seasonal term only helped the cleanest periodic LTSF series (electricity) and hurt elsewhere (a 96-point period estimate drifts out of phase over long horizons); it did not beat the tuned forecasting baselines. |
+| #3 overlapping-window ensemble | noise/outliers: partial, gps: n/a | Study finding, not shipped -- whole-window rejection helps a contiguous burst, but the shipped robustness tool is the robust image (`robust=True`), best on the Legendre basis for a burst (1.41 Legendre-robust vs 3.65 block-robust). |
+| #4 joint multi-channel fit (fit_joint) | control: loss, gps: n/a | Keep experimental -- on cleanly-identifiable channels the dedicated solver already wins; value is parameter parsimony / consistency, not accuracy. |
+| #5 stage-wise boosting (boosted_fit) | forecasting: win, ltsf: n/a | Keep experimental -- a clear win on CO2 (trend+season) but only one domain demonstrated; promote if a second domain confirms. |
+| #6 adaptive-window EAC | transient fit: win | Study finding, not shipped -- curvature-adaptive windows helped localized transients, but the shipped `fit_eac` places equal windows; `window_mode` is accepted and ignored for source compatibility. |
 
 ## Promotion outcome
 
-- **Promoted to the stable API:** the map-reduce estimators (`PartitionedLSI` / `PartitionedEAC`, #1), the overlapping-window ensemble (`ensemble_fit`, #3 — the complementary whole-window-rejection robustness tool), and adaptive-window EAC (#6 — folded into `dtfit.fit_eac` as `window_mode="curvature"`), all re-exported from `dtfit` and documented. (Later work also promoted the GEMM-batched projection `fit_lsi_batched`, the fused `FusedChiSquareDetector`, the LSI oscillatory recipe, and the stochastic-series solution.)
+- **Current homes.** The map-reduce estimators (`PartitionedLSI`, `PartitionedEAC`) and the GEMM-batched projection (`fit_lsi_batched`, `project_spectra`) live in `dtfit_experimental.scale`; core covers the same streaming need with `ImageStream`. The filter bank and fused detector (`FilterBank`, `FusedChiSquareDetector`) live in `dtfit_experimental.streaming`. The overlapping-window ensemble (#3) was a study finding, not a shipped tool -- the robust image (`robust=True`) is the shipped robustness tool, basis-agnostic under scattered outliers. Adaptive-window EAC (#6) is not a core keyword: `fit_eac` places equal windows. The LSI oscillatory recipe and the stochastic-series solution are in `dtfit`.
 
-- **Kept experimental in `dtfit_experimental`:** #2 (`fit_lsi_basis`), #4 (`fit_joint`) and #5 (`boosted_fit`), with the honest per-experiment findings above — they have not (yet) cleared the ≥2-domain promotion gate.
+- **Kept experimental in `dtfit_experimental`:** #2 (`fit_lsi_basis`), #4 (`fit_joint`) and #5 (`boosted_fit`), with the honest per-experiment findings above -- they have not (yet) cleared the >= 2-domain promotion gate.
