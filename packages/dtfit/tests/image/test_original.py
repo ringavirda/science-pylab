@@ -135,11 +135,15 @@ def test_diagnostics_matches_residual_diagnostics_on_a_fit():
     res = fit("a*exp(-b*t) + c", o, "t", order=10, p0=[2.0, 0.7, 0.3])
     mine = o.diagnostics("a*exp(-b*t) + c", res.coeffs, "t")
     theirs = residual_diagnostics(res, x, y)
+    # the two paths evaluate the model through different compiled
+    # callables, which agree to rounding but not bit for bit on every
+    # platform's libm; a residual near zero then carries a large relative
+    # difference, so the array is compared at the data's own scale
     np.testing.assert_allclose(
-        mine["residuals"], theirs["residuals"], rtol=1e-12, atol=1e-15
+        mine["residuals"], theirs["residuals"], rtol=1e-9, atol=1e-12
     )
     for key in ("durbin_watson", "lag1_autocorr", "normality_p", "std"):
-        assert mine[key] == pytest.approx(theirs[key], rel=1e-12)
+        assert mine[key] == pytest.approx(theirs[key], rel=1e-9)
 
 
 def test_diagnostics_takes_a_callable_model():
