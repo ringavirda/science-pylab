@@ -127,6 +127,13 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   (`fit_dsb`, `find_degree`), `dtfit.image` (`FittingProblem`,
   `fft_frequency_seed`, `coverage`) and `dtfit.log` (`enable_logging`,
   `logger`).
+- This closes the image-core migration: the discrete-statistic image, the
+  batch and streaming fitters on top of it, the stochastic tier's own
+  second-order image, the docs and wiki, and the lint closeout below are
+  all in. `ruff`'s `select` gains `E501`: every line in `dtfit` is now held
+  to `line-length = 79`. `dtfit-experimental` and `dtfit-hardware` keep
+  `E501` unselected (line length advisory, not enforced), a permanent
+  choice for the research and host-glue tiers, not a TODO.
 
 ### Removed
 
