@@ -23,7 +23,7 @@ def test_presets_are_the_same_call_as_fit():
     d = fit("a*exp(-b*x)", Original(x, y), "x", basis="block", order=8,
             p0=[1.0, 1.0])
     assert np.allclose(c.coeffs, d.coeffs)
-    assert dtfit.fit_lsi is fit_lsi and dtfit.methods.fit_eac is fit_eac
+    assert dtfit.fit_lsi is fit_lsi and dtfit.fit_eac is fit_eac
 
 
 def test_presets_recover_parameters_with_defaults():

@@ -10,7 +10,7 @@ standard, where a black-box learner recovers none. What it provides:
   reliability and signal processing, with their per-family closure functions;
 * the data generator :func:`gen`, driving the noise, outlier and sparse sweeps;
 * the dtfit estimators :func:`est_lsi`, :func:`est_eac`, :func:`est_adaptive`,
-  :func:`est_ensemble` and :func:`est_merged`, plus the joint multi-channel fit
+  :func:`est_robust` and :func:`est_merged`, plus the joint multi-channel fit
   through :func:`dtfit_experimental.fit_joint`, each returning a
   ``{name: value}`` dict;
 * the established baselines :func:`est_nlls` (SciPy ``curve_fit``) and
@@ -34,7 +34,7 @@ from __future__ import annotations
 import numpy as np
 
 import dtfit as dt
-from dtfit import fit_eac, ensemble_fit
+from dtfit import fit_eac
 from dtfit_experimental import fit_joint
 
 from dtfit_experimental.experiments.common import EXPERIMENTS_DIR, metrics
@@ -47,7 +47,7 @@ from dtfit_experimental.experiments.common.baselines import (
 __all__ = [
     "MODELS", "FAMILY_REASON",
     "gen", "param_err", "safe", "metrics",
-    "est_lsi", "est_eac", "est_adaptive", "est_ensemble", "est_merged",
+    "est_lsi", "est_eac", "est_adaptive", "est_robust", "est_merged",
     "est_nlls", "est_robust_nlls", "est_moment", "mlp_curve", "gp_curve",
     "prony_fit", "matrix_pencil_fit", "varpro_fit", "moment_match_fit",
     "A_METHODS", "DT_LABELS", "DT_DIAGNOSTIC_LABELS", "applicability_verdict",
@@ -265,10 +265,10 @@ def est_adaptive(m, t, y):
     return dict(zip(sorted(m["names"]), r.coeffs))
 
 
-def est_ensemble(m, t, y):
-    r = ensemble_fit(t, y, m["expr"], "t", method="eac", n_windows=8,
-                     overlap=0.5, aggregate="median", p0=m["p0"],
-                     bounds=m["bounds"])
+def est_robust(m, t, y):
+    """The robust image: Huber IRLS on the basis regression before the fit."""
+    r = dt.fit_eac(t, y, m["expr"], "t", p0=m["p0"], bounds=m["bounds"],
+                   robust=True)
     return dict(zip(sorted(m["names"]), r.coeffs))
 
 

@@ -36,11 +36,7 @@ from dtfit._pandas import (
     extend_index,
     to_1d_array,
 )
-from dtfit.methods import (
-    fit_lsi,
-    fit_eac,
-    fft_frequency_seed,
-)
+from dtfit.image.fit import fit_lsi, fit_eac, fft_frequency_seed
 
 
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
@@ -70,7 +66,7 @@ def auto_estimate(
         x, y: Observed samples.
         expr, var: Model expression and main variable. ``expr`` is either a
             SymPy-expression string or a callable ``f(x, *params)`` (see
-            :func:`dtfit.methods.resolve_model`); either form is forwarded as
+            :func:`dtfit.models.resolve_model`); either form is forwarded as
             given to whichever base fitter the shape routes to.
         shape: ``"auto"`` (detect oscillation, else bulk), ``"oscillatory"``,
             ``"transient"`` / ``"peak"`` (the EAC block preset), ``"robust"``
@@ -81,12 +77,12 @@ def auto_estimate(
             shape.
         p0: Initial guess, forwarded verbatim to the base fitters: a sequence
             in sorted-name order, or a full ``{name: value}`` dict (see
-            :func:`dtfit.methods.normalize_p0`).
+            :func:`dtfit.models.normalize_p0`).
         bounds: Parameter bounds, forwarded verbatim: a per-parameter
             ``(min, max)`` list in sorted-name order, a partial
             ``{name: (min, max)}`` dict leaving the rest unbounded, or a
             scipy-style ``(lo, hi)`` 2-tuple (see
-            :func:`dtfit.methods.normalize_bounds`).
+            :func:`dtfit.models.normalize_bounds`).
         param_names: Parameter names for a callable ``expr`` whose signature
             cannot be introspected. Validated but ignored for a symbolic one.
 

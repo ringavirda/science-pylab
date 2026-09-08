@@ -27,7 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from dtfit import FittingProblem, fit_many
+from dtfit import fit_many
+from dtfit.image import FittingProblem
 from dtfit._core import _kernels
 from dtfit_experimental.scale import PartitionedLSI
 

@@ -10,8 +10,7 @@ method is scored against the clean signal, not the noisy samples: the reward
 is for recovering the truth, never for chasing the noise.
 
 :func:`noise_sweep` walks Gaussian noise levels. :func:`outlier_sweep` adds
-gross outliers and stands the stock fits beside the two robustness routes, the
-overlapping-window ensemble (#3) and the soft-L1 loss.
+gross outliers and stands the stock fits beside the robust image.
 :func:`param_grid_parallel` reports median EAC parameter-recovery error over a
 noise-by-size grid, fanned out through :func:`dtfit.fit_many`.
 
@@ -26,7 +25,8 @@ from __future__ import annotations
 import numpy as np
 
 import dtfit as dt
-from dtfit import FittingProblem, fit_many, ensemble_fit
+from dtfit import fit_many
+from dtfit.image import FittingProblem
 
 from dtfit_experimental.experiments.common import metrics
 from dtfit_experimental.experiments.common import baselines as bl
@@ -118,8 +118,8 @@ def noise_sweep(fam, noises, n=120, seeds=4):
 
 
 def outlier_sweep(fam, fracs, n=120, seeds=5):
-    """R2-vs-clean under outliers: stock fits vs the two robust routes."""
-    methods = ["EAC", "LSI", "curve_fit", "EAC-ensemble", "EAC-softl1"]
+    """R2-vs-clean under outliers: stock fits vs the robust image."""
+    methods = ["EAC", "LSI", "curve_fit", "EAC-robust"]
     out = {m: [] for m in methods}
     for fr in fracs:
         acc = {m: [] for m in methods}
@@ -141,18 +141,12 @@ def outlier_sweep(fam, fracs, n=120, seeds=5):
             except Exception:
                 acc["curve_fit"].append(np.nan)
             try:
-                e = ensemble_fit(x, y, fam["expr"], fam["var"], method="eac",
-                                 n_windows=10, overlap=0.5, p0=fam["p0"])
-                acc["EAC-ensemble"].append(r2_clean(clean, e.predict(x)))
-            except Exception:
-                acc["EAC-ensemble"].append(np.nan)
-            try:
                 r = dt.fit_eac(x, y, fam["expr"], fam["var"], p0=fam["p0"],
-                               loss="soft_l1",
+                               robust=True,
                                bounds=[(-10, 10)] * len(fam["p0"]))
-                acc["EAC-softl1"].append(r2_clean(clean, np.asarray(r.model(x))))
+                acc["EAC-robust"].append(r2_clean(clean, np.asarray(r.model(x))))
             except Exception:
-                acc["EAC-softl1"].append(np.nan)
+                acc["EAC-robust"].append(np.nan)
         for m in methods:
             out[m].append(np.nanmean(acc[m]) if any(np.isfinite(acc[m])) else np.nan)
     return out

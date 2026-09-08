@@ -10,11 +10,8 @@
 import numpy as np
 import pytest
 
-from dtfit import (
-    fit_lsi,
-    fit_eac,
-    fft_frequency_seed,
-)
+from dtfit import fit_lsi, fit_eac
+from dtfit.image import fft_frequency_seed
 
 
 def test_eac_recovers_transient():

@@ -10,8 +10,7 @@ it choose.
 
 Batch fitters:
     fit on an Original or an Image; fit_lsi and fit_eac are its Legendre and
-    block presets. ensemble_fit is the overlapping-window ensemble for
-    densely contaminated data.
+    block presets.
 
 High level:
     auto_estimate and auto_forecast route by signal shape. models / Model /
@@ -50,13 +49,7 @@ from dtfit.__about__ import __version__
 from dtfit import diagnostics
 from dtfit.types import FittingResult
 from dtfit.log import enable_logging, logger
-from dtfit.methods import (
-    fit_lsi,
-    fft_frequency_seed,
-    fit_eac,
-    ensemble_fit,
-    EnsembleResult,
-)
+from dtfit.image import fit_lsi, fit_eac, fft_frequency_seed
 from dtfit.image import Original, Image, ImageStream, fit, order_for
 from dtfit.streaming import (
     ImageFilter,
@@ -95,8 +88,6 @@ __all__ = [
     "fit_lsi",
     "fft_frequency_seed",
     "fit_eac",
-    "ensemble_fit",
-    "EnsembleResult",
     "fit_many",
     "FittingProblem",
     "FittingResult",

@@ -54,7 +54,7 @@ def test_unknown_basis_raises():
                       basis="nope")
 
 
-# #3, the ensemble, is in dtfit: tests/methods/test_ensemble.py and
+# #3, the ensemble, is retired: the robust image covers its case, gated by
 # tests/validation/test_outlier_robustness.py in the stable suite.
 
 

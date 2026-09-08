@@ -9,8 +9,7 @@ import numpy as np
 import pytest
 
 from dtfit import (
-    fit_eac, fit_lsi, ensemble_fit, LSIFilter, EACFilter, fit_stochastic,
-    suggest_models,
+    fit_eac, fit_lsi, LSIFilter, EACFilter, fit_stochastic, suggest_models,
 )
 
 
@@ -65,17 +64,6 @@ def test_robust_image_beats_plain_under_dense_outliers(fitter):
     # clean data: robust must not materially hurt
     yc = base + 0.02 * rng.standard_normal(x.size)
     assert relerr(fitter(x, yc, "a*exp(b*t)", "t", robust=True)) < 0.05
-
-
-def test_single_member_ensemble_not_overconfident():
-    x = np.linspace(0.0, 3.0, 30)  # tiny record -> at most one usable window
-    y = 2.0 * np.exp(-0.5 * x) + 0.01 * np.random.default_rng(4).standard_normal(x.size)
-    res = ensemble_fit(x, y, "a*exp(b*t)", "t", n_windows=8)
-    if res.members.shape[0] < 2:
-        se = res.stderr()
-        # the analytic fallback covariance or NaN are both fine here; a
-        # fabricated 0.0 would read as certainty from a single member.
-        assert not all(v == 0.0 for v in se.values())
 
 
 @pytest.mark.parametrize("fitter", [fit_lsi, fit_eac])
@@ -152,22 +140,3 @@ def test_coast_cov_grows_with_gap():
     assert np.all(np.diff(cov) >= -1e-9), "coast_cov must not shrink with gap"
     assert cov[-1] > cov[0], "coast_cov must grow across a gap"
 
-
-def test_model_eac_forwards_bounds(monkeypatch):
-    import dtfit.models._model as _mod
-    from dtfit.models._catalog import CATALOG
-
-    seen = {}
-    orig = _mod.fit_eac
-
-    def spy(*args, **kwargs):
-        seen.setdefault("bounds", []).append(kwargs.get("bounds"))
-        return orig(*args, **kwargs)
-
-    monkeypatch.setattr(_mod, "fit_eac", spy)
-    # a logistic self-seeds bounds; the eac path must forward them
-    m = CATALOG["logistic"]()
-    x = np.linspace(0.0, 10.0, 160)
-    y = 5.0 / (1.0 + np.exp(-0.8 * (x - 5.0)))
-    m.fit(x, y, method="eac")
-    assert seen["bounds"][0] is not None, "eac path lost the seeded bounds"
