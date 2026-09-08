@@ -184,7 +184,12 @@ class Original:
         :func:`dtfit.diagnostics.residual_diagnostics` reports for a
         :class:`~dtfit.types.FittingResult`. A structured fit leaves white
         noise behind: a Durbin-Watson far from 2 or a lag-1
-        autocorrelation far from 0 means the model class is wrong.
+        autocorrelation far from 0 means the model class is wrong. The
+        statistics run on unweighted residuals: for an Original built
+        with ``sigma=`` or ``w=`` (``self.weighted`` true), ``std`` is
+        not the noise level and the Durbin-Watson/Shapiro-Wilk tests see
+        deliberately heteroscedastic residuals; scale by ``sqrt(w)``
+        first if that matters.
 
         Args:
             model: A SymPy expression string, a ``sympy.Expr``, or a
@@ -197,10 +202,16 @@ class Original:
             ``{"residuals", "durbin_watson", "lag1_autocorr",
             "normality_p", "mean", "std"}``; ``normality_p`` is the
             Shapiro-Wilk p-value, NaN unless ``3 <= n <= 5000``.
+            ``durbin_watson`` is NaN only for a zero residual;
+            ``lag1_autocorr`` is NaN for a constant residual or fewer
+            than three samples.
 
         Raises:
             ValueError: a symbolic model without ``var``, or a callable
                 whose parameter names cannot be introspected.
+            TypeError: ``model`` is not a str, ``sympy.Expr`` or
+                callable, or ``params`` does not match the model's
+                parameter count.
         """
         from dtfit.diagnostics import residual_stats
 

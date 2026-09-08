@@ -88,14 +88,24 @@ def residual_stats(resid: np.ndarray) -> dict[str, Any]:
     from the residuals alone.
 
     Args:
-        resid: Residuals ``y - f(x)``, a 1-D float array.
+        resid: Residuals ``y - f(x)``, a 1-D float array. If already a
+            1-D float array, ``resid`` and the returned ``"residuals"``
+            share memory, so mutating one mutates the other.
 
     Returns:
         The dict :func:`residual_diagnostics` returns: ``residuals``,
         ``durbin_watson``, ``lag1_autocorr``, ``normality_p``, ``mean``
-        and ``std``. ``durbin_watson`` and ``lag1_autocorr`` are NaN for a
-        zero residual or fewer than three samples; ``normality_p`` is NaN
-        unless ``3 <= n <= 5000``.
+        and ``std``. ``durbin_watson`` is NaN only for a zero residual
+        (rss == 0); ``lag1_autocorr`` is NaN for a constant residual or
+        fewer than three samples; ``normality_p`` is NaN unless
+        ``3 <= n <= 5000``.
+
+    Warns:
+        RuntimeWarning: numpy's "Mean of empty slice" for an empty
+            ``resid`` (``mean`` and ``std`` come back NaN).
+        UserWarning: scipy's "Input data has range zero" for a constant
+            residual in the Shapiro-Wilk range (``normality_p`` comes
+            back 1.0).
     """
     resid = np.asarray(resid, dtype=float).ravel()
     n = resid.size

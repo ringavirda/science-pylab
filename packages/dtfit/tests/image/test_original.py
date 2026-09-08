@@ -135,8 +135,10 @@ def test_diagnostics_matches_residual_diagnostics_on_a_fit():
     res = fit("a*exp(-b*t) + c", o, "t", order=10, p0=[2.0, 0.7, 0.3])
     mine = o.diagnostics("a*exp(-b*t) + c", res.coeffs, "t")
     theirs = residual_diagnostics(res, x, y)
-    for key in ("durbin_watson", "lag1_autocorr", "normality_p", "mean",
-                "std"):
+    np.testing.assert_allclose(
+        mine["residuals"], theirs["residuals"], rtol=1e-12, atol=1e-15
+    )
+    for key in ("durbin_watson", "lag1_autocorr", "normality_p", "std"):
         assert mine[key] == pytest.approx(theirs[key], rel=1e-12)
 
 
