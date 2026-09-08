@@ -7,7 +7,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from scipy.linalg import cholesky
+from scipy.linalg import LinAlgError, cholesky
 
 from .bases import Basis, make_basis, u_of
 from .grid import Grid
@@ -18,10 +18,14 @@ if TYPE_CHECKING:
 
 
 def gram_whitener(G: np.ndarray) -> np.ndarray:
-    """Lower Cholesky factor of ``G`` with a relative jitter of ``1e-14``
-    times the mean diagonal, so a Gram that is singular to rounding still
-    factors. ``G`` is a square symmetric matrix; the factor ``L`` satisfies
-    ``L @ L.T = G + jitter * I``.
+    """Lower Cholesky factor of ``G`` with a relative jitter on the
+    diagonal, so a Gram that is singular to rounding still factors.
+    ``G`` is a square symmetric matrix; the factor ``L`` satisfies
+    ``L @ L.T = G + jitter * I`` with ``jitter`` the smallest of
+    ``1e-14``, ``1e-12``, ``1e-10`` and ``1e-8`` times the mean diagonal
+    that leaves the sum positive definite. Directions of ``G`` below the
+    jitter carry no information from the samples, so the whitening they
+    receive is immaterial to a fit.
 
     Args:
         G: square symmetric matrix, shape ``(k, k)``.
@@ -31,11 +35,17 @@ def gram_whitener(G: np.ndarray) -> np.ndarray:
 
     Raises:
         scipy.linalg.LinAlgError: ``G`` is not positive definite even
-            after the jitter.
+            with the largest jitter.
     """
     k = G.shape[0]
-    jitter = 1e-14 * float(np.trace(G)) / k
-    return cholesky(G + jitter * np.eye(k), lower=True)
+    scale = float(np.trace(G)) / k
+    for rel in (1e-14, 1e-12, 1e-10, 1e-8):
+        try:
+            return cholesky(G + rel * scale * np.eye(k), lower=True)
+        except LinAlgError:
+            if rel == 1e-8:
+                raise
+    raise AssertionError("unreachable")
 
 
 def huber_weights(

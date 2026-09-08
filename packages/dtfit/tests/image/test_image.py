@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from dtfit.image import Original, Image, LegendreBasis, u_of
-from dtfit.image.image import huber_weights
+from dtfit.image.image import gram_whitener, huber_weights
 
 
 def _orig(n=200, seed=0, weighted=False):
@@ -246,3 +246,28 @@ def test_roundtrip_equality_and_hash():
     back = Image.from_dict(img.to_dict())
     assert back == img
     assert hash(back) == hash(img)
+
+
+def test_gram_whitener_factors_a_gram_singular_to_rounding():
+    # samples on the last tenth of the domain at order 40 leave the
+    # Legendre Gram singular far below the 1e-14 jitter; the whitener
+    # still returns a factor, and its square is G up to that jitter
+    x = np.linspace(0.9, 1.0, 400)
+    img = Image.of(Original(x, np.cos(3.0 * x), domain=(0.0, 1.0)),
+                   "legendre", 40)
+    s = np.linalg.svd(img.G, compute_uv=False)
+    assert s[0] / max(s[-1], 1e-300) > 1e16
+    L = gram_whitener(img.G)
+    scale = 1e-8 * np.trace(img.G) / img.G.shape[0]
+    assert np.tril(L).shape == img.G.shape
+    assert np.abs(L @ L.T - img.G).max() <= scale * 1.01
+
+
+def test_fit_from_a_numerically_singular_image_returns():
+    from dtfit.image import fit
+
+    x = np.linspace(0.9, 1.0, 400)
+    y = 2.0 * np.exp(-1.5 * x)
+    img = Image.of(Original(x, y, domain=(0.0, 1.0)), "legendre", 40)
+    res = fit("a * exp(-b * x)", img, "x", p0=[1.0, 1.0])
+    assert np.isfinite(res.params["a"]) and np.isfinite(res.params["b"])
