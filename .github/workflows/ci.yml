@@ -138,6 +138,12 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.research == 'true' }}
     runs-on: ${{ matrix.os }}
+    # This repo runs every Python process single-threaded; the
+    # multi-threaded OpenBLAS build on the 3.10 runner intermittently
+    # faults inside the streaming filter's Cholesky, so cap the threads.
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
     strategy:
       fail-fast: false
       matrix:
