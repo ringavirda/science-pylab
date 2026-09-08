@@ -1,0 +1,4 @@
+direction,block_years,n_images,bytes_header,bytes_payload,seconds,images_per_second,latency_ms_median,latency_ms_p90,clock_delta_s,groups,n_flags,mismatched
+pi->pc,1.0,2000,13470863,2912000,85.5507,23.378,41.9985,42.6392,0.0282,141,3,0
+local,0.25,3210,6549799,4673760,142.2472,22.566,,,0.0005,60,52,0
+local,4.0,228,5354167,331968,10.091,22.594,,,0.0009,60,0,0
