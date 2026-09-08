@@ -36,10 +36,12 @@ def test_recovery_stable_across_noise_realizations(scn):
         worst_r2 = min(worst_r2, r2(clean, predict(res, x)))
     if scn.metric == "params":
         assert worst_perr <= 0.15, (
-            f"{scn.name}: seed-dependent param error up to {worst_perr:.3f}. {scn.note}")
+            f"{scn.name}: seed-dependent param error up to "
+            f"{worst_perr:.3f}. {scn.note}")
     else:
         assert worst_r2 >= 0.99, (
-            f"{scn.name}: seed-dependent R2 down to {worst_r2:.4f}. {scn.note}")
+            f"{scn.name}: seed-dependent R2 down to {worst_r2:.4f}. "
+            f"{scn.note}")
 
 
 # Families where a local LSI solve should converge from a wrong-but-bracketed

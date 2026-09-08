@@ -35,7 +35,8 @@ def test_taylor_coeffs_match_known_series():
     assert [sp.nsimplify(c) for c in coeffs] == [
         sp.Rational(1, sp.factorial(k)) for k in range(5)
     ]
-    s = [float(c) for c in taylor_coeffs(cast(sp.Expr, sp.sympify("sin(x)")), t, 4)]
+    sin_expr = cast(sp.Expr, sp.sympify("sin(x)"))
+    s = [float(c) for c in taylor_coeffs(sin_expr, t, 4)]
     assert np.allclose(s, [0, 1, 0, -1 / 6, 0])
 
 

@@ -33,10 +33,11 @@ def test_streaming_covariance_stays_symmetric_and_psd(Filter):
 def test_svd_covariance_finite_for_illconditioned_model():
     # a and b nearly trade off: tiny curvature over a very short span
     x = np.linspace(0.0, 0.05, 60)
-    y = 2.0 * np.exp(0.1 * x) + 1e-4 * np.random.default_rng(1).standard_normal(x.size)
+    noise = 1e-4 * np.random.default_rng(1).standard_normal(x.size)
+    y = 2.0 * np.exp(0.1 * x) + noise
     r = fit_lsi(x, y, "a*exp(b*t)", "t")
     if r.cov is not None:
-        assert np.all(np.isfinite(r.cov)), "ill-conditioned covariance not finite"
+        assert np.all(np.isfinite(r.cov)), "ill-cond covariance not finite"
 
 
 @pytest.mark.parametrize("fitter", [fit_eac, fit_lsi])
@@ -70,28 +71,32 @@ def test_wrong_length_p0_raises(fitter):
     x = np.linspace(0.1, 3.0, 60)
     y = 2.0 * np.exp(-0.4 * x)
     with pytest.raises(ValueError, match="p0 must have length"):
-        fitter(x, y, "a*exp(b*t)", "t", p0=[1.0, 2.0, 3.0])  # model has 2 params
+        fitter(x, y, "a*exp(b*t)", "t", p0=[1.0, 2.0, 3.0])  # 2 params
 
 
 def test_suggest_shortlists_cycle_under_trend():
     t = np.arange(240, dtype=float)
     rng = np.random.default_rng(0)
-    y = 0.03 * t + 3.0 * np.sin(2 * np.pi * t / 24) + 0.1 * rng.standard_normal(t.size)
+    noise = 0.1 * rng.standard_normal(t.size)
+    y = 0.03 * t + 3.0 * np.sin(2 * np.pi * t / 24) + noise
     names = [s.model.name for s in suggest_models(t, y)]
-    assert any("sin" in n or "oscill" in n or "damped" in n for n in names), names
+    assert any(
+        "sin" in n or "oscill" in n or "damped" in n for n in names
+    ), names
 
 
 def test_trend_seasonal_forecast_bands_do_not_fan_out():
     t = np.arange(400, dtype=float)
     rng = np.random.default_rng(5)
-    y = 0.02 * t + 2.0 * np.sin(2 * np.pi * t / 30) + 0.2 * rng.standard_normal(t.size)
+    noise = 0.2 * rng.standard_normal(t.size)
+    y = 0.02 * t + 2.0 * np.sin(2 * np.pi * t / 30) + noise
     m = fit_stochastic(y)
     # only a deterministic-mean forecaster owes a flat band; a RW or LM fan
     # is the correct answer for the others
     if m.forecaster_name.startswith(("trend", "seasonal")):
         _, lo, hi = m.forecast(40, return_conf_int=True)
         width = hi - lo
-        assert width[-1] <= 1.5 * width[0] + 1e-9, "bands fan out like a random walk"
+        assert width[-1] <= 1.5 * width[0] + 1e-9, "bands fan out like a RW"
 
 
 @pytest.mark.parametrize("fitter", [fit_lsi, fit_eac])
@@ -111,7 +116,8 @@ def test_regressor_coast_rolls_model_forward():
     rng = np.random.default_rng(0)
     for t in np.linspace(0, 5, 200):
         acc = float(np.sin(t))
-        y = 0.1 + 0.5 * t + 0.2 * t**2 + 1.0 * acc + 0.01 * rng.standard_normal()
+        noise = 0.01 * rng.standard_normal()
+        y = 0.1 + 0.5 * t + 0.2 * t**2 + 1.0 * acc + noise
         f.partial_fit(t, y, regressors={"acc": acc})
     a = f._t[-1]
     xs = np.array([a, a + 0.2, a + 0.5, a + 1.0])
@@ -132,7 +138,8 @@ def test_coast_cov_grows_with_gap():
     rng = np.random.default_rng(0)
     f = LSIFilter.tracking("a + b*t + c*t**2", "t", order=4)
     for t in np.linspace(0, 5, 120):
-        f.partial_fit(float(t), 1.0 + 0.5 * t + 0.2 * t**2 + 0.01 * rng.standard_normal())
+        noise = 0.01 * rng.standard_normal()
+        f.partial_fit(float(t), 1.0 + 0.5 * t + 0.2 * t**2 + noise)
     a = f._t[-1]
     xs = np.array([a, a + 0.5, a + 1.0, a + 2.0, a + 4.0])
     cov = f.coast_cov(xs, order=1)

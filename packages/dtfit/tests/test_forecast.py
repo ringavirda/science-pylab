@@ -101,7 +101,7 @@ def test_auto_forecast_divergent_poly_failed_linear_falls_to_persistence(
         # _fit_model returns (values, FittingResult); this stub has no real
         # fit behind it, hence the None.
         if chosen == "poly":
-            return np.full(t_all.size, 1e12), None  # wildly divergent prediction
+            return np.full(t_all.size, 1e12), None  # wildly divergent
         raise RuntimeError("boom")
 
     monkeypatch.setattr(fc_mod, "_fit_model", fake_fit_model)
@@ -204,7 +204,8 @@ def test_auto_forecast_no_structure_provenance(monkeypatch):
     y = 1.0 + 2.0 * t
     n_tr = 240
     fc = fc_mod.auto_forecast(t[:n_tr], y[:n_tr], horizon=60, model="poly")
-    assert fc.model_name.startswith("persistence (") and "no structure" in fc.model_name
+    assert fc.model_name.startswith("persistence (")
+    assert "no structure" in fc.model_name
     assert fc.model_name == "persistence (poly no structure)"
     assert np.allclose(fc, y[n_tr - 1])
     assert fc.result is None and fc.std_band is None
@@ -236,7 +237,9 @@ def test_auto_forecast_divergence_guard_reports_provenance(monkeypatch):
 def test_auto_forecast_zero_horizon_is_forecastresult():
     from dtfit.forecast import ForecastResult
 
-    fc = auto_forecast(np.linspace(0, 1, 50), np.exp(np.linspace(0, 1, 50)), horizon=0)
+    fc = auto_forecast(
+        np.linspace(0, 1, 50), np.exp(np.linspace(0, 1, 50)), horizon=0
+    )
     assert isinstance(fc, ForecastResult)
     assert fc.size == 0
     assert fc.result is None and fc.std_band is None
@@ -329,7 +332,8 @@ def test_auto_forecast_series_no_freq_index_is_none():
     n_tr = 90
     # widening gaps, so pd.infer_freq gives up and returns None
     idx = pd.DatetimeIndex(
-        pd.Timestamp("2020-01-01") + pd.to_timedelta(np.cumsum(np.arange(1, n_tr + 1)), "D")
+        pd.Timestamp("2020-01-01")
+        + pd.to_timedelta(np.cumsum(np.arange(1, n_tr + 1)), "D")
     )
     fc = auto_forecast(pd.Series(t[:n_tr], index=idx), y[:n_tr], horizon=30)
     assert fc.index is None
@@ -343,7 +347,9 @@ def test_auto_forecast_persistence_path_carries_future_index():
     t = np.linspace(0, 5, 100)
     y = np.sin(t)
     idx = pd.date_range("2021-06-01", periods=100, freq="D")
-    fc = auto_forecast(pd.Series(t, index=idx), y, horizon=10, model="random_walk")
+    fc = auto_forecast(
+        pd.Series(t, index=idx), y, horizon=10, model="random_walk"
+    )
     assert np.allclose(fc, y[-1])
     assert isinstance(fc.index, pd.DatetimeIndex) and len(fc.index) == 10
     s = fc.to_series()

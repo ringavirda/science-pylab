@@ -46,7 +46,7 @@ def _fill(v: Any, x: np.ndarray) -> np.ndarray:
 
 
 def _introspect_names(func: Callable[..., Any]) -> tuple[str, ...] | None:
-    """Parameter names of a callable model, in signature order (skipping ``x``).
+    """Parameter names of a callable model, in signature order (skips ``x``).
 
     Returns the names of the positional parameters after the first one, the
     ``x`` variable. ``None`` means the names cannot be determined, from a
@@ -80,10 +80,10 @@ class ModelSpec:
     """A resolved model in one of three forms, behind a uniform interface.
 
     Produced by :func:`resolve_model`. Exposes the canonical parameter order
-    (:attr:`names`), numeric evaluation (:meth:`eval`), parameter sensitivities
-    (:meth:`param_derivs`) and a fixed-coefficient closure (:meth:`bound_model`)
-    regardless of whether the underlying model is symbolic (a SymPy expression)
-    or a plain Python callable.
+    (:attr:`names`), numeric evaluation (:meth:`eval`), parameter
+    sensitivities (:meth:`param_derivs`) and a fixed-coefficient closure
+    (:meth:`bound_model`) regardless of whether the underlying model is
+    symbolic (a SymPy expression) or a plain Python callable.
 
     Attributes:
         names: Canonical parameter order. Sorted by name for a symbolic model
@@ -111,9 +111,10 @@ class ModelSpec:
         self._var = str(var)
         self._expr = expr
         self._is_symbolic = bool(is_symbolic)
-        # Symbolic backing ``(sp module, t symbol, f_sym, params tuple)`` or the
-        # user callable; exactly one is set. Lambdified evaluators are built and
-        # cached lazily so constructing a spec to read only ``.names`` is cheap.
+        # Symbolic backing ``(sp module, t symbol, f_sym, params tuple)`` or
+        # the user callable; exactly one is set. Lambdified evaluators are
+        # built and cached lazily so a spec built to read only ``.names`` is
+        # cheap.
         self._sym = sym
         self._callable = callable_fn
         self._eval_func: Callable[..., Any] | None = None
@@ -157,7 +158,9 @@ class ModelSpec:
             ]
         return self._deriv_funcs
 
-    def eval(self, x: np.ndarray, coeffs: Sequence[float] | np.ndarray) -> np.ndarray:
+    def eval(
+        self, x: np.ndarray, coeffs: Sequence[float] | np.ndarray
+    ) -> np.ndarray:
         """Model values at ``x`` for ``coeffs`` given in :attr:`names` order.
 
         Always returns a 1-D float array broadcast to ``x``'s shape. A
@@ -177,11 +180,13 @@ class ModelSpec:
     def param_derivs(
         self, x: np.ndarray, coeffs: Sequence[float] | np.ndarray
     ) -> list[np.ndarray]:
-        """``d f / d p_k`` at ``x``, one array per parameter in :attr:`names` order.
+        """``d f / d p_k`` at ``x``, one array per parameter in :attr:`names`
+        order.
 
-        Symbolic models differentiate exactly (:func:`sympy.diff`); callables use
-        a forward difference with step ``1e-6 * max(1, |c_k|)``. Each entry is
-        broadcast to ``x``'s shape (a constant sensitivity is filled).
+        Symbolic models differentiate exactly (:func:`sympy.diff`); callables
+        use a forward difference with step ``1e-6 * max(1, |c_k|)``. Each
+        entry is broadcast to ``x``'s shape (a constant sensitivity is
+        filled).
         """
         x = np.asarray(x, dtype=float)
         c = np.asarray(coeffs, dtype=float)
@@ -202,8 +207,8 @@ class ModelSpec:
         """A plain ``f(x)`` closure with the coefficients frozen at ``coeffs``.
 
         Used as :attr:`dtfit.types.FittingResult.model` when no expression is
-        available (the callable path). Returns the same broadcast float array as
-        :meth:`eval`.
+        available (the callable path). Returns the same broadcast float
+        array as :meth:`eval`.
         """
         c = np.asarray(coeffs, dtype=float)
 
@@ -229,8 +234,8 @@ def _resolve_symbolic(
         given = tuple(str(n) for n in param_names)
         if sorted(given) != sorted(names):
             raise ValueError(
-                f"param_names {list(given)} do not match the model's parameters "
-                f"{list(names)} (parsed from the expression)."
+                f"param_names {list(given)} do not match the model's "
+                f"parameters {list(names)} (parsed from the expression)."
             )
     return ModelSpec(
         names, str(var), expr_str, True, sym=(sp, t, f_sym, tuple(params))
@@ -238,7 +243,9 @@ def _resolve_symbolic(
 
 
 def _resolve_callable(
-    func: Callable[..., Any], var: str | None, param_names: Sequence[str] | None
+    func: Callable[..., Any],
+    var: str | None,
+    param_names: Sequence[str] | None,
 ) -> ModelSpec:
     v = "x" if var is None else str(var)
     if param_names is not None:
@@ -276,19 +283,21 @@ def resolve_model(
             names the free variable in the expression; for a callable it is a
             label only and defaults to ``"x"``.
         param_names: Parameter names. For a callable, the names of the
-            parameters after the leading ``x`` (in signature order); introspected
-            from the signature when omitted. For a symbolic model it is optional
-            and, if given, is validated against the names parsed from the
-            expression (which stay the canonical sorted order).
+            parameters after the leading ``x`` (in signature order);
+            introspected from the signature when omitted. For a symbolic
+            model it is optional and, if given, is validated against the
+            names parsed from the expression (which stay the canonical
+            sorted order).
 
     Returns:
         A :class:`ModelSpec` exposing the canonical parameter order and the
         numeric evaluation / sensitivity / closure helpers.
 
     Raises:
-        ValueError: A symbolic model without ``var``; a ``param_names`` that does
-            not match the parsed / introspected parameters; or a callable whose
-            names cannot be introspected and were not supplied.
+        ValueError: A symbolic model without ``var``; a ``param_names`` that
+            does not match the parsed / introspected parameters; or a
+            callable whose names cannot be introspected and were not
+            supplied.
         TypeError: ``model`` is not a string, :class:`sympy.Expr`, or callable.
     """
     if isinstance(model, str):

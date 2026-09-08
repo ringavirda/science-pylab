@@ -123,7 +123,10 @@ class FitDisplay:
         self.scatter_ = ax.scatter(
             self.x,
             self.y_true,
-            **{"s": 12, "color": "0.6", "label": "data", **(data_kwargs or {})},
+            **{
+                "s": 12, "color": "0.6", "label": "data",
+                **(data_kwargs or {}),
+            },
         )
         (self.line_,) = ax.plot(
             self.x[order],

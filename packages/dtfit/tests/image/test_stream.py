@@ -306,7 +306,9 @@ def test_close_on_accumulator_raises():
     ("legendre", 8, 1.0, 8),   # yearly blocks
     ("block", 2, 1.0, 1),      # yearly blocks into one coarse window
 ])
-def test_partial_last_block_assembles_to_the_domain_end(basis, order, block, coarse):
+def test_partial_last_block_assembles_to_the_domain_end(
+    basis, order, block, coarse
+):
     """A domain that is not a whole number of block lengths ends inside its
     last block: close() finishes that block on the cut domain, and the
     assembly over the whole domain carries every sample and matches the
@@ -315,7 +317,9 @@ def test_partial_last_block_assembles_to_the_domain_end(basis, order, block, coa
     t = np.linspace(0.0, 10.5, 3832, endpoint=False)
     y = 0.5 * t + 0.3 * np.cos(2 * np.pi * t) + rng.normal(0, 0.01, t.size)
     dom = (0.0, 10.5)
-    stream = ImageStream(basis, order, domain=dom, block=block, grid="explicit")
+    stream = ImageStream(
+        basis, order, domain=dom, block=block, grid="explicit"
+    )
     for _ in stream.update(t, y):
         pass
     last = stream.close()

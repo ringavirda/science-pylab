@@ -10,7 +10,8 @@ from typing import Callable
 import numpy as np
 from scipy.signal import lfilter
 
-# A standardized (unit-variance) innovation draw: ``noise(rng, size) -> ndarray``.
+# A standardized (unit-variance) innovation draw:
+# ``noise(rng, size) -> ndarray``.
 Noise = Callable[[np.random.Generator, int], np.ndarray]
 
 

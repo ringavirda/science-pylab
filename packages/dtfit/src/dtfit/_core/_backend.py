@@ -48,14 +48,18 @@ class Backend:
 
 def _numpy_backend(dtype: Any) -> Backend:
     npd = np.dtype(dtype)
-    return Backend("numpy", lambda a: np.asarray(a, dtype=npd), lambda a: np.asarray(a))
+    return Backend(
+        "numpy", lambda a: np.asarray(a, dtype=npd), lambda a: np.asarray(a)
+    )
 
 
 def _cupy_backend(dtype: Any) -> Backend:  # pragma: no cover - requires a GPU
     import cupy as cp
 
     cpd = cp.dtype(dtype)
-    return Backend("cupy", lambda a: cp.asarray(a, dtype=cpd), lambda a: cp.asnumpy(a))
+    return Backend(
+        "cupy", lambda a: cp.asarray(a, dtype=cpd), lambda a: cp.asnumpy(a)
+    )
 
 
 def _torch_backend(dtype: Any) -> Backend:  # pragma: no cover - requires a GPU
@@ -92,7 +96,12 @@ def resolve_backend(name: str = "auto", *, dtype: Any = "float64") -> Backend:
     """Build a :class:`Backend` by name. ``"auto"`` prefers a GPU."""
     avail = available_backends()
     if name == "auto":
-        name = "cupy" if "cupy" in avail else ("torch" if "torch" in avail else "numpy")
+        if "cupy" in avail:
+            name = "cupy"
+        elif "torch" in avail:
+            name = "torch"
+        else:
+            name = "numpy"
     if name == "numpy":
         return _numpy_backend(dtype)
     if name in ("cupy", "torch") and name not in avail:

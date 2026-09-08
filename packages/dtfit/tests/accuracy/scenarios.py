@@ -100,7 +100,8 @@ SCENARIOS: list[Scenario] = [
     # trends
     _s("linear", "linear", {"a0": 1.0, "a1": 2.0}, 0.0, 5.0),
     _s("quadratic", "quadratic", {"a0": 1.0, "a1": 0.5, "a2": 0.3}, 0.0, 5.0),
-    _s("cubic", "cubic", {"a0": 1.0, "a1": 0.5, "a2": -0.4, "a3": 0.1}, 0.0, 4.0),
+    _s("cubic", "cubic",
+       {"a0": 1.0, "a1": 0.5, "a2": -0.4, "a3": 0.1}, 0.0, 4.0),
     _s("power_law", "power_law", {"a": 2.0, "b": 1.6}, 0.0, 5.0),
     _s("logarithmic", "logarithmic", {"a": 1.0, "b": 2.0}, 0.0, 10.0),
     _s("sqrt_law", "sqrt_law", {"a": 1.0, "b": 2.0}, 0.0, 10.0),
@@ -122,10 +123,13 @@ SCENARIOS: list[Scenario] = [
     # sigmoids
     _s("logistic", "logistic", {"L": 5.0, "k": 1.5, "x0": 5.0}, 0.0, 10.0),
     _s("gompertz", "gompertz", {"A": 3.0, "b": 2.5, "c": 0.8}, 0.0, 8.0),
-    _s("weibull_cdf", "weibull_cdf", {"K": 2.0, "lam": 2.0, "k": 1.8}, 0.0, 8.0),
-    _s("tanh_step", "tanh_step", {"a": 1.0, "b": 2.0, "c": 1.5, "d": 5.0}, 0.0, 10.0),
+    _s("weibull_cdf", "weibull_cdf",
+       {"K": 2.0, "lam": 2.0, "k": 1.8}, 0.0, 8.0),
+    _s("tanh_step", "tanh_step",
+       {"a": 1.0, "b": 2.0, "c": 1.5, "d": 5.0}, 0.0, 10.0),
     # saturating and rational
-    _s("michaelis_menten", "michaelis_menten", {"Vmax": 4.0, "K": 1.5}, 0.0, 10.0),
+    _s("michaelis_menten", "michaelis_menten",
+       {"Vmax": 4.0, "K": 1.5}, 0.0, 10.0),
     _s("hill", "hill", {"Vmax": 4.0, "K": 2.0, "n": 2.5}, 0.0, 8.0),
     # peaks
     _s("gaussian", "gaussian", {"A": 3.0, "mu": 5.0, "s": 1.0}, 0.0, 10.0),
@@ -135,14 +139,16 @@ SCENARIOS: list[Scenario] = [
        0.0, 10.0, metric="r2", r2_min=0.99,
        note="overlapping peaks: label-swap / weak identifiability"),
     # oscillatory
-    _s("sine", "sine", {"c": 1.0, "A": 2.0, "w": 1.5, "p": 0.5}, 0.0, 12.0, n=400),
+    _s("sine", "sine",
+       {"c": 1.0, "A": 2.0, "w": 1.5, "p": 0.5}, 0.0, 12.0, n=400),
     _s("damped_oscillation", "damped_oscillation",
        {"A": 2.0, "w": 2.0, "z": 0.12}, 0.0, 12.0, n=400),
     _s("fourier_series", "fourier_series",
        {"c": 1.0, "w": 1.0, "a1": 1.5, "b1": 0.5, "a2": 0.6, "b2": 0.0,
         "a3": 0.3, "b3": 0.0}, 0.0, 14.0, n=500,
        metric="r2", r2_min=0.99, factory_kwargs={"n_harmonics": 3},
-       note="harmonic amplitudes individually weak; curve quality is the target"),
+       note="harmonic amplitudes individually weak; curve quality is "
+            "the target"),
 ]
 
 SCENARIOS_BY_NAME = {s.name: s for s in SCENARIOS}

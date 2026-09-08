@@ -166,16 +166,17 @@ class FittingResult:
                 self._model = lambda x: pm(x, coeffs)
             else:
                 raise ValueError(
-                    "this FittingResult has no model: pass a model callable, an "
-                    "expr, or a param_model."
+                    "this FittingResult has no model: pass a model "
+                    "callable, an expr, or a param_model."
                 )
         return self._model
 
     def _sympy(self):
         if self.expr is None or self.var is None:
             raise ValueError(
-                "this FittingResult has no expr/var; the operation needs the "
-                "model expression (only the precomputed callable is available)."
+                "this FittingResult has no expr/var; the operation needs "
+                "the model expression (only the precomputed callable is "
+                "available)."
             )
         sp, t, f, params = _parse_model(self.expr, self.var)
         return sp, t, f, list(params)
@@ -193,12 +194,16 @@ class FittingResult:
     def stderr(self) -> dict[str, float]:
         """Per-parameter standard errors, from the covariance diagonal."""
         if self.cov is None:
-            raise ValueError("no covariance available for this fit (cov is None).")
+            raise ValueError(
+                "no covariance available for this fit (cov is None)."
+            )
         se = np.sqrt(np.clip(np.diag(np.asarray(self.cov, float)), 0.0, None))
         names = self.names or tuple(f"p{i}" for i in range(self.coeffs.size))
         return {n: float(s) for n, s in zip(names, se)}
 
-    def confidence_intervals(self, level: float = 0.95) -> dict[str, tuple[float, float]]:
+    def confidence_intervals(
+        self, level: float = 0.95
+    ) -> dict[str, tuple[float, float]]:
         """Normal-approximation confidence intervals at ``level``."""
         from scipy.stats import norm
 
@@ -246,9 +251,11 @@ class FittingResult:
                 return_std: Literal[False] = False,
                 warn_extrapolation: bool = ...) -> np.ndarray: ...
     @overload
-    def predict(self, x: np.ndarray, *,
-                return_std: Literal[True],
-                warn_extrapolation: bool = ...) -> tuple[np.ndarray, np.ndarray]: ...
+    def predict(
+        self, x: np.ndarray, *,
+        return_std: Literal[True],
+        warn_extrapolation: bool = ...,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
     def predict(self, x: np.ndarray, *, return_std: bool = False,
                 warn_extrapolation: bool = False):
@@ -294,7 +301,9 @@ class FittingResult:
         if not return_std:
             return as_series(y, x_index)
         if self.cov is None:
-            raise ValueError("prediction std needs a covariance (cov is None).")
+            raise ValueError(
+                "prediction std needs a covariance (cov is None)."
+            )
         base = self.coeffs.astype(float)
         # Finite-difference a params-explicit evaluator g(coeffs) -> y(x), one
         # parameter at a time (delta method). The symbolic path lambdifies
@@ -353,7 +362,10 @@ class FittingResult:
             "var": self.var,
             "names": list(self.names),
             "coeffs": self.coeffs.tolist(),
-            "cov": None if self.cov is None else np.asarray(self.cov, float).tolist(),
+            "cov": (
+                None if self.cov is None
+                else np.asarray(self.cov, float).tolist()
+            ),
             "x_range": None if self.x_range is None else list(self.x_range),
         }
         # Round-trip only the diagnostics the fitter actually recorded.

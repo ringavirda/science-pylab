@@ -1,11 +1,12 @@
 """Diagnostics, serialization and logging.
 
-Evaluate a fitted dtfit model: information criteria, residual-structure tests,
-ready-made plots, opt-in logging, and round-trip serialization. (For plain scalar
-metrics on arrays, use sklearn.metrics / scipy.stats directly.)
+Evaluate a fitted dtfit model: information criteria, residual-structure
+tests, ready-made plots, opt-in logging, and round-trip serialization. (For
+plain scalar metrics on arrays, use sklearn.metrics / scipy.stats directly.)
 
 Run headless:        python examples/07_diagnostics.py
-Show the plots too:  python examples/07_diagnostics.py --plot   (needs the viz extra)
+Show the plots too:  python examples/07_diagnostics.py --plot
+                     (needs the viz extra)
 """
 
 import sys
@@ -28,8 +29,8 @@ def main() -> None:
     print("== fit_report ==")
     for k in ("n", "rmse", "r2", "aic", "bic", "durbin_watson", "converged"):
         if k in rep:
-            print("  {:14s}: {}".format(k, round(rep[k], 4)
-                                        if isinstance(rep[k], float) else rep[k]))
+            v = round(rep[k], 4) if isinstance(rep[k], float) else rep[k]
+            print("  {:14s}: {}".format(k, v))
 
     # residual_diagnostics -- autocorrelation / normality of the residuals.
     rd = residual_diagnostics(res, x, y)
@@ -69,8 +70,9 @@ def main() -> None:
     print("\n== to_dict / from_dict round-trip ==")
     print("  params:", {k: round(v, 3) for k, v in restored.params.items()})
 
-    # Opt-in logging -- dtfit logs under the "dtfit" logger with a NullHandler by
-    # default; enable_logging(DEBUG) surfaces the fitting internals.
+    # Opt-in logging -- dtfit logs under the "dtfit" logger with a
+    # NullHandler by default; enable_logging(DEBUG) surfaces the fitting
+    # internals.
     import logging
     from dtfit.log import enable_logging
 

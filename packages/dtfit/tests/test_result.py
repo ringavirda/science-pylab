@@ -1,4 +1,5 @@
-"""FittingResult: named params, uncertainty, prediction bands, serialization."""
+"""FittingResult: named params, uncertainty, prediction bands,
+serialization."""
 
 import warnings
 
@@ -63,7 +64,8 @@ def test_convergence_flag_is_reported(fit):
 
 def test_predict_warns_only_on_extrapolation(fit):
     r, t, y = fit
-    assert r.x_range is not None and r.x_range[0] <= t[0] and r.x_range[1] >= t[-1]
+    assert r.x_range is not None
+    assert r.x_range[0] <= t[0] and r.x_range[1] >= t[-1]
     # inside the fitted range: no warning
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -86,7 +88,9 @@ def test_summary_is_str(fit):
 def test_no_expr_result_degrades_gracefully():
     # callable-only result: model() still works, to_dict() and UQ do not
     x = np.linspace(0, 1, 20)
-    r = FittingResult(coeffs=np.array([0.0, 0.0, 1.0]), model=np.poly1d([1.0, 0.0, 0.0]))
+    r = FittingResult(
+        coeffs=np.array([0.0, 0.0, 1.0]), model=np.poly1d([1.0, 0.0, 0.0])
+    )
     assert np.asarray(r.model(x)).shape == x.shape
     with pytest.raises(ValueError):
         r.to_dict()
@@ -102,7 +106,9 @@ def test_param_model_std_band_matches_expr_band(fit):
         return a * np.exp(b * x)
 
     spec = resolve_model(f)  # callable form of the same model
-    r_call = FittingResult(coeffs=coeffs, cov=r.cov, **result_kwargs(spec, coeffs))
+    r_call = FittingResult(
+        coeffs=coeffs, cov=r.cov, **result_kwargs(spec, coeffs)
+    )
     assert r_call.expr is None and r_call.param_model is not None
 
     y_ex, std_ex = r.predict(t, return_std=True)

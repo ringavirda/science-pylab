@@ -24,12 +24,14 @@ def main() -> None:
     print("== fit_lsi: a*exp(b*t) ==")
     print(res.summary())
     print("params:", {k: round(v, 4) for k, v in res.params.items()})
-    # The optimizer's verdict travels with the result: check it before trusting a
-    # fit (converged is False on a misspecified model or a bad seed).
+    # The optimizer's verdict travels with the result: check it before
+    # trusting a fit (converged is False on a misspecified model or a bad
+    # seed).
     print("converged:", res.converged)
 
-    # 2. Uncertainty: an overdetermined fit carries a parameter covariance, so it
-    #    reports standard errors, confidence intervals and a prediction band.
+    # 2. Uncertainty: an overdetermined fit carries a parameter covariance,
+    #    so it reports standard errors, confidence intervals and a
+    #    prediction band.
     print("\n== uncertainty ==")
     print("stderr:", {k: round(v, 4) for k, v in res.stderr().items()})
     print("95% CI:", {k: tuple(round(b, 3) for b in ci)
@@ -38,9 +40,9 @@ def main() -> None:
     y_hat, y_sd = res.predict(xs, return_std=True)
     print("predict(return_std) sd:", np.round(y_sd, 4))
 
-    # opt-in extrapolation guard: predicting past the fitted range is the classic
-    # curve-fitting footgun, so warn_extrapolation flags it instead of silently
-    # returning a wild value.
+    # opt-in extrapolation guard: predicting past the fitted range is the
+    # classic curve-fitting footgun, so warn_extrapolation flags it instead
+    # of silently returning a wild value.
     import warnings
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

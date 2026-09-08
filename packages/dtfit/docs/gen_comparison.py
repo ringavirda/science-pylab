@@ -1,14 +1,16 @@
 """Generate the real numbers behind docs/comparison.md.
 
-Runs a *fair* head-to-head between dtfit and ``scipy.optimize.curve_fit`` on a
-handful of representative scenarios drawn from the package's own accuracy corpus
-(``tests/accuracy``), plus two things ``curve_fit`` structurally cannot do: a
-one-pass out-of-core fit and online drift tracking.
+Runs a *fair* head-to-head between dtfit and ``scipy.optimize.curve_fit`` on
+a handful of representative scenarios drawn from the package's own accuracy
+corpus (``tests/accuracy``), plus two things ``curve_fit`` structurally
+cannot do: a one-pass out-of-core fit and online drift tracking.
 
-Both fitters get the *same* data-driven initial guess (the model's ``_seed_arrays``),
-so the comparison isolates the method, not the seeding. Run with the repo venv::
+Both fitters get the *same* data-driven initial guess (the model's
+``_seed_arrays``), so the comparison isolates the method, not the seeding.
+Run with the repo venv::
 
-    F:/repos/science-nonline/.venv/Scripts/python.exe packages/dtfit/docs/gen_comparison.py
+    F:/repos/science-nonline/.venv/Scripts/python.exe \
+        packages/dtfit/docs/gen_comparison.py
 
 It prints Markdown tables (pasted into comparison.md) and is deterministic
 (fixed seeds).
@@ -22,8 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
-# Make the shared accuracy corpus importable (tests/ is on sys.path under pytest;
-# add it explicitly for a standalone run).
+# Make the shared accuracy corpus importable (tests/ is on sys.path under
+# pytest; add it explicitly for a standalone run).
 HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[1] / "tests"))
 
@@ -73,7 +75,7 @@ def batch_table() -> str:
 
                 popt, pred = curve_fit_baseline(scn, x, y, names)
                 if popt is None:
-                    s_perr, s_r2, s_ms = float("nan"), float("nan"), float("nan")
+                    s_perr = s_r2 = s_ms = float("nan")
                 else:
                     s_perr = param_err(scn, names, popt)
                     s_r2 = r2(clean, pred)
@@ -142,8 +144,8 @@ def bigdata_point() -> str:
 def streaming_point() -> str:
     """Online drift tracking: a sinusoid whose amplitude drifts 1.0 -> 3.0.
 
-    A single batch fit yields one compromised amplitude; the streaming EAC filter
-    follows the drift sample-by-sample.
+    A single batch fit yields one compromised amplitude; the streaming EAC
+    filter follows the drift sample-by-sample.
     """
     rng = np.random.default_rng(2)
     n = 600
@@ -174,8 +176,9 @@ def streaming_point() -> str:
         f"- True amplitude drifts **1.0 -> 3.0** over {n} samples.\n"
         f"- A single `scipy.curve_fit` gives one value `A = {a_batch:.2f}` -- "
         f"RMSE **{batch_rmse:.2f}** against the drifting truth.\n"
-        f"- The streaming `EACFilter` tracks it online, RMSE **{track_rmse:.2f}** "
-        f"(final estimate `A = {a_track[-1]:.2f}`, truth {A_true[-1]:.2f}).\n"
+        f"- The streaming `EACFilter` tracks it online, "
+        f"RMSE **{track_rmse:.2f}** (final estimate `A = {a_track[-1]:.2f}`, "
+        f"truth {A_true[-1]:.2f}).\n"
         "- `curve_fit` has no online/`partial_fit` mode: tracking drift means "
         "re-fitting the whole growing window every step."
     )

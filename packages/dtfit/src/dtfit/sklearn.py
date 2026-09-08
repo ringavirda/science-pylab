@@ -317,7 +317,9 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
         # array; the prediction is realigned to it at the end. validate_data
         # below rejects a multi-column DataFrame, so the captured index only
         # ever belongs to a Series or a single-column frame.
-        x_index = capture_index(X) if (is_series(X) or is_dataframe(X)) else None
+        x_index = (
+            capture_index(X) if (is_series(X) or is_dataframe(X)) else None
+        )
         X = self._to_2d(X)
         # cast: the validate_data stub mistypes its array argument as str.
         X = cast(Any, validate_data)(self, X, reset=False, dtype=np.float64)

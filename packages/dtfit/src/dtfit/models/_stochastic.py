@@ -61,7 +61,9 @@ class Stochastic:
         return (f"Stochastic(period={self.period!r}, "
                 f"forecaster={self.forecaster!r})")
 
-    def fit(self, x: np.ndarray, y: np.ndarray | None = None) -> StochasticModel:
+    def fit(
+        self, x: np.ndarray, y: np.ndarray | None = None
+    ) -> StochasticModel:
         """Fit to a series and return the fitted :class:`StochasticModel`.
 
         Call as ``fit(series)`` for uniform unit time, or ``fit(t, series)``

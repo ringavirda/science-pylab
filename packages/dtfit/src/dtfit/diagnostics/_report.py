@@ -65,7 +65,9 @@ def fit_report(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
     return report
 
 
-def residual_diagnostics(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
+def residual_diagnostics(
+    result: Any, x: np.ndarray, y: np.ndarray
+) -> dict[str, Any]:
     """Tests for structure the model left behind in its residuals.
 
     A structured (DT) fit should leave white-noise residuals. Leftover

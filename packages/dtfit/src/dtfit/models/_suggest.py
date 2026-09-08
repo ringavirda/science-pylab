@@ -209,7 +209,10 @@ def suggest_models(
         models = [m for m in models if m.name in inc or m.category in inc]
     if exclude is not None:
         exc = set(exclude)
-        models = [m for m in models if m.name not in exc and m.category not in exc]
+        models = [
+            m for m in models
+            if m.name not in exc and m.category not in exc
+        ]
     out: list[Suggestion] = []
     for m in models:
         try:

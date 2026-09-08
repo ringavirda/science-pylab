@@ -52,7 +52,9 @@ def _auto_model(y: np.ndarray, seasonal: bool, season_strength: float) -> str:
     if _looks_like_growth(y):  # already guarantees strictly positive y
         return "logistic"
     _, strength = dominant_period(y)
-    return "linear_seasonal" if (seasonal and strength > season_strength) else "poly"
+    if seasonal and strength > season_strength:
+        return "linear_seasonal"
+    return "poly"
 
 
 def _poly_seed(y: np.ndarray, t: np.ndarray, deg: int) -> list[float]:
@@ -177,7 +179,9 @@ class ForecastResult(np.ndarray):
         obj = np.asarray(values, dtype=float).view(cls)
         obj.model_name = model_name
         obj.result = result
-        obj.std_band = None if std_band is None else np.asarray(std_band, dtype=float)
+        obj.std_band = (
+            None if std_band is None else np.asarray(std_band, dtype=float)
+        )
         obj.index = index
         return obj
 
@@ -198,7 +202,8 @@ class ForecastResult(np.ndarray):
             src_std if src_std is not None and len(src_std) == n else None
         )
         self.index = (
-            src_index if src_index is not None and len(src_index) == n else None
+            src_index
+            if src_index is not None and len(src_index) == n else None
         )
 
     def to_series(self) -> Any:
@@ -218,13 +223,15 @@ class ForecastResult(np.ndarray):
         """
         if not HAS_PANDAS:
             raise ValueError(
-                "ForecastResult.to_series() requires pandas, which is not installed"
+                "ForecastResult.to_series() requires pandas, which is not "
+                "installed"
             )
         if self.index is None:
             raise ValueError(
-                "ForecastResult.to_series() needs a future index, but .index is "
-                "None: auto_forecast was not given a pandas Series/DataFrame whose "
-                "index has an inferable frequency/step. Pass x as such an object."
+                "ForecastResult.to_series() needs a future index, but "
+                ".index is None: auto_forecast was not given a pandas "
+                "Series/DataFrame whose index has an inferable "
+                "frequency/step. Pass x as such an object."
             )
         return as_series(np.asarray(self), self.index)
 
@@ -296,7 +303,9 @@ def auto_forecast(
     frequency or an integer-stepped index, the result carries a future
     ``.index`` and :meth:`ForecastResult.to_series` gives the pandas view.
     """
-    allowed = {"auto", "logistic", "linear", "poly", "linear_seasonal", "random_walk"}
+    allowed = {
+        "auto", "logistic", "linear", "poly", "linear_seasonal", "random_walk"
+    }
     if model not in allowed:
         raise ValueError(
             f"unknown model {model!r}; expected one of {sorted(allowed)}"
@@ -306,13 +315,17 @@ def auto_forecast(
     y = to_1d_array(y, "y")
     fut_index = extend_index(x_index, horizon)
     if horizon <= 0:
-        return ForecastResult(np.empty(0), model_name=model, result=None,
-                              std_band=None, index=fut_index)
+        return ForecastResult(
+            np.empty(0), model_name=model, result=None,
+            std_band=None, index=fut_index,
+        )
     dx = float(np.mean(np.diff(x))) if x.size > 1 else 1.0
     future = x[-1] + dx * np.arange(1, horizon + 1)
     t_all = np.concatenate([x, future])
 
-    chosen = _auto_model(y, seasonal, season_strength) if model == "auto" else model
+    chosen = (
+        _auto_model(y, seasonal, season_strength) if model == "auto" else model
+    )
 
     # Persistence paths: an explicit random walk, or a structured model that
     # cannot beat naive persistence on a held-out training tail. An explicit
@@ -330,7 +343,8 @@ def auto_forecast(
         pred, result = _fit_model(chosen, x, y, t_all, period)
     except Exception as exc:
         warnings.warn(
-            f"auto_forecast: {chosen} fit failed ({exc}); falling back to linear",
+            f"auto_forecast: {chosen} fit failed ({exc}); "
+            f"falling back to linear",
             UserWarning,
             stacklevel=2,
         )

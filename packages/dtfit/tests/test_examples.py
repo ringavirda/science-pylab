@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
-EXAMPLES = sorted((Path(__file__).resolve().parents[1] / "examples").glob("0*.py"))
+EXAMPLES = sorted(
+    (Path(__file__).resolve().parents[1] / "examples").glob("0*.py")
+)
 
 
 @pytest.mark.parametrize("script", EXAMPLES, ids=[p.stem for p in EXAMPLES])

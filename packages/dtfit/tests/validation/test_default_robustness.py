@@ -26,7 +26,9 @@ from accuracy.harness import ordered_params, r2, param_err, predict
 _SUGGEST_CASES = [s for s in SCENARIOS if s.factory_name != "fourier_series"]
 
 
-@pytest.mark.parametrize("scn", _SUGGEST_CASES, ids=[s.name for s in _SUGGEST_CASES])
+@pytest.mark.parametrize(
+    "scn", _SUGGEST_CASES, ids=[s.name for s in _SUGGEST_CASES]
+)
 def test_suggest_recommends_true_family(scn):
     """The recommender must shortlist and rank the true family in the top 3.
 

@@ -38,8 +38,10 @@ def test_has_pandas_flag_true_when_installed():
     assert HAS_PANDAS is True
     s = pd.Series([1.0, 2.0, 3.0])
     df = pd.DataFrame({"a": [1.0, 2.0]})
-    assert is_series(s) and not is_series(df) and not is_series(np.arange(3))
-    assert is_dataframe(df) and not is_dataframe(s) and not is_dataframe([1, 2])
+    assert is_series(s)
+    assert not is_series(df) and not is_series(np.arange(3))
+    assert is_dataframe(df)
+    assert not is_dataframe(s) and not is_dataframe([1, 2])
 
 
 def test_to_1d_array_series_and_single_col_dataframe():
@@ -61,7 +63,9 @@ def test_to_1d_array_ndarray_bit_identical():
     x = np.linspace(0.0, 1.0, 17)
     out = to_1d_array(x)
     np.testing.assert_array_equal(out, x)
-    np.testing.assert_array_equal(to_1d_array([1, 2, 3]), np.array([1.0, 2.0, 3.0]))
+    np.testing.assert_array_equal(
+        to_1d_array([1, 2, 3]), np.array([1.0, 2.0, 3.0])
+    )
 
 
 def test_capture_index_and_as_series_roundtrip():
@@ -202,8 +206,10 @@ def test_multivariate_x_raises_clear_error_everywhere():
         lambda: dt.auto_forecast(X2, y, horizon=3),
         lambda: fit_stochastic(X2),
         lambda: NonlineRegressor("a*x", "x").fit(X2, y),
-        lambda: dt.fit_lsi(pd.DataFrame({"a": np.arange(40.0), "b": np.arange(40.0)}),
-                           y, "a*x", "x"),
+        lambda: dt.fit_lsi(
+            pd.DataFrame({"a": np.arange(40.0), "b": np.arange(40.0)}),
+            y, "a*x", "x",
+        ),
     ]
     for entry in entries:
         with pytest.raises(ValueError) as exc:

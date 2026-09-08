@@ -29,9 +29,12 @@ from dtfit.image import Image, Original, fit
 _SEED_POINTS = 400
 
 # A seeder reads (x, y) and returns ``{param_name: (p0, lo, hi)}``.
-Seeder = Callable[[np.ndarray, np.ndarray], dict[str, tuple[float, float, float]]]
+Seeder = Callable[
+    [np.ndarray, np.ndarray], dict[str, tuple[float, float, float]]
+]
 
-# A model is a SymPy-expression string (symbolic) or a callable ``f(x, *params)``.
+# A model is a SymPy-expression string (symbolic) or a plain callable
+# ``f(x, *params)``.
 ModelExpr = str | Callable[..., Any]
 
 
@@ -209,8 +212,11 @@ class Model:
         what = repr(self.expr) if self.is_symbolic else "<callable>"
         return f"Model({self.name!r}, expr={what}, shape={self.shape!r})"
 
-    def seed(self, x: np.ndarray, y: np.ndarray) -> dict[str, tuple[float, float, float]]:
-        """The data-driven ``{name: (p0, lo, hi)}`` seed map (empty if none)."""
+    def seed(
+        self, x: np.ndarray, y: np.ndarray
+    ) -> dict[str, tuple[float, float, float]]:
+        """The data-driven ``{name: (p0, lo, hi)}`` seed map (empty if
+        none)."""
         if self.seeder is None:
             return {}
         return self.seeder(np.asarray(x, float), np.asarray(y, float))
@@ -346,15 +352,17 @@ class Model:
         """
         if not self.is_symbolic or not other.is_symbolic:
             raise TypeError(
-                "cannot compose a callable model with '+': symbolic composition "
-                "requires both operands to be SymPy-expression models (rename / "
-                "detrend needs a manipulable expression). Compose the symbolic "
-                "forms, or fit the callable model on its own."
+                "cannot compose a callable model with '+': symbolic "
+                "composition requires both operands to be SymPy-expression "
+                "models (rename / detrend needs a manipulable expression). "
+                "Compose the symbolic forms, or fit the callable model on "
+                "its own."
             )
         assert self.expr is not None and other.expr is not None
         if other.var != self.var:
             raise ValueError(
-                f"cannot add models on different variables: {self.var!r} vs {other.var!r}"
+                f"cannot add models on different variables: "
+                f"{self.var!r} vs {other.var!r}"
             )
         rename: dict[str, str] = {}
         used = set(self.params)
@@ -373,7 +381,8 @@ class Model:
                                           for k, v in rename.items()})
         combined = f"({self.expr}) + ({sp.sstr(other_expr)})"
         freq = self.freq_param or (
-            rename.get(other.freq_param, other.freq_param) if other.freq_param else None
+            rename.get(other.freq_param, other.freq_param)
+            if other.freq_param else None
         )
 
         def seeder(x, y):

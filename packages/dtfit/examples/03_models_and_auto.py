@@ -41,15 +41,19 @@ def composition(rng) -> None:
     fit = model.fit(x, y)
     print("\n== models.linear() + models.sine() ==")
     print("model:", model)
-    print("rmse:", round(float(np.sqrt(np.mean((y - fit.predict(x)) ** 2))), 4))
+    rmse = float(np.sqrt(np.mean((y - fit.predict(x)) ** 2)))
+    print("rmse:", round(rmse, 4))
 
 
 def recommend(rng) -> None:
     x = np.linspace(0, 8, 200)
-    y = 3.0 * np.exp(-((x - 4.0) ** 2) / (2 * 0.8 ** 2)) + rng.normal(0, 0.04, x.size)
+    peak = np.exp(-((x - 4.0) ** 2) / (2 * 0.8 ** 2))
+    y = 3.0 * peak + rng.normal(0, 0.04, x.size)
     print("\n== suggest_models (ranked by AIC) ==")
     for s in suggest_models(x, y, top=5):
-        print("  {:24s} r2={:.4f}  aic={:8.1f}".format(s.name, s.r2, s.aic))
+        print("  {:24s} r2={:.4f}  aic={:8.1f}".format(
+            s.name, s.r2, s.aic
+        ))
 
 
 def routing(rng) -> None:
@@ -63,9 +67,10 @@ def routing(rng) -> None:
     print("chose:", res.basis_name, "at order", res.image_order)
 
     t = np.arange(120)
-    series = 10.0 / (1 + np.exp(-0.12 * (t - 45))) + rng.normal(0, 0.015, t.size)
+    noise = rng.normal(0, 0.015, t.size)
+    series = 10.0 / (1 + np.exp(-0.12 * (t - 45))) + noise
     cut, h = 90, 30
-    fc = auto_forecast(t[:cut], series[:cut], horizon=h)     # routes to logistic
+    fc = auto_forecast(t[:cut], series[:cut], horizon=h)  # routes to logistic
     print("\n== auto_forecast (saturating growth -> logistic) ==")
     print("forecast end:", round(float(fc[-1]), 2),
           " actual end:", round(float(series[cut + h - 1]), 2))

@@ -1,4 +1,5 @@
-"""dtfit.diagnostics: fit-aware reports (UQ + IC + residual tests) and displays."""
+"""dtfit.diagnostics: fit-aware reports (UQ + IC + residual tests) and
+displays."""
 
 import numpy as np
 import pytest
@@ -19,7 +20,9 @@ def exp_fit():
 def test_fit_report_keys_and_quality(exp_fit):
     r, t, y = exp_fit
     rep = fit_report(r, t, y)
-    for key in ("n", "n_params", "rss", "rmse", "r2", "aic", "bic", "durbin_watson"):
+    keys = ("n", "n_params", "rss", "rmse", "r2", "aic", "bic",
+            "durbin_watson")
+    for key in keys:
         assert key in rep
     assert rep["n"] == y.size and rep["n_params"] == 2
     assert rep["r2"] > 0.99

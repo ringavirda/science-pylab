@@ -28,12 +28,12 @@ except ImportError:  # pragma: no cover - exercised only in a pandas-free env
 
 # One message for the 1-D boundary, shared by every entry point.
 _MULTIVARIATE_MSG = (
-    "{name} must be 1-D; got {what}. dtfit's integral criteria (LSI/EAC) are "
-    "one-dimensional, so multivariate X (several predictors) is not supported. "
-    "If instead you have a 1-D signal that is a sum of components along one axis "
-    "(e.g. trend + cycle), compose 1-D models with `+` "
-    "(models.linear() + models.sine()); see the 'Multivariate data' note in the "
-    "docs."
+    "{name} must be 1-D; got {what}. dtfit's integral criteria (LSI/EAC) "
+    "are one-dimensional, so multivariate X (several predictors) is not "
+    "supported. If instead you have a 1-D signal that is a sum of "
+    "components along one axis (e.g. trend + cycle), compose 1-D models "
+    "with `+` (models.linear() + models.sine()); see the 'Multivariate "
+    "data' note in the docs."
 )
 
 
@@ -61,13 +61,17 @@ def to_1d_array(obj: Any, name: str = "x") -> np.ndarray:
     if is_dataframe(obj):
         ncol = obj.shape[1]
         if ncol != 1:
-            raise ValueError(_MULTIVARIATE_MSG.format(name=name, what=f"a DataFrame with {ncol} columns"))
+            raise ValueError(_MULTIVARIATE_MSG.format(
+                name=name, what=f"a DataFrame with {ncol} columns"
+            ))
         return np.asarray(obj.iloc[:, 0].to_numpy(dtype=float)).reshape(-1)
     arr = np.asarray(obj, dtype=float)
     if arr.ndim >= 2 and int(np.prod(arr.shape[1:])) != 1:
         # Do not flatten: that turns an nD mistake into a wrong 1-D fit. A
         # single trailing column is a column vector, squeezed below.
-        raise ValueError(_MULTIVARIATE_MSG.format(name=name, what=f"an array of shape {arr.shape}"))
+        raise ValueError(_MULTIVARIATE_MSG.format(
+            name=name, what=f"an array of shape {arr.shape}"
+        ))
     return arr.reshape(-1)
 
 

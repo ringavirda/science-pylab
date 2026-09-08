@@ -53,11 +53,14 @@ def test_recovery_matrix(scn, noise):
         # a curve_fit seeded exactly the same way, whichever is looser
         allowed = max(scn.tol + 2.0 * noise, 3.0 * cf_err)
         assert err <= allowed, (
-            f"{scn.name} @ noise={noise}: param error {err:.3f} > {allowed:.3f} "
-            f"(curve_fit {cf_err:.3f}). {scn.note}")
+            f"{scn.name} @ noise={noise}: param error {err:.3f} > "
+            f"{allowed:.3f} (curve_fit {cf_err:.3f}). {scn.note}")
     else:  # curve-quality families (weak parameter identifiability)
         got = r2(clean, pred)
-        cf_r2 = r2(clean, np.asarray(cf_pred, float)) if cf_popt is not None else -np.inf
+        cf_r2 = (
+            r2(clean, np.asarray(cf_pred, float))
+            if cf_popt is not None else -np.inf
+        )
         # meet the noise-relaxed R^2 floor, or essentially tie the baseline.
         # The second clause covers ill-conditioned shapes like sums of
         # exponentials, where curve_fit does no better either.
@@ -93,4 +96,6 @@ def test_every_method_runs(scn, method):
     est = np.asarray(res.coeffs, float)
     pred = predict(res, x)
     assert np.all(np.isfinite(est)), f"{scn.name}/{method}: non-finite coeffs"
-    assert np.all(np.isfinite(pred)), f"{scn.name}/{method}: non-finite prediction"
+    assert np.all(np.isfinite(pred)), (
+        f"{scn.name}/{method}: non-finite prediction"
+    )

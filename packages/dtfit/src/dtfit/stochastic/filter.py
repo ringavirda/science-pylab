@@ -103,17 +103,21 @@ class StochasticFilter:
         # keeping the per-sample hot path free of a Python-level loop.
         m = len(self._buf)
         if m:
-            buf = np.fromiter(self._buf, dtype=float, count=m)   # most-recent-first
+            # most-recent-first
+            buf = np.fromiter(self._buf, dtype=float, count=m)
             dl = buf - self._mean
             self._acov[1:m + 1] += a * (d * dl - self._acov[1:m + 1])
-            self._vacov[1:m + 1] += a * (ad * np.abs(dl) - self._vacov[1:m + 1])
+            self._vacov[1:m + 1] += a * (
+                ad * np.abs(dl) - self._vacov[1:m + 1]
+            )
         self._buf.appendleft(x)
         self._n += 1
         self._detect()
         return self
 
     def partial_fit(self, xs) -> "StochasticFilter":
-        """Ingest a batch of samples (house-style alias for a loop of update)."""
+        """Ingest a batch of samples (house-style alias for a loop of
+        update)."""
         for x in np.asarray(xs, dtype=float).ravel():
             self.update(x)
         return self
@@ -146,11 +150,11 @@ class StochasticFilter:
         neff = min(float(self._n), 1.0 / self.alpha)
         band = max(2.0 / np.sqrt(max(neff, 1.0)), 0.05)
         cut = nlags
-        for k in range(1, nlags + 1):           # integrate the one-sided decay only
+        for k in range(1, nlags + 1):  # integrate the one-sided decay only
             if rho[k] <= band:
                 cut = k
                 break
-        if cut < 6:                             # too few signal lags -> exact lag-1
+        if cut < 6:                     # too few signal lags -> exact lag-1
             return float(np.clip(rho[1], 0.0, 0.999))
         h = cut // 2
         a1 = float(np.trapezoid(rho[:h + 1]))            # area over [0, h]
@@ -233,7 +237,9 @@ class StochasticFilter:
         equal-areas criterion, the cycle by the AR(2) roots."""
         return {
             "n": float(self._n),
-            "level": float(self._mean) if self._mean is not None else float("nan"),
+            "level": (
+                float(self._mean) if self._mean is not None else float("nan")
+            ),
             "sigma": float(np.sqrt(max(self._acov[0], 0.0))),
             "ar1_phi": self._eac_decay(self._acov),
             "cycle_period": self._cycle_period(),
@@ -257,7 +263,8 @@ class StochasticFilter:
         return {**p, "regime": regime}
 
     def predict(self, h: int) -> np.ndarray:
-        """Forecast ``h`` steps by AR(1) mean reversion at the current snapshot."""
+        """Forecast ``h`` steps by AR(1) mean reversion at the current
+        snapshot."""
         p = self.params_
         phi = p["ar1_phi"] if np.isfinite(p["ar1_phi"]) else 0.0
         mu = p["level"]

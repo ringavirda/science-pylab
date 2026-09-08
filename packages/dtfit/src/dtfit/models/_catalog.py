@@ -32,10 +32,11 @@ def _span(x: np.ndarray) -> float:
 
 
 def _level_crossing(x: np.ndarray, y: np.ndarray, frac: float) -> float:
-    """x at which y first reaches ``frac`` of the way from its min to its max."""
+    """x at which y first reaches ``frac`` of the way from its min to max."""
     lo, hi = float(np.min(y)), float(np.max(y))
     target = lo + frac * (hi - lo)
-    idx = np.where(y >= target)[0] if y[-1] >= y[0] else np.where(y <= target)[0]
+    idx = (np.where(y >= target)[0] if y[-1] >= y[0]
+           else np.where(y <= target)[0])
     return float(x[idx[0]]) if idx.size else float(np.median(x))
 
 
@@ -83,12 +84,12 @@ def power_law() -> Model:
             )
         return {"a": (float(np.clip(y[0], 1e-6, None)), -INF, INF),
                 "b": (1.0, -INF, INF)}
-    return Model("a*(x + 1)**b", name="power_law", shape="bulk", category="trend",
-                 seeder=seed)
+    return Model("a*(x + 1)**b", name="power_law", shape="bulk",
+                 category="trend", seeder=seed)
 
 
 def logarithmic() -> Model:
-    """A learning / log-growth curve ``a + b*log(x + 1)`` (requires ``x > -1``)."""
+    """A learning / log-growth curve ``a + b*log(x + 1)`` (requires x > -1)."""
     def seed(x, y):
         x = np.asarray(x, float)
         if np.any(x <= -1.0):
@@ -115,8 +116,8 @@ def sqrt_law() -> Model:
         # a different model unless x is already anchored at 0.
         b, a = np.polyfit(np.sqrt(x), y, 1)
         return {"a": (float(a), -INF, INF), "b": (float(b), -INF, INF)}
-    return Model("a + b*sqrt(x)", name="sqrt_law", shape="bulk", category="trend",
-                 seeder=seed)
+    return Model("a + b*sqrt(x)", name="sqrt_law", shape="bulk",
+                 category="trend", seeder=seed)
 
 
 # growth
@@ -129,8 +130,8 @@ def exponential() -> Model:
     def seed(x, y):
         a = float(y[0]) if y[0] != 0 else float(np.sign(np.mean(y)) or 1.0)
         return {"a": (a, -INF, INF), "b": (_log_rate(x, y), -INF, INF)}
-    return Model("a*exp(b*x)", name="exponential", shape="bulk", category="growth",
-                 seeder=seed)
+    return Model("a*exp(b*x)", name="exponential", shape="bulk",
+                 category="growth", seeder=seed)
 
 
 def exp_growth_offset() -> Model:
@@ -138,8 +139,8 @@ def exp_growth_offset() -> Model:
     def seed(x, y):
         c = float(np.min(y))
         a = float(y[0] - c) or 1.0
-        return {"a": (a, -INF, INF), "b": (abs(_log_rate(x, y)) or 1.0 / _span(x),
-                -INF, INF), "c": (c, -INF, INF)}
+        b = abs(_log_rate(x, y)) or 1.0 / _span(x)
+        return {"a": (a, -INF, INF), "b": (b, -INF, INF), "c": (c, -INF, INF)}
     return Model("c + a*exp(b*x)", name="exp_growth_offset", shape="bulk",
                  category="growth", seeder=seed)
 
@@ -148,10 +149,10 @@ def exp_growth_offset() -> Model:
 def exp_decay() -> Model:
     def seed(x, y):
         a = float(y[0]) if y[0] != 0 else 1.0
-        return {"a": (a, -INF, INF), "b": (abs(_log_rate(x, y)) or 1.0 / _span(x),
-                1e-9, INF)}
-    return Model("a*exp(-b*x)", name="exp_decay", shape="bulk", category="decay",
-                 seeder=seed)
+        b = abs(_log_rate(x, y)) or 1.0 / _span(x)
+        return {"a": (a, -INF, INF), "b": (b, 1e-9, INF)}
+    return Model("a*exp(-b*x)", name="exp_decay", shape="bulk",
+                 category="decay", seeder=seed)
 
 
 def exp_decay_offset() -> Model:
@@ -166,7 +167,7 @@ def exp_decay_offset() -> Model:
 
 
 def first_order() -> Model:
-    """A first-order step response ``K*(1 - exp(-x/tau))`` (RC charge, DC motor)."""
+    """A first-order step response ``K*(1 - exp(-x/tau))`` (RC, DC motor)."""
     def seed(x, y):
         K = float(np.max(y) * 1.05)
         tau = max(_level_crossing(x, y, 0.63) - float(x[0]), _span(x) / 50.0)
@@ -183,8 +184,8 @@ def biexponential() -> Model:
         fast, slow = 3.0 / _span(x), 0.5 / _span(x)
         return {"a": (0.6 * y0, -INF, INF), "b": (fast, 1e-9, INF),
                 "c": (0.4 * y0, -INF, INF), "d": (slow, 1e-9, INF)}
-    return Model("a*exp(-b*x) + c*exp(-d*x)", name="biexponential", shape="bulk",
-                 category="decay", seeder=seed)
+    return Model("a*exp(-b*x) + c*exp(-d*x)", name="biexponential",
+                 shape="bulk", category="decay", seeder=seed)
 
 
 def stretched_exponential() -> Model:
@@ -193,7 +194,7 @@ def stretched_exponential() -> Model:
         A = float(y[0]) if y[0] != 0 else 1.0
         return {"A": (A, -2 * abs(A) - 1e-9, 2 * abs(A) + 1e-9),
                 "tau": (_span(x) / 3.0, _span(x) / 100.0, _span(x) * 5),
-                "q": (1.0, 0.1, 2.5)}  # stretch exponent (sympy reserves 'beta')
+                "q": (1.0, 0.1, 2.5)}  # stretch exp (sympy reserves 'beta')
     return Model("A*exp(-(x/tau)**q)", name="stretched_exponential",
                  shape="bulk", category="decay", seeder=seed)
 
@@ -212,7 +213,7 @@ def logistic() -> Model:
 
 
 def gompertz() -> Model:
-    """Asymmetric sigmoid ``A*exp(-b*exp(-c*x))`` (tumour / population growth)."""
+    """Asymmetric sigmoid ``A*exp(-b*exp(-c*x))`` (tumour / population)."""
     def seed(x, y):
         A = float(np.max(y) * 1.05)
         return {"A": (A, float(np.max(y) * 0.5), float(np.max(y) * 5 + 1e-9)),
@@ -227,7 +228,8 @@ def weibull_cdf() -> Model:
         K = float(np.max(y) * 1.05)
         lam = max(_level_crossing(x, y, 0.63) - float(x[0]), _span(x) / 50.0)
         return {"K": (K, 0.0, float(np.max(y) * 5 + 1e-9)),
-                "lam": (lam, _span(x) / 100.0, _span(x) * 5), "k": (1.5, 0.2, 10.0)}
+                "lam": (lam, _span(x) / 100.0, _span(x) * 5),
+                "k": (1.5, 0.2, 10.0)}
     return Model("K*(1 - exp(-(x/lam)**k))", name="weibull_cdf", shape="bulk",
                  category="sigmoid", seeder=seed)
 
@@ -238,8 +240,8 @@ def tanh_step() -> Model:
         a = 0.5 * (float(np.max(y)) + float(np.min(y)))
         b = 0.5 * (float(np.max(y)) - float(np.min(y))) + 1e-9
         return {"a": (a, -INF, INF), "b": (b, -INF, INF),
-                "c": (4.0 / _span(x), -INF, INF), "d": (_level_crossing(x, y, 0.5),
-                -INF, INF)}
+                "c": (4.0 / _span(x), -INF, INF),
+                "d": (_level_crossing(x, y, 0.5), -INF, INF)}
     return Model("a + b*tanh(c*(x - d))", name="tanh_step", shape="bulk",
                  category="sigmoid", seeder=seed)
 
@@ -307,9 +309,11 @@ def double_gaussian() -> Model:
         s = max(_span(x) / 12.0, 1e-3)
         return {
             "A1": (float(y[i1]), 0.0, 2 * abs(float(y[i1])) + 1e-9),
-            "m1": (float(x[i1]), float(x[0]), float(x[-1])), "s1": (s, 1e-3, _span(x)),
+            "m1": (float(x[i1]), float(x[0]), float(x[-1])),
+            "s1": (s, 1e-3, _span(x)),
             "A2": (float(y[i2]), 0.0, 2 * abs(float(y[i2])) + 1e-9),
-            "m2": (float(x[i2]), float(x[0]), float(x[-1])), "s2": (s, 1e-3, _span(x)),
+            "m2": (float(x[i2]), float(x[0]), float(x[-1])),
+            "s2": (s, 1e-3, _span(x)),
         }
     return Model(
         "A1*exp(-(x - m1)**2/(2*s1**2)) + A2*exp(-(x - m2)**2/(2*s2**2))",
@@ -323,7 +327,8 @@ def sine() -> Model:
         w = fft_frequency_seed(x, y) or (2 * np.pi / _span(x))
         amp = float(np.std(y) * np.sqrt(2.0)) + 1e-3
         return {"A": (amp, 1e-3, 5 * amp),
-                "c": (float(np.mean(y)), float(np.min(y) - amp), float(np.max(y) + amp)),
+                "c": (float(np.mean(y)), float(np.min(y) - amp),
+                      float(np.max(y) + amp)),
                 "p": (0.0, -np.pi, np.pi), "w": (w, 0.3 * w, 3 * w)}
     return Model("c + A*sin(w*x + p)", name="sine", shape="oscillatory",
                  category="oscillatory", freq_param="w", seeder=seed)
@@ -336,9 +341,9 @@ def damped_oscillation() -> Model:
         amp = float(np.max(np.abs(y))) + 1e-3
         return {"A": (amp, 0.1 * amp, 5 * amp), "w": (w, 0.3 * w, 3 * w),
                 "z": (0.05, 1e-3, 0.9)}
-    return Model("A*exp(-z*w*x)*sin(w*sqrt(1 - z**2)*x)", name="damped_oscillation",
-                 shape="oscillatory", category="oscillatory", freq_param="w",
-                 seeder=seed)
+    return Model("A*exp(-z*w*x)*sin(w*sqrt(1 - z**2)*x)",
+                 name="damped_oscillation", shape="oscillatory",
+                 category="oscillatory", freq_param="w", seeder=seed)
 
 
 def fourier_series(n_harmonics: int = 3) -> Model:
@@ -360,8 +365,9 @@ def fourier_series(n_harmonics: int = 3) -> Model:
             d[f"a{k}"] = (0.0, -2 * amp, 2 * amp)
             d[f"b{k}"] = (0.0, -2 * amp, 2 * amp)
         return d
-    return Model(expr, name=f"fourier_series({n_harmonics})", shape="oscillatory",
-                 category="oscillatory", freq_param="w", seeder=seed)
+    return Model(expr, name=f"fourier_series({n_harmonics})",
+                 shape="oscillatory", category="oscillatory", freq_param="w",
+                 seeder=seed)
 
 
 # The default candidate set for ``suggest_models``. fourier_series takes a
@@ -384,7 +390,8 @@ CATALOG: dict[str, Callable[[], Model]] = {
     # saturating
     "michaelis_menten": michaelis_menten, "hill": hill,
     # peak
-    "gaussian": gaussian, "lorentzian": lorentzian, "double_gaussian": double_gaussian,
+    "gaussian": gaussian, "lorentzian": lorentzian,
+    "double_gaussian": double_gaussian,
     # oscillatory
     "sine": sine, "damped_oscillation": damped_oscillation,
 }
@@ -450,8 +457,8 @@ def register(
     if name in CATALOG and not overwrite:
         kind = "builtin" if name in _BUILTINS else "registered"
         raise ValueError(
-            f"a {kind} model named {name!r} already exists; pass overwrite=True "
-            f"to replace it"
+            f"a {kind} model named {name!r} already exists; "
+            f"pass overwrite=True to replace it"
         )
     # Validate eagerly. A broken factory should fail here, not later inside
     # all_models() or suggest_models() where the traceback points elsewhere.
@@ -468,7 +475,8 @@ def register(
         )
     if name in _BUILTINS:
         warnings.warn(
-            f"overwriting the builtin model {name!r}", UserWarning, stacklevel=2
+            f"overwriting the builtin model {name!r}", UserWarning,
+            stacklevel=2
         )
     CATALOG[name] = factory
 

@@ -1,13 +1,15 @@
 """The three batch fitters -- LSI, EAC, DSB.
 
-Each differential-transformation fitter uses a different *measurement* of "fit":
+Each differential-transformation fitter uses a different *measurement* of
+"fit":
 
-- LSI (fit_lsi)  -- integral least-squares in a reconditioned Legendre spectrum;
-                    the general default, with an oscillatory recipe for cycles.
-- EAC (fit_eac)  -- equal-areas integral matching over windows; robust to sparse
-                    outliers (robust=True) and good on transients.
-- DSB (fit_dsb)  -- symbolic differential-spectra balance against a polynomial
-                    pre-fit; an analytical reference method.
+- LSI (fit_lsi)  -- integral least-squares in a reconditioned Legendre
+                    spectrum; the general default, with an oscillatory
+                    recipe for cycles.
+- EAC (fit_eac)  -- equal-areas integral matching over windows; robust to
+                    sparse outliers (robust=True) and good on transients.
+- DSB (fit_dsb)  -- symbolic differential-spectra balance against a
+                    polynomial pre-fit; an analytical reference method.
 
 Run headless:   python examples/02_fitting_methods.py
 """
@@ -29,9 +31,9 @@ def lsi_basic(rng) -> None:
 
 
 def lsi_oscillatory(rng) -> None:
-    # A smoothed low-order spectral fit erases cycles. Naming the angular-frequency
-    # parameter (freq_param) seeds it from the data's FFT peak and turns on the
-    # oscillatory recipe (no smoothing, raised order).
+    # A smoothed low-order spectral fit erases cycles. Naming the
+    # angular-frequency parameter (freq_param) seeds it from the data's FFT
+    # peak and turns on the oscillatory recipe (no smoothing, raised order).
     x = np.linspace(0, 10, 400)
     y = 2.0 * np.sin(1.7 * x + 0.5) + rng.normal(0, 0.10, x.size)
     print("\n== LSI oscillatory recipe: A*sin(w*x + p) ==")
@@ -45,12 +47,13 @@ def eac_robust(rng) -> None:
     # IRLS regression on the basis, so outliers are down-weighted before
     # any model is involved.
     x = np.linspace(0, 5, 250)
-    y = 3.0 * np.arctan(1.5 * x) + rng.normal(0, 0.1, x.size)  # truth a=3, w=1.5
+    y = 3.0 * np.arctan(1.5 * x) + rng.normal(0, 0.1, x.size)  # a=3, w=1.5
     idx = rng.choice(x.size, 12, replace=False)
-    y[idx] += rng.normal(0, 3.0, 12)                          # scattered outliers
+    y[idx] += rng.normal(0, 3.0, 12)                     # scattered outliers
     res = fit_eac(x, y, "a*atan(w*x)", "x", robust=True)
     print("\n== EAC robust (robust=True) ==")
-    print("truth a=3.0 w=1.5 ->", {k: round(v, 3) for k, v in res.params.items()})
+    print("truth a=3.0 w=1.5 ->",
+          {k: round(v, 3) for k, v in res.params.items()})
 
 
 def eac_transient(rng) -> None:
@@ -64,11 +67,11 @@ def eac_transient(rng) -> None:
 
 
 def dsb(rng) -> None:
-    # DSB equates the model's Maclaurin spectrum to a polynomial pre-fit's, order
-    # by order. Build ascending polynomial coeffs (the data Taylor spectrum) with
-    # find_degree + np.polyfit, then balance.
+    # DSB equates the model's Maclaurin spectrum to a polynomial pre-fit's,
+    # order by order. Build ascending polynomial coeffs (the data Taylor
+    # spectrum) with find_degree + np.polyfit, then balance.
     x = np.linspace(0, 1.5, 200)
-    y = 1.5 * np.exp(1.1 * x) + rng.normal(0, 0.02, x.size)   # truth a=1.5, b=1.1
+    y = 1.5 * np.exp(1.1 * x) + rng.normal(0, 0.02, x.size)   # a=1.5, b=1.1
     deg = find_degree(x, y)
     pc = np.polyfit(x, y, deg)[::-1]
     res = fit_dsb(pc, "a*exp(b*x)", "x")

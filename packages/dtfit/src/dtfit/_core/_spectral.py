@@ -102,11 +102,15 @@ class Basis:
         )
 
     # data (x, y) -> empirical spectrum by least squares (best conditioned)
-    def empirical(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:  # pragma: no cover
+    def empirical(  # pragma: no cover
+        self, x: np.ndarray, y: np.ndarray
+    ) -> np.ndarray:
         raise NotImplementedError
 
     # (design matrix D, quadrature weights w) with ∫ y·φ_j dx ≈ (Dᵀ (w⊙y))_j
-    def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover
+    def _gemm_factors(  # pragma: no cover
+        self, x: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError
 
     # ∫ y·φ_j over the given samples only; a partition's partial spectra
@@ -185,7 +189,8 @@ class LegendreBasis(Basis):
     def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # s_j = ∫ y(x) P_j(u(x)) dx over these samples; trapezoid, additive.
         u = 2.0 * (x - self.x0) / self.h - 1.0
-        return np.polynomial.legendre.legvander(u, self.order), _trapz_weights(x)
+        return (np.polynomial.legendre.legvander(u, self.order),
+                _trapz_weights(x))
 
     def integral_to_spectrum(self, s: np.ndarray) -> np.ndarray:
         # β_j = (2j+1)/h * ∫ y P_j dx, the continuous Legendre coefficient.
@@ -216,11 +221,14 @@ class ChebyshevBasis(Basis):
         return self._project_spectrum(fv)
 
     def empirical(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        return C.Chebyshev.fit(x, y, self.order, domain=[self.x0, self.xn]).coef
+        return C.Chebyshev.fit(
+            x, y, self.order, domain=[self.x0, self.xn]
+        ).coef
 
     def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         u = 2.0 * (x - self.x0) / self.h - 1.0
-        return np.polynomial.chebyshev.chebvander(u, self.order), _trapz_weights(x)
+        return (np.polynomial.chebyshev.chebvander(u, self.order),
+                _trapz_weights(x))
 
     def integral_to_spectrum(self, s: np.ndarray) -> np.ndarray:
         return self._norm * (2.0 / self.h) * s
@@ -241,7 +249,11 @@ class FourierBasis(Basis):
     name = "fourier"
 
     def __init__(
-        self, order: int, domain: tuple[float, float], *, period: float | None = None
+        self,
+        order: int,
+        domain: tuple[float, float],
+        *,
+        period: float | None = None,
     ) -> None:
         super().__init__(order, domain)
         self.K = int(order)
@@ -252,7 +264,8 @@ class FourierBasis(Basis):
         # The model-grid design does not depend on the coefficients. Factor it
         # once and model_spectrum becomes a GEMV rather than an lstsq (SVD)
         # per residual evaluation.
-        self._model_pinv = np.linalg.pinv(self._design(self._tg))  # (n_coef, nq)
+        # (n_coef, nq)
+        self._model_pinv = np.linalg.pinv(self._design(self._tg))
 
     def _design(self, x: np.ndarray) -> np.ndarray:
         ph = 2.0 * np.pi * (np.asarray(x, float) - self.x0) / self.P
@@ -297,7 +310,8 @@ class LaguerreBasis(Basis):
         self._norm = np.ones(order + 1)  # ∫ L_i L_j e^-u = δ_ij
 
     def _to_u(self, x: np.ndarray) -> np.ndarray:
-        return (np.asarray(x, float) - self.x0) / self.h * 5.0  # map domain -> [0,5]
+        # map domain -> [0, 5]
+        return (np.asarray(x, float) - self.x0) / self.h * 5.0
 
     def nodes(self) -> np.ndarray:
         return self.x0 + self.h * self._u / 5.0
@@ -311,7 +325,8 @@ class LaguerreBasis(Basis):
     def _gemm_factors(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # integrate over u, with the Laguerre weight e^-u folded into D
         u = self._to_u(x)
-        D = np.polynomial.laguerre.lagvander(u, self.order) * np.exp(-u)[:, None]
+        D = (np.polynomial.laguerre.lagvander(u, self.order)
+             * np.exp(-u)[:, None])
         return D, _trapz_weights(u)
 
     def integral_to_spectrum(self, s: np.ndarray) -> np.ndarray:
@@ -389,10 +404,12 @@ def solve_spectral(
     # No model= here: FittingResult lambdifies it lazily from expr and coeffs.
     # The optimizer status and the fitted domain go through so callers get a
     # `converged` signal and the predict(warn_extrapolation) guard.
-    return FittingResult(coeffs=coeffs, cov=cov,
-                         expr=expr, var=var, names=tuple(str(p) for p in params),
-                         converged=converged, message=message, nfev=nfev,
-                         x_range=(basis.x0, basis.xn))
+    return FittingResult(
+        coeffs=coeffs, cov=cov, expr=expr, var=var,
+        names=tuple(str(p) for p in params),
+        converged=converged, message=message, nfev=nfev,
+        x_range=(basis.x0, basis.xn),
+    )
 
 
 def solve_weighted_nlls(
@@ -430,7 +447,9 @@ def solve_weighted_nlls(
     stages on the differential-evolution path.
     """
     opts = solver_options or {}
-    ls_opts = {k: opts[k] for k in ("xtol", "ftol", "gtol", "max_nfev") if k in opts}
+    ls_opts = {
+        k: opts[k] for k in ("xtol", "ftol", "gtol", "max_nfev") if k in opts
+    }
     min_opts: dict[str, Any] = {}
     if "ftol" in opts:
         min_opts["ftol"] = opts["ftol"]
@@ -446,8 +465,8 @@ def solve_weighted_nlls(
         all_finite = bool(np.all(np.isfinite(lo)) and np.all(np.isfinite(hi)))
         if p0 is not None or not all_finite:
             loc = least_squares(
-                residual, np.clip(guess, lo, hi), bounds=(lo, hi), method="trf",
-                **ls_opts,
+                residual, np.clip(guess, lo, hi), bounds=(lo, hi),
+                method="trf", **ls_opts,
             )
             denom = float(np.linalg.norm(sqrt_w * beta_data)) + 1e-30
             good = loc.success and float(np.linalg.norm(loc.fun)) / denom < 0.5

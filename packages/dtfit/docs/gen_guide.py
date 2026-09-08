@@ -65,10 +65,15 @@ def rewrite(text, page, target):
         line for line in text.splitlines() if not line.startswith(WIKI_ONLY)
     ]
     body = LINK.sub(sub, "\n".join(lines))
-    body = body.replace("(" + REPO_URL + "packages/dtfit/docs/gen_comparison.py)",
-                        "(gen_comparison.py)")
+    body = body.replace(
+        "(" + REPO_URL + "packages/dtfit/docs/gen_comparison.py)",
+        "(gen_comparison.py)",
+    )
     title, _, rest = body.partition("\n")
-    return "{}\n\n{}{}\n".format(title, NOTE.format(url=WIKI_URL + page), rest.lstrip("\n").rstrip("\n"))
+    return "{}\n\n{}{}\n".format(
+        title, NOTE.format(url=WIKI_URL + page),
+        rest.lstrip("\n").rstrip("\n"),
+    )
 
 
 def main(argv):
@@ -86,7 +91,9 @@ def main(argv):
             continue
         if check:
             sys.stdout.writelines(difflib.unified_diff(
-                old.splitlines(True), new.splitlines(True), target, target + " (rendered)"))
+                old.splitlines(True), new.splitlines(True),
+                target, target + " (rendered)",
+            ))
         else:
             dst.write_text(new, encoding="utf-8")
             print("rewrote {}".format(target))

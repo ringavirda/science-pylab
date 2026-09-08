@@ -52,8 +52,9 @@ def _expected_failed_checks(estimator: NonlineRegressor) -> dict[str, str]:
             "one_d_array tag"
         ),
         "check_estimator_sparse_array": (
-            "the check's data helper converts its 1-D sparse X to lil/dia/bsr, "
-            "which scipy does not define for 1-D arrays, and dies before "
+            "the check's data helper converts its 1-D sparse X to "
+            "lil/dia/bsr, which scipy does not define for 1-D arrays, "
+            "and dies before "
             "reaching the estimator (the csr/csc/coo variants and "
             "check_estimator_sparse_matrix/_tag do run, and pass)"
         ),

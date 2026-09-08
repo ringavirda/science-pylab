@@ -18,15 +18,19 @@ from .scenarios import Scenario
 
 
 def ordered_params(scn: Scenario) -> list[str]:
-    """Model parameter names in the sorted order the fitters lay coeffs out in."""
+    """Model parameter names in the sorted order the fitters lay coeffs out
+    in."""
     m = scn.model()
     t = sp.Symbol(m.var)
     f = sp.sympify(m.expr)
-    return [str(s) for s in sorted((s for s in f.free_symbols if s != t), key=str)]
+    return [
+        str(s) for s in sorted((s for s in f.free_symbols if s != t), key=str)
+    ]
 
 
 def r2(clean: np.ndarray, pred: np.ndarray) -> float:
-    """R^2 of ``pred`` against the clean signal, not the noisy observations."""
+    """R^2 of ``pred`` against the clean signal, not the noisy
+    observations."""
     pred = np.asarray(pred, float)
     if pred.ndim == 0:
         pred = np.full_like(clean, float(pred))
@@ -38,7 +42,8 @@ def r2(clean: np.ndarray, pred: np.ndarray) -> float:
 
 
 def param_err(scn: Scenario, names: list[str], est: np.ndarray) -> float:
-    """Max over parameters of the relative recovery error |est - true|/|true|."""
+    """Max over parameters of the relative recovery error
+    |est - true|/|true|."""
     errs = []
     for nm, v in zip(names, np.asarray(est, float)):
         tv = scn.true[nm]
@@ -108,7 +113,9 @@ def curve_fit_baseline(scn: Scenario, x, y, names):
             if bounds is not None:
                 lo = [b[0] for b in bounds]
                 hi = [b[1] for b in bounds]
-                popt, _ = curve_fit(fn, x, y, p0=p0, bounds=(lo, hi), maxfev=20000)
+                popt, _ = curve_fit(
+                    fn, x, y, p0=p0, bounds=(lo, hi), maxfev=20000
+                )
             else:
                 popt, _ = curve_fit(fn, x, y, p0=p0, maxfev=20000)
         pred = np.asarray(fn(x, *popt), dtype=float)

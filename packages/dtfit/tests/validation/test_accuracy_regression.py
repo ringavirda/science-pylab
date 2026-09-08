@@ -21,7 +21,8 @@ from accuracy.scenarios import SCENARIOS, NOISE_LEVELS
 from accuracy.harness import metrics_for
 
 _GOLDEN = json.loads(
-    (Path(__file__).parents[1] / "accuracy" / "golden_baseline.json").read_text()
+    (Path(__file__).parents[1] / "accuracy" / "golden_baseline.json")
+    .read_text()
 )
 
 # Allowed drift before a change counts as a regression. A purely absolute
@@ -39,9 +40,12 @@ _IDS = [f"{s.name}@{noise:g}" for s, noise in _CASES]
 
 
 def test_golden_covers_every_case():
-    expected = {f"{s.name}@{noise:g}" for s in SCENARIOS for noise in NOISE_LEVELS}
+    expected = {
+        f"{s.name}@{noise:g}" for s in SCENARIOS for noise in NOISE_LEVELS
+    }
     assert set(_GOLDEN) == expected, (
-        "golden_baseline.json is stale; regenerate with `python -m accuracy.make_golden`")
+        "golden_baseline.json is stale; "
+        "regenerate with `python -m accuracy.make_golden`")
 
 
 @pytest.mark.parametrize("scn,noise", _CASES, ids=_IDS)
@@ -52,10 +56,11 @@ def test_no_accuracy_regression(scn, noise):
     if base["metric"] == "params":
         limit = max(base["perr"] * _PERR_REL, base["perr"] + _PERR_ABS)
         assert now["perr"] <= limit, (
-            f"{key}: param error regressed {base['perr']:.4g} -> {now['perr']:.4g} "
-            f"(limit {limit:.4g})")
+            f"{key}: param error regressed {base['perr']:.4g} -> "
+            f"{now['perr']:.4g} (limit {limit:.4g})")
     else:
-        # guard the residual (1 - R^2) relatively: a 0.9999 -> 0.999 drop trips
+        # guard the residual (1 - R^2) relatively: a 0.9999 -> 0.999 drop
+        # trips
         limit = _R2_REL * (1.0 - base["r2"]) + _R2_ABS
         assert (1.0 - now["r2"]) <= limit, (
             f"{key}: R2 regressed {base['r2']:.5f} -> {now['r2']:.5f} "

@@ -47,9 +47,10 @@ def fit_dsb(
             data's order-``k`` Maclaurin coefficient.
         expr: Model expression, e.g. ``"a0 + a1*x + a2*exp(a3*x)"``.
         var: Main variable name in ``expr``.
-        rank: Number of balance equations (Maclaurin orders) to use. Defaults to
-            all available polynomial coefficients, giving a square system when it
-            equals the parameter count and an overdetermined one otherwise.
+        rank: Number of balance equations (Maclaurin orders) to use.
+            Defaults to all available polynomial coefficients, giving a
+            square system when it equals the parameter count and an
+            overdetermined one otherwise.
         p0: Optional initial guess used by the numeric refinement/fallback.
 
     Returns:
@@ -90,9 +91,9 @@ def fit_dsb(
     # Balance: model discrete minus data discrete (the polynomial coefficient).
     balance = [model_spec[k] - sp.Float(p_coeffs[k]) for k in range(rank)]
 
-    # Drop balance equations that carry no parameter (e.g. an identically zero
-    # Maclaurin order such as atan's even terms): they only express model misfit
-    # and would make the symbolic square system inconsistent.
+    # Drop balance equations that carry no parameter (e.g. an identically
+    # zero Maclaurin order such as atan's even terms): they only express
+    # model misfit and would make the symbolic square system inconsistent.
     param_set = set(params)
     informative = [eq for eq in balance if eq.free_symbols & param_set]
     if len(informative) < n:
@@ -113,9 +114,11 @@ def fit_dsb(
 
     # FittingResult lambdifies the fitted model lazily from expr+coeffs; skip
     # the eager compile here.
-    return FittingResult(coeffs=coeffs, cov=cov,
-                         expr=expr, var=var, names=tuple(str(p) for p in params),
-                         converged=converged, message=message)
+    return FittingResult(
+        coeffs=coeffs, cov=cov, expr=expr, var=var,
+        names=tuple(str(p) for p in params),
+        converged=converged, message=message,
+    )
 
 
 def _solve_balance(
@@ -144,7 +147,10 @@ def _solve_balance(
             key=lambda c: _residual_norm(balance, params, c),
         )
     except Exception as exc:  # noqa: BLE001 - symbolic solvers raise many types
-        echo(f"Symbolic balance solve failed ({exc}); using numeric least squares.")
+        echo(
+            f"Symbolic balance solve failed ({exc}); "
+            "using numeric least squares."
+        )
         return _solve_numeric(balance, params, guess)
 
     if len(balance) > n:
@@ -177,7 +183,9 @@ def _solve_symbolic(
             continue  # degenerate all-zero root
         solutions.append(vals)
     if not solutions:
-        raise RuntimeError("No suitable real solutions found in the symbolic balance.")
+        raise RuntimeError(
+            "No suitable real solutions found in the symbolic balance."
+        )
     return solutions
 
 
@@ -191,7 +199,10 @@ def _solve_numeric(
     Returns ``(coeffs, converged, message)`` from the least-squares solver."""
     func = sp.lambdify(coeffs, system, "scipy")
     sol = least_squares(lambda c: func(*c), guess.astype(np.float64))
-    return np.asarray(sol.x, dtype=np.float64), bool(sol.success), str(sol.message)
+    return (
+        np.asarray(sol.x, dtype=np.float64), bool(sol.success),
+        str(sol.message),
+    )
 
 
 def _balance_funcs(balance: list[sp.Expr], params: list[sp.Symbol]):
@@ -217,7 +228,9 @@ def _balance_covariance(
     n = len(params)
     m = len(balance)
     jac_syms = [[sp.diff(eq, p) for p in params] for eq in balance]
-    jac_funcs = [[sp.lambdify(params, d, "numpy") for d in row] for row in jac_syms]
+    jac_funcs = [
+        [sp.lambdify(params, d, "numpy") for d in row] for row in jac_syms
+    ]
     try:
         jac = np.array(
             [[float(jac_funcs[i][j](*c)) for j in range(n)] for i in range(m)]
@@ -264,7 +277,8 @@ def find_degree(
     """
     if method not in ("bic", "aic"):
         raise ValueError(
-            f"Unsupported degree-selection method {method!r}; use 'bic' or 'aic'."
+            f"Unsupported degree-selection method {method!r}; "
+            "use 'bic' or 'aic'."
         )
     degree = _find_degree_direct(data_x, data_y, max_degree, method)
     if degree == max_degree:

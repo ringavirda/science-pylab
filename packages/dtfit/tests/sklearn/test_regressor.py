@@ -262,7 +262,9 @@ def test_callable_param_names_when_signature_opaque(arctan_data):
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
 
 
-def test_callable_and_param_names_forwarded_to_fitter(monkeypatch, arctan_data):
+def test_callable_and_param_names_forwarded_to_fitter(
+    monkeypatch, arctan_data
+):
     """The callable model and ``param_names`` reach the fitter untouched. No
     behavioural outcome can prove ``param_names`` was forwarded, so the test
     spies on the call."""

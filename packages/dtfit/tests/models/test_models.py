@@ -1,4 +1,5 @@
-"""dtfit.models: self-seeding catalog families, composition, and suggest_models."""
+"""dtfit.models: self-seeding catalog families, composition, and
+suggest_models."""
 
 import warnings
 
@@ -69,7 +70,9 @@ def test_suggest_models_custom_candidates():
     rng = np.random.default_rng(4)
     t = np.linspace(0, 10, 150)
     y = 3.0 / (1 + np.exp(-0.8 * (t - 5))) + rng.normal(0, 0.05, t.size)
-    ranked = suggest_models(t, y, candidates=[models.logistic(), models.linear()])
+    ranked = suggest_models(
+        t, y, candidates=[models.logistic(), models.linear()]
+    )
     assert ranked[0].name == "logistic"
 
 
@@ -84,7 +87,9 @@ def test_suggest_models_include_exclude_filter():
     names = [s.name for s in suggest_models(t, y, exclude=["exponential"])]
     assert "exponential" not in names
     # include restricts the search to the named families only
-    names = [s.name for s in suggest_models(t, y, include=["linear", "quadratic"])]
+    names = [
+        s.name for s in suggest_models(t, y, include=["linear", "quadratic"])
+    ]
     assert set(names) <= {"linear", "quadratic"}
 
 
@@ -290,7 +295,9 @@ def test_callable_model_self_seeds_through_fit(monkeypatch):
     monkeypatch.setattr("dtfit.models._model.fit", fake_fit)
 
     def seed(x, y):
-        return {"a": (3.0, 0.0, 10.0), "b": (0.5, 0.0, 5.0), "c": (1.0, -5.0, 5.0)}
+        return {
+            "a": (3.0, 0.0, 10.0), "b": (0.5, 0.0, 5.0), "c": (1.0, -5.0, 5.0)
+        }
 
     m = Model.from_callable(_decay, name="cdecay", seeder=seed)
     out = m.fit(np.linspace(0, 5, 50), np.ones(50), basis="legendre")

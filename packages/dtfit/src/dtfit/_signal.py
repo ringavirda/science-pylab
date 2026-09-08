@@ -11,7 +11,9 @@ from __future__ import annotations
 import numpy as np
 
 
-def dominant_period(y: np.ndarray, *, min_period: int = 4) -> tuple[float, float]:
+def dominant_period(
+    y: np.ndarray, *, min_period: int = 4
+) -> tuple[float, float]:
     """Period (in samples) and strength of the strongest spectral peak.
 
     The series is linearly detrended first. ``strength`` is the peak's share

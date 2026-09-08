@@ -29,7 +29,9 @@ def _errs(name):
     names = ordered_params(scn)
     plain, rob = [], []
     for seed in _SEEDS:
-        x, y, _ = scn.make(0.03, seed=seed, outlier_frac=0.04, outlier_scale=8.0)
+        x, y, _ = scn.make(
+            0.03, seed=seed, outlier_frac=0.04, outlier_scale=8.0
+        )
         m = scn.model()
         p0, _ = m._seed_arrays(x, y)
         with warnings.catch_warnings():
@@ -52,7 +54,9 @@ def test_robust_image_beats_plain_under_outliers(name):
     assert np.median(rob) < np.median(plain), (
         f"{name}: robust median {np.median(rob):.3f} "
         f"not better than plain {np.median(plain):.3f}")
-    assert np.median(rob) <= 0.15, f"{name}: robust median {np.median(rob):.3f}"
+    assert np.median(rob) <= 0.15, (
+        f"{name}: robust median {np.median(rob):.3f}"
+    )
 
 
 def test_robust_image_pooled_robustness():

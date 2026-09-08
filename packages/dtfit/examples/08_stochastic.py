@@ -1,12 +1,12 @@
 """Stochastic-series characterization, forecasting and generation.
 
-For genuinely *random* data (economic / financial series) dtfit does not fit the
-path directly -- it fits the deterministic **functionals** of the process (its
-autocovariance, spectrum, trend / cycle) with the same integral fitters, recovers
-the second-order regime, and then forecasts, bands and even *generates* fresh
-paths of it. fit_stochastic is the one-call entry; StochasticModel is the fitted
-result; StochasticFilter tracks the structure online; Stochastic is the catalog
-model-wrapper.
+For genuinely *random* data (economic / financial series) dtfit does not fit
+the path directly -- it fits the deterministic **functionals** of the
+process (its autocovariance, spectrum, trend / cycle) with the same
+integral fitters, recovers the second-order regime, and then forecasts,
+bands and even *generates* fresh paths of it. fit_stochastic is the
+one-call entry; StochasticModel is the fitted result; StochasticFilter
+tracks the structure online; Stochastic is the catalog model-wrapper.
 
 Run headless:   python examples/08_stochastic.py
 """
@@ -19,8 +19,9 @@ from dtfit.stochastic import SecondOrderImage, SecondOrderStream
 
 
 def characterize_and_forecast(rng) -> None:
-    # A mean-reverting AR(1): x_t = phi x_{t-1} + eps. fit_stochastic detects the
-    # regime, forecasts with a regime-appropriate band, and can regenerate it.
+    # A mean-reverting AR(1): x_t = phi x_{t-1} + eps. fit_stochastic detects
+    # the regime, forecasts with a regime-appropriate band, and can
+    # regenerate it.
     n, phi = 1200, 0.6
     x = np.zeros(n)
     for t in range(1, n):
@@ -29,7 +30,8 @@ def characterize_and_forecast(rng) -> None:
     print("== fit_stochastic: an AR(1) mean-reverting series ==")
     print("detected regime :", model.regime)
     point, lo, hi = model.forecast(10, return_conf_int=True)
-    print("10-step forecast:", np.round(point[:3], 3), "...  (band widens with horizon)")
+    print("10-step forecast:", np.round(point[:3], 3),
+          "...  (band widens with horizon)")
     print("band at h=10    : [{:.2f}, {:.2f}]".format(lo[-1], hi[-1]))
     sim = model.simulate(n, seed=0)
     print("simulate() round-trips:", fit_stochastic(sim).regime)
@@ -39,7 +41,8 @@ def detect_trend_and_cycle(rng) -> None:
     # A deterministic trend + cycle buried in noise: the fitter reports the
     # structural components it recovered (fingerprint) alongside the regime.
     t = np.arange(600)
-    y = 0.02 * t + 3.0 * np.sin(2 * np.pi * t / 50) + rng.normal(0, 1.0, t.size)
+    noise = rng.normal(0, 1.0, t.size)
+    y = 0.02 * t + 3.0 * np.sin(2 * np.pi * t / 50) + noise
     model = fit_stochastic(y)
     print("\n== fit_stochastic: trend + cycle ==")
     print("regime     :", model.regime)
@@ -85,13 +88,15 @@ def online_tracking(rng) -> None:
     flt = StochasticFilter(warmup=80).partial_fit(a)
     snap = flt.snapshot()
     print("\n== StochasticFilter: online second-order tracking ==")
-    print("final ar1_phi  :", round(snap["ar1_phi"], 3), " (tracked up from 0.4 as persistence rose)")
+    print("final ar1_phi  :", round(snap["ar1_phi"], 3),
+          " (tracked up from 0.4 as persistence rose)")
     print("regime label   :", snap["regime"])
 
 
 def model_wrapper(rng) -> None:
     # The catalog-style wrapper: Stochastic().fit(series) in the same .fit()
-    # convention as the deterministic Model families -- it returns a StochasticModel.
+    # convention as the deterministic Model families -- it returns a
+    # StochasticModel.
     n = 1200
     x = np.zeros(n)
     for t in range(1, n):
