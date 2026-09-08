@@ -190,3 +190,25 @@ def test_structure_test_false_alarm_rate_on_a_weighted_image():
     rate = float(np.mean(flags))
     lo, hi = (0.03, 0.08) if NIGHTLY else (0.02, 0.10)
     assert lo <= rate <= hi, f"weighted test_structure: rate {rate:.4f}"
+
+
+def test_equality_test_false_alarm_rate_with_mixed_weights():
+    """One sigma=-weighted image against one unweighted image of the same
+    signal: each image's noise scale lives in its own weight units, and
+    the test still flags them at its nominal rate."""
+    x = np.linspace(0.0, 10.0, 400)
+    yc = 5.0 / (1.0 + np.exp(-1.5 * (x - 5.0)))
+    sig = 0.05 * float(np.std(yc))
+    flags = []
+    for s in range(FALSE_ALARM_REPS):
+        rng = np.random.default_rng(4242 + s)
+        a = Original(
+            x, yc + sig * rng.standard_normal(x.size), sigma=sig,
+        ).image("legendre", 12)
+        b = Original(
+            x, yc + sig * rng.standard_normal(x.size),
+        ).image("legendre", 12)
+        flags.append(a.test_equal(b).reject)
+    rate = float(np.mean(flags))
+    lo, hi = (0.03, 0.08) if NIGHTLY else (0.02, 0.10)
+    assert lo <= rate <= hi, f"mixed weights: false-alarm rate {rate:.4f}"
