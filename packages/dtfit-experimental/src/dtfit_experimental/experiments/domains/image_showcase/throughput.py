@@ -18,6 +18,7 @@ row is the parent only, same as on an unpooled one.
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import platform
 import sys
@@ -234,6 +235,36 @@ def channel_gemm_rate(
     }
 
 
+def _reduce_twice(
+    queue: Any,
+    dataset: str,
+    files: list[str],
+    out_dir: str,
+    workers: int,
+    steps_by_station: dict[str, Sequence[float]],
+    fields: tuple[str, ...],
+) -> None:
+    """The child of :func:`reduce_rate`: the reduction untraced for its
+    wall time, then traced for its allocation peak; puts
+    ``(rows, seconds, peak_mib, peak_rss_mib)`` on ``queue``."""
+    paths = [Path(f) for f in files]
+    if dataset == "ngl":
+        def work() -> list[dict[str, Any]]:
+            return ngl_reduce.reduce_many(
+                paths, Path(out_dir), steps_by_station, workers=workers,
+            )
+    else:
+        def work() -> list[dict[str, Any]]:
+            return isd_reduce.reduce_many_years(
+                paths, Path(out_dir), fields=fields, workers=workers,
+            )
+    started = time.perf_counter()
+    rows = work()
+    seconds = time.perf_counter() - started
+    _, peak = peak_memory(work)
+    queue.put((rows, seconds, peak, peak_rss_mib()))
+
+
 def reduce_rate(
     paths: Sequence[Any],
     out_dir: Any,
@@ -246,42 +277,32 @@ def reduce_rate(
     """Reduce a set of files and report the rate, the peak memory and the
     size reduction.
 
-    ``dataset`` is ``"ngl"`` or ``"isd"``. Two peaks are reported:
-    ``peak_mib`` is :func:`peak_memory`'s traced allocation high-water
-    mark, which covers this process only and is blind to a pool's
-    children; ``peak_rss_mib`` is :func:`peak_rss_mib`, read once the
-    work returns, and (see its docstring) is the caller's own resident
-    set even with ``workers > 1``. ``peak_mib`` is flat in the file
-    count because one file is held at a time, but ``ru_maxrss`` is a
-    process lifetime high-water mark that never falls, so
-    ``peak_rss_mib`` from a second, larger :func:`reduce_rate` call in
-    the same interpreter carries over the first call's peak; the memory
-    gate must run each width's ``cpu-1`` row in its own process.
+    ``dataset`` is ``"ngl"`` or ``"isd"``. The reduction runs in a fresh
+    spawned interpreter that holds nothing but the packages and the
+    work, twice: once untraced for ``seconds``, once under
+    :func:`peak_memory` for ``peak_mib``, the traced allocation
+    high-water mark of that process. ``peak_rss_mib`` is the child's own
+    resident peak, read by :func:`peak_rss_mib` inside it before it
+    exits; both cover the reducing process alone, not a pool's workers
+    (see :func:`peak_rss_mib` for why), so the two ``cpu-1`` rows of a
+    small and a large file set are the memory gate.
 
     Raises:
         ValueError: an unknown ``dataset``.
     """
+    if dataset not in ("ngl", "isd"):
+        raise ValueError(f"dataset must be 'ngl' or 'isd', got {dataset!r}")
     files = [Path(p) for p in paths]
     out_dir = Path(out_dir)
-    if dataset == "ngl":
-        def work() -> list[dict[str, Any]]:
-            return ngl_reduce.reduce_many(
-                files, out_dir, dict(steps_by_station or {}),
-                workers=workers,
-            )
-    elif dataset == "isd":
-        def work() -> list[dict[str, Any]]:
-            return isd_reduce.reduce_many_years(
-                files, out_dir, fields=fields, workers=workers,
-            )
-    else:
-        raise ValueError(f"dataset must be 'ngl' or 'isd', got {dataset!r}")
-    started = time.perf_counter()
-    rows, peak = peak_memory(work)
-    seconds = time.perf_counter() - started
-    # The caller's own resident set; see peak_rss_mib's docstring for why
-    # a pool's workers do not add to it under forkserver or spawn.
-    rss = peak_rss_mib()
+    ctx = multiprocessing.get_context("spawn")
+    queue = ctx.Queue()
+    child = ctx.Process(target=_reduce_twice, args=(
+        queue, dataset, [str(f) for f in files], str(out_dir), workers,
+        dict(steps_by_station or {}), tuple(fields),
+    ))
+    child.start()
+    rows, seconds, peak, rss = queue.get()
+    child.join()
     good = [r for r in rows if not r["error"]]
     samples = sum(int(r["n"]) for r in good)
     raw = sum(int(r["raw_bytes"]) for r in good)
