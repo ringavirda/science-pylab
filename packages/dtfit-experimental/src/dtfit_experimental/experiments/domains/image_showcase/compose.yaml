@@ -1,0 +1,56 @@
+# Leg 5 as two services: the consumer binds, the producer sends its block
+# images. The service name selects the role; there is no ROLE variable.
+# Both run the repository straight from a bind mount, so the image needs
+# nothing but numpy and scipy.
+#
+#   docker compose up consumer
+#   PEER=192.168.1.10 docker compose up producer
+#
+# The consumer publishes its port to the host on purpose: the point of the
+# leg is a peer on another physical machine connecting in, which a
+# container-internal port cannot serve.
+#
+# The measurements in results/leg5_stream.csv and results/leg5_replay.csv
+# were taken without this file; it exists to reproduce the leg on another
+# pair of machines.
+services:
+  consumer:
+    image: python:3.12-slim
+    working_dir: /repo/packages/dtfit-experimental
+    command: >-
+      bash -lc "pip install --no-cache-dir -e /repo/packages/dtfit
+      -e /repo/packages/dtfit-experimental &&
+      python -m dtfit_experimental.experiments.domains.image_showcase.cli
+      stream-serve --host 0.0.0.0 --port ${PORT:-5555}
+      --model ${MODEL:-ngl-trend} --timeout ${TIMEOUT:-600}
+      --out /out/summary.json"
+    environment:
+      SHOWCASE_DATA: /data/showcase
+    ports:
+      - "${PORT:-5555}:${PORT:-5555}"
+    volumes:
+      - ${REPO:-../../../../../../..}:/repo:ro
+      - ${SHOWCASE_DATA:-${HOME}/data/showcase}:/data/showcase:ro
+      # stream-serve writes its table into the domain's results/, so that
+      # one directory is mounted writable over the read-only repository.
+      - ${OUT:-./results}:/repo/packages/dtfit-experimental/src/dtfit_experimental/experiments/domains/image_showcase/results
+      - ${OUT:-./results}:/out
+
+  producer:
+    image: python:3.12-slim
+    working_dir: /repo/packages/dtfit-experimental
+    command: >-
+      bash -lc "pip install --no-cache-dir -e /repo/packages/dtfit
+      -e /repo/packages/dtfit-experimental &&
+      python -m dtfit_experimental.experiments.domains.image_showcase.stream
+      --role producer --host ${PEER:-consumer} --port ${PORT:-5555}
+      --images /data/showcase/images/ngl --limit ${LIMIT:-2000}
+      --out /out/producer.json"
+    environment:
+      SHOWCASE_DATA: /data/showcase
+    depends_on:
+      - consumer
+    volumes:
+      - ${REPO:-../../../../../../..}:/repo:ro
+      - ${SHOWCASE_DATA:-${HOME}/data/showcase}:/data/showcase:ro
+      - ${OUT:-./results}:/out
