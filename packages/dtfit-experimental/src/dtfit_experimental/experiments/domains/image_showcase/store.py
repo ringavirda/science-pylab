@@ -138,7 +138,7 @@ def write_table(
         list(rows[0]) if rows else []
     )
     with open(path, "w", newline="") as fh:
-        writer = csv.writer(fh)
+        writer = csv.writer(fh, lineterminator="\n")
         if cols:
             writer.writerow(cols)
             for row in rows:
