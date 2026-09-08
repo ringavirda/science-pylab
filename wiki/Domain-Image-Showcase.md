@@ -314,16 +314,29 @@ stream of yearly block images supports is a velocity. Latency is the
 producer's acknowledged round trip per block; the two machines' clock
 difference is recorded as a diagnostic and never quoted as a latency.
 
-The PC-to-Pi direction is not in the table below: the PC's outbound
-connection to a fresh listener on the Pi is refused before the packet
-leaves the PC, an unresolved network fault, so that direction was not
-measured.
+Both directions were measured. The overnight run could not complete the
+PC-to-Pi direction (its outbound connection to the Pi was refused before
+the send); on re-measurement the direct connection succeeded and both
+directions completed, so that refusal was transient. The header cost was
+also cut: an explicit grid's sample positions now travel in the binary
+payload rather than the JSON header, which drops the header from about
+13 MB to under 1 MB on a run of yearly blocks and the whole exchange from
+16 MB to 9 MB.
 
 | direction | block length | images | header | payload | images/s | round trip (median) | assemblies mismatched |
 |---|---|---|---|---|---|---|---|
-| Pi to PC | 1.0 yr | 2,000 | 13.47 MB | 2.91 MB | 23.38 | 42.0 ms | 0 |
-| local | 0.25 yr | 3,210 | 6.55 MB | 4.67 MB | 22.57 | -- | 0 |
-| local | 4.0 yr | 228 | 5.35 MB | 0.33 MB | 22.59 | -- | 0 |
+| Pi to PC | 1.0 yr | 2,000 | 0.82 MB | 8.42 MB | 23.4 | 42.0 ms | 0 |
+| PC to Pi | 1.0 yr | 2,000 | 0.82 MB | 8.42 MB | 22.4 | 44.0 ms | 0 |
+| local | 0.25 yr | 3,210 | 1.31 MB | 6.96 MB | 22.5 | -- | 0 |
+| local | 4.0 yr | 228 | 0.09 MB | 2.62 MB | 22.4 | -- | 0 |
+
+The PC-to-Pi row assembles on the Pi's ARM CPU rather than the PC's x86,
+so the assembled coefficients round differently in the last bit and the
+byte-exact digest differs on all 141 groups; the fitted velocity and
+offset still agree with the PC's own assembly to a median of 2e-15
+relative, so the mismatch is architecture rounding, not a transport
+error. The figure below reflects the earlier header-heavy protocol and
+is regenerated in the documentation pass.
 
 ![bytes on the wire](figures/Domain-Image-Showcase-wire.png)
 
@@ -331,17 +344,17 @@ measured.
 
 From `leg5_replay.csv` and `leg5_track_*.csv`: raw samples at a requested
 rate, the Pi filtering them one at a time with `LSIFilter` and sending its
-block images back over the same socket. This leg ran through an SSH
-tunnel, routed around the PC-to-Pi connection fault above: the bytes on
-the wire are unchanged, but the latency carries the tunnel's overhead, so
-the achieved rate below is not the direct-connection rate. The sustained
-rate is the largest requested rate at which neither side drops a chunk,
-and `flags_match` says whether the flags the Pi raised over the wire are
-the flags the same filter raised locally on the same 20 stations.
+block images back over the same socket. The sustained rate is the largest
+requested rate at which neither side drops a chunk, and `flags_match` says
+whether the flags the Pi raised over the wire are the flags the same
+filter raised locally on the same 20 stations.
 
-The 10,000/s, 100,000/s and unbounded rates share the PC-to-Pi fault above
-and were not measured; only the 1,000/s request, through the tunnel,
-completed.
+At 1,000 samples per second the Pi kept up with no drops on either side,
+raising the same 22 flags it raises locally. Since the direct connection
+now works, the 10,000/s, 100,000/s and unbounded requests can be swept
+without the tunnel; that sweep is the one open item, bounded by the Pi's
+own per-update cost of about 400 microseconds (near 2,500 samples per
+second), above which the tracker is the limiter.
 
 | requested | achieved | dropped (sender / receiver) | per-sample cost on the Pi | blocks back | flags match |
 |---|---|---|---|---|---|
