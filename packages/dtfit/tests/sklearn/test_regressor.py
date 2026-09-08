@@ -159,7 +159,8 @@ def test_nan_policy_forwarded(arctan_data):
 
 def test_robust_levers_rescue_outliers(arctan_data):
     """The robust image rescues an outlier-contaminated fit end to end, on
-    both the EAC and LSI routes. Per-kwarg forwarding is the spy test above."""
+    both the block and legendre bases. Per-kwarg forwarding is the spy
+    test in test_basis_and_order_reach_the_fit."""
     x, y, truth = arctan_data
     y_out = y.copy()
     y_out[50] += 60.0  # gross outlier
@@ -225,15 +226,18 @@ def test_sparse_input_rejected(arctan_data):
 
 
 def test_callable_model_fits_and_scores(arctan_data):
-    """A plain callable ``f(x, a, w)`` fits on the LSI route. Its parameter
-    names come from the signature, and the result carries a numeric evaluator
-    in place of an expression, which keeps ``predict`` working."""
+    """A plain callable ``f(x, a, w)`` fits on the legendre basis. Its
+    parameter names come from the signature, and the result carries a
+    numeric evaluator in place of an expression, which keeps ``predict``
+    working."""
     x, y, truth = arctan_data
 
     def model(x, a, w):
         return a * np.arctan(w * x)
 
-    reg = NonlineRegressor(model, "x", basis="legendre", p0=[1.0, 1.0]).fit(x, y)
+    reg = NonlineRegressor(
+        model, "x", basis="legendre", p0=[1.0, 1.0]
+    ).fit(x, y)
     assert reg.coef_.shape == (2,)
     assert reg.score(x, y) > 0.8
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
@@ -367,12 +371,12 @@ def test_negative_sample_weight_raises(arctan_data):
 
 
 def test_result_has_rsquared(arctan_data):
-    """The LSI fitter records the fit-quality stats and ``result_`` exposes
-    them."""
+    """The legendre fitter records the fit-quality stats and ``result_``
+    exposes them."""
     x, y, _ = arctan_data
-    reg = NonlineRegressor("a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]).fit(
-        x, y
-    )
+    reg = NonlineRegressor(
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
+    ).fit(x, y)
     r2 = reg.result_.rsquared
     assert r2 is not None
     assert 0.8 < r2 <= 1.0
@@ -490,9 +494,11 @@ def test_basis_and_order_reach_the_fit(monkeypatch, arctan_data):
     assert captured["robust"] is True
 
 
-def test_grid_search_over_basis_and_order(arctan_data):
-    """The estimator parameters compose with GridSearchCV, which is the point
-    of exposing the basis and the order rather than fixing them."""
+def test_grid_search_over_basis_and_order_does_not_crash(arctan_data):
+    """GridSearchCV can vary ``basis`` and ``order`` without erroring, which
+    is what exposing them as estimator parameters buys. The candidates here
+    are not tuned for fit quality (order 6 under-covers the model), so this
+    only checks the search completes and reports a score."""
     from sklearn.model_selection import GridSearchCV
 
     x, y, _ = arctan_data
@@ -504,3 +510,4 @@ def test_grid_search_over_basis_and_order(arctan_data):
     grid.fit(x, y)
     assert grid.best_params_["basis"] in ("legendre", "block")
     assert grid.best_params_["order"] in (6, 12)
+    assert grid.best_score_ > 0.0

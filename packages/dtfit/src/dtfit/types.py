@@ -16,6 +16,7 @@ from dtfit._pandas import (
     is_series,
     to_1d_array,
 )
+from dtfit._stats import information_criteria
 
 # Initial parameter guess. Coerced with np.asarray; a plain list is fine.
 InitialGuess = Sequence[float] | np.ndarray | None
@@ -220,11 +221,6 @@ class FittingResult:
     def _information_criteria(self) -> tuple[float, float] | None:
         if self.rss is None or self.n_obs is None:
             return None
-        # Lazy: dtfit.types is imported before dtfit._stats, and importing
-        # the criteria at module scope would form a partial-import cycle. By
-        # call time the package is loaded.
-        from dtfit._stats import information_criteria
-
         k = len(self.names) if self.names else self.coeffs.size
         return information_criteria(self.rss, self.n_obs, int(k))
 

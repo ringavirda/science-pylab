@@ -55,6 +55,12 @@ def fit_dsb(
     Returns:
         FittingResult with the fitted coefficients, callable model and (for an
         overdetermined balance) a parameter covariance estimate.
+
+    Raises:
+        ValueError: The model expression has no free parameters; fewer
+            polynomial coefficients than parameters; ``rank`` below the
+            parameter count; or fewer informative Maclaurin orders (ones
+            that carry a parameter) than parameters.
     """
     t = sp.Symbol(var)
     f_sym = cast(sp.Expr, sp.sympify(expr))
@@ -237,6 +243,24 @@ def find_degree(
 ) -> int:
     """Select a polynomial degree for ``(data_x, data_y)`` by ``"bic"`` or
     ``"aic"``: the degree minimizing that criterion over ``0..max_degree``.
+
+    Args:
+        data_x: Sample locations.
+        data_y: Sample values, same length as ``data_x``.
+        method: ``"bic"`` or ``"aic"``.
+        max_degree: Highest degree to try. Silently clamped to
+            ``data_y.size - 1`` when larger.
+
+    Returns:
+        The selected degree.
+
+    Raises:
+        ValueError: ``method`` is neither ``"bic"`` nor ``"aic"``, or
+            ``data_y`` is empty.
+
+    Logs a debug-level message (see :func:`dtfit.log.echo`) when the
+    selected degree is ``max_degree`` (after clamping), which means the
+    search may not have found an interior minimum.
     """
     if method not in ("bic", "aic"):
         raise ValueError(
