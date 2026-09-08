@@ -7,10 +7,10 @@ throughput, measured as speedup against the rank of parallelism ``P``. Three
 routes are timed. Each hits a different ceiling; the ceilings are the
 interesting part.
 
-:func:`kernel_scaling` runs the native numeric kernels under P threads. They
-release the GIL and the data is cache-resident, so the work is compute-bound
-and scales close to linearly; this is the best case, and
-:func:`amdahl_serial_fraction` fits the serial fraction implied by its curve.
+:func:`kernel_scaling` runs the numpy Simpson kernel under P threads. The
+numpy path holds the GIL, so this leg measures Python-level threading rather
+than a compute-bound near-linear win; :func:`amdahl_serial_fraction` fits the
+serial fraction implied by its curve.
 :func:`fitmany_scaling` fans independent fits across loky processes. The fits
 themselves are embarrassingly parallel, but per-task dispatch and the per-fit
 SymPy lambdify put a ceiling on fine-grained work. :func:`mapreduce_scaling`
@@ -33,14 +33,13 @@ from dtfit._core import _kernels
 from dtfit_experimental.scale import PartitionedLSI
 
 __all__ = [
-    "N_CORES", "PHYS", "HAVE_NATIVE",
+    "N_CORES", "PHYS",
     "amdahl_serial_fraction", "kernel_scaling", "fitmany_scaling",
     "mapreduce_scaling",
 ]
 
 N_CORES = os.cpu_count() or 8
 PHYS = N_CORES // 2
-HAVE_NATIVE = _kernels.HAVE_NATIVE
 
 
 def amdahl_serial_fraction(Ps, speedups):
@@ -55,15 +54,13 @@ def amdahl_serial_fraction(Ps, speedups):
 
 
 def kernel_scaling(Ps, rep_per_thread=4000):
-    """Weak-scaling throughput of the native Simpson kernel under P threads.
+    """Weak-scaling throughput of the numpy Simpson kernel under P threads.
 
-    Each of ``P`` threads runs ``rep_per_thread`` native ``simpson_windows``
-    calls on cache-resident data, keeping the loop compute-bound. The
-    kernels release the GIL, so P threads should get through P times the work
-    in close to the same wall time. Returns
+    Each of ``P`` threads runs ``rep_per_thread`` ``simpson_windows`` calls
+    on cache-resident data. The numpy path holds the GIL, so P threads do not
+    overlap the compute. Returns
     ``({P: throughput-multiplier}, {P: wall-time})``.
     """
-    from dtfit._core import _native
     x = np.ascontiguousarray(np.linspace(0, 10, 40_000))
     y = np.ascontiguousarray(np.sin(x))
     starts = np.arange(0, 39_000, 200, dtype=np.intp)
@@ -72,7 +69,7 @@ def kernel_scaling(Ps, rep_per_thread=4000):
     def work(_):
         acc = 0.0
         for _ in range(rep_per_thread):
-            acc += _native.simpson_windows(y, x, starts, stops).sum()
+            acc += _kernels.simpson_windows(y, x, starts, stops).sum()
         return acc
 
     def run(P):

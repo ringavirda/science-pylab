@@ -39,7 +39,6 @@ notebook (the report: tables, figures, narrative) plus its `figures/`.
 
 ```bash
 pip install -e '.[bench]'              # matplotlib, torch, statsmodels, pandas, jupyter
-python build_native.py                 # build the GIL-released C kernels
 
 # open a notebook and re-run it interactively
 jupyter lab experiments/domains/forecasting/forecasting.ipynb
