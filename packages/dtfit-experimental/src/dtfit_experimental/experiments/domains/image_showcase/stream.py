@@ -26,9 +26,9 @@ Running it: the consumer binds and waits, the producer walks a directory
 of reduced ``.npz`` files and sends their block images.
 
     python -m dtfit_experimental.experiments.domains.image_showcase.stream \\
-        --role consumer --host 0.0.0.0 --port 5555 --out summary.json
+        --role consumer --host 0.0.0.0 --port 9600 --out summary.json
     python -m dtfit_experimental.experiments.domains.image_showcase.stream \\
-        --role producer --host felled-pi.local --port 5555 --images DIR
+        --role producer --host felled-pi.local --port 9600 --images DIR
 """
 
 from __future__ import annotations
@@ -123,7 +123,9 @@ def recv_frame(
 
 
 def image_payload(image: Image) -> bytes:
-    """``S``, ``G`` and any weights as C-order float64 bytes."""
+    """``S``, ``G``, any weights, then an explicit grid's positions, all
+    C-order float64 bytes. The grid positions ride here rather than in the
+    JSON header so a per-sample grid does not inflate the header."""
     parts = [
         np.ascontiguousarray(image.S, dtype=np.float64).tobytes(),
         np.ascontiguousarray(image.G, dtype=np.float64).tobytes(),
@@ -131,6 +133,11 @@ def image_payload(image: Image) -> bytes:
     if image.w is not None:
         parts.append(
             np.ascontiguousarray(image.w, dtype=np.float64).tobytes()
+        )
+    if image.grid.kind == "explicit":
+        parts.append(
+            np.ascontiguousarray(image.grid.positions(),
+                                 dtype=np.float64).tobytes()
         )
     return b"".join(parts)
 
@@ -140,15 +147,20 @@ def image_header(image: Image, **extra: Any) -> dict[str, Any]:
 
     Carries everything but the arrays: ``kind``, the basis name and order,
     the domain, ``n``, ``sumsq``, ``sumy``, ``wsum``, ``robust``, the grid
-    (``Grid.to_dict()``, which for an explicit grid holds every position),
-    the payload dtype, the array shapes, ``nbytes`` and ``sent_at`` (the
-    sender's wall clock). ``extra`` adds the station, field and block
+    (kind, count and bounds only; an explicit grid's positions travel in
+    the payload, not the header, so a per-sample grid does not inflate the
+    JSON), the payload dtype, the array shapes, ``nbytes`` and ``sent_at``
+    (the sender's wall clock). ``extra`` adds the station, field and block
     index the consumer groups by.
     """
     k = int(image.S.size)
-    shapes: dict[str, Any] = {"S": [k], "G": [k, k], "w": None}
+    shapes: dict[str, Any] = {
+        "S": [k], "G": [k, k], "w": None, "grid_x": None,
+    }
     if image.w is not None:
         shapes["w"] = [int(image.w.size)]
+    if image.grid.kind == "explicit":
+        shapes["grid_x"] = [int(image.grid.n)]
     header: dict[str, Any] = {
         "kind": IMAGE_KIND,
         "basis": image.basis.name,
@@ -159,15 +171,18 @@ def image_header(image: Image, **extra: Any) -> dict[str, Any]:
         "sumy": float(image.sumy),
         "wsum": float(image.wsum),
         "robust": bool(image.robust),
-        "grid": image.grid.to_dict(),
+        "grid": {
+            "kind": image.grid.kind, "n": int(image.grid.n),
+            "x0": float(image.grid.x0), "x1": float(image.grid.x1),
+        },
         "dtype": "float64",
         "shapes": shapes,
         "sent_at": time.time(),
     }
     header.update(extra)
-    header["nbytes"] = (k + k * k) * 8 + (
-        0 if image.w is None else int(image.w.size) * 8
-    )
+    gx = int(image.grid.n) if image.grid.kind == "explicit" else 0
+    w_n = 0 if image.w is None else int(image.w.size)
+    header["nbytes"] = (k + k * k + w_n + gx) * 8
     return header
 
 
@@ -180,11 +195,13 @@ def image_from_frame(header: dict[str, Any], payload: bytes) -> Image:
     """
     if header.get("dtype") != "float64":
         raise ValueError(f"unsupported dtype {header.get('dtype')!r}")
-    k = int(header["shapes"]["S"][0])
-    need = (k + k * k) * 8
-    w_shape = header["shapes"].get("w")
-    if w_shape is not None:
-        need += int(w_shape[0]) * 8
+    shapes = header["shapes"]
+    k = int(shapes["S"][0])
+    w_shape = shapes.get("w")
+    gx_shape = shapes.get("grid_x")
+    w_n = int(w_shape[0]) if w_shape is not None else 0
+    gx_n = int(gx_shape[0]) if gx_shape is not None else 0
+    need = (k + k * k + w_n + gx_n) * 8
     if len(payload) < need:
         raise ValueError(
             f"payload has {len(payload)} bytes, the header needs {need}"
@@ -193,13 +210,23 @@ def image_from_frame(header: dict[str, Any], payload: bytes) -> Image:
     G = np.frombuffer(
         payload, dtype=np.float64, count=k * k, offset=k * 8
     ).reshape(k, k).copy()
+    off = k + k * k
     w = None
-    if w_shape is not None:
+    if w_n:
         w = np.frombuffer(
-            payload, dtype=np.float64, count=int(w_shape[0]),
-            offset=(k + k * k) * 8,
+            payload, dtype=np.float64, count=w_n, offset=off * 8
         ).copy()
-    grid = Grid.from_dict(dict(header["grid"]))
+        off += w_n
+    g = header["grid"]
+    if gx_n:
+        x = np.frombuffer(
+            payload, dtype=np.float64, count=gx_n, offset=off * 8
+        ).copy()
+        grid = Grid("explicit", int(g["n"]), float(g["x0"]),
+                    float(g["x1"]), x)
+    else:
+        grid = Grid("uniform", int(g["n"]), float(g["x0"]),
+                    float(g["x1"]))
     return Image(
         make_basis(header["basis"], int(header["order"])),
         (float(header["domain"][0]), float(header["domain"][1])),
@@ -855,7 +882,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--role", choices=("producer", "consumer"),
                         required=True)
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5555)
+    parser.add_argument("--port", type=int, default=9600)
     parser.add_argument("--images", default=None,
                         help="producer: directory of reduced .npz files")
     parser.add_argument("--prefix", default="blk")

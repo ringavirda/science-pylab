@@ -256,13 +256,13 @@ def test_replay_feeds_the_tracker_and_gets_block_images_back(tmp_path):
 
 
 def test_replay_and_track_survive_heavy_back_traffic(tmp_path):
-    # An explicit grid puts every sample position in the header as JSON,
+    # An explicit grid ships every sample position in the binary payload,
     # so enough blocks of enough points comfortably clear the measured
-    # ~700 kB threshold where the two directions used to deadlock in
+    # buffer threshold where the two directions used to deadlock in
     # sendall on the same socket, one still sending while the other's
     # unread back traffic filled its receive buffer.
     n_blocks = 40
-    per_block = 1500
+    per_block = 2000
     rng = np.random.default_rng(3)
     filt = CountingFilter(every=10**9)
     back = ImageStream(

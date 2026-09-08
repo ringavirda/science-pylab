@@ -915,7 +915,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="stream-track: the label on the images it "
                              "sends back")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5555)
+    parser.add_argument("--port", type=int, default=9600)
     parser.add_argument("--port-file", default=None)
     parser.add_argument("--expect", type=int, default=None)
     parser.add_argument("--rate", type=float, default=None,

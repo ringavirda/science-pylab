@@ -22,7 +22,7 @@ services:
       bash -lc "pip install --no-cache-dir numpy scipy sympy scikit-learn
       threadpoolctl &&
       python -m dtfit_experimental.experiments.domains.image_showcase.cli
-      stream-serve --host 0.0.0.0 --port ${PORT:-5555}
+      stream-serve --host 0.0.0.0 --port ${PORT:-9600}
       --model ${MODEL:-ngl-trend} --timeout ${TIMEOUT:-600}
       --out /out/summary.json"
     environment:
@@ -32,7 +32,7 @@ services:
       # own dependencies come from a plain pip install above instead.
       PYTHONPATH: /repo/packages/dtfit/src:/repo/packages/dtfit-experimental/src
     ports:
-      - "${PORT:-5555}:${PORT:-5555}"
+      - "${PORT:-9600}:${PORT:-9600}"
     volumes:
       - ${REPO:-../../../../../../..}:/repo:ro
       - ${SHOWCASE_DATA:-${HOME}/data/showcase}:/data/showcase:ro
@@ -48,7 +48,7 @@ services:
       bash -lc "pip install --no-cache-dir numpy scipy sympy scikit-learn
       threadpoolctl &&
       python -m dtfit_experimental.experiments.domains.image_showcase.stream
-      --role producer --host ${PEER:-consumer} --port ${PORT:-5555}
+      --role producer --host ${PEER:-consumer} --port ${PORT:-9600}
       --images /data/showcase/images/ngl --limit ${LIMIT:-2000}
       --out /out/producer.json"
     environment:
