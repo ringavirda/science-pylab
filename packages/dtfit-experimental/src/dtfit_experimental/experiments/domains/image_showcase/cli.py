@@ -19,7 +19,6 @@ in threads.
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import time
@@ -36,7 +35,7 @@ from . import (
     compare, filters, isd, isd_fits, isd_reduce, ngl, ngl_fits,
     ngl_reduce, paths, stream, throughput,
 )
-from .store import load_images, write_table
+from .store import load_images, write_table, read_table
 
 RESULTS = {
     "ngl-reduce": "ngl_reduce",
@@ -363,11 +362,9 @@ def cmd_isd_normals(args: argparse.Namespace) -> int:
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
-    """Rows of a CSV this tool wrote earlier; empty when it is missing."""
-    if not path.exists():
-        return []
-    with open(path, newline="") as fh:
-        return list(csv.DictReader(fh))
+    """Rows of a CSV this tool wrote earlier; empty when it is missing.
+    Reads a ``.csv.gz`` twin transparently."""
+    return read_table(path)
 
 
 def cmd_filters_ngl(args: argparse.Namespace) -> int:

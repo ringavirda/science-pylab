@@ -9,6 +9,7 @@ exactly these files.
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -137,7 +138,8 @@ def write_table(
     cols = list(columns) if columns is not None else (
         list(rows[0]) if rows else []
     )
-    with open(path, "w", newline="") as fh:
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "wt", newline="") as fh:
         writer = csv.writer(fh, lineterminator="\n")
         if cols:
             writer.writerow(cols)
@@ -146,3 +148,23 @@ def write_table(
                     ["" if row.get(c) is None else row[c] for c in cols]
                 )
     return path
+
+
+def read_table(path: Any) -> list[dict[str, str]]:
+    """Rows of a CSV this domain wrote, as dicts keyed by the header.
+
+    Reads a ``.csv.gz`` twin transparently: given a ``.csv`` path that is
+    absent, it falls back to the same path with ``.gz`` appended, and it
+    decompresses any path that ends in ``.gz``. Returns ``[]`` when
+    neither the plain nor the compressed file exists, so a table a run has
+    not produced reads as empty rather than raising.
+    """
+    path = Path(path)
+    if not path.exists():
+        gz = Path(str(path) + ".gz")
+        if not gz.exists():
+            return []
+        path = gz
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", newline="") as fh:
+        return list(csv.DictReader(fh))
