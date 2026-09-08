@@ -28,6 +28,8 @@ offers ``.forecast()``, ``.simulate()`` and ``.summary()``. There is no
 ``.predict``: a stochastic process is forecast, not point-evaluated.
 """
 
+from .image import SecondOrderImage
+
 from dtfit.stochastic._estimators import (
     sample_acf,
     hurst_aggvar,
@@ -45,6 +47,7 @@ from dtfit.stochastic._forecast import FORECASTERS
 from dtfit.stochastic._filter import StochasticFilter
 
 __all__ = [
+    "SecondOrderImage",
     "sample_acf",
     "hurst_aggvar",
     "hurst_spectral",
