@@ -8,10 +8,15 @@ in ``dtfit_experimental.scale``; covered in ``test_scale_partitioned.py``.
 import numpy as np
 import pytest
 
+from dtfit.image import Original, fit as image_fit
+from dtfit.image.bases import Basis
 from dtfit_experimental import (
     fit_lsi_basis,
     fit_joint,
     boosted_fit,
+    ChebyshevBasis,
+    FourierBasis,
+    LaguerreBasis,
 )
 from sklearn.metrics import r2_score
 
@@ -32,7 +37,19 @@ def sine():
     return t, y, (2.0, 1.5)
 
 
-# #2 pluggable basis
+# #2 pluggable basis, the two coexisting forms (ruling 3)
+def test_image_bases_export_and_coexist_with_fit_lsi_basis(sine):
+    for cls in (FourierBasis, ChebyshevBasis, LaguerreBasis):
+        assert issubclass(cls, Basis)
+    t, y, (A, w) = sine
+    r_image = image_fit("A*sin(w*x)", Original(t, y), "x",
+                        basis=FourierBasis(5), p0={"A": 1.0, "w": 1.4})
+    r_spectral = fit_lsi_basis(t, y, "A*sin(w*x)", "x", basis="fourier",
+                               order=8, bounds=[(0.1, 5), (0.2, 3)])
+    assert r_image.params["w"] == pytest.approx(w, abs=0.1)
+    assert abs(r_spectral.coeffs[1] - w) < 0.1
+
+
 def test_fourier_basis_lsi_recovers_sine(sine):
     t, y, (A, w) = sine
     r = fit_lsi_basis(t, y, "A*sin(w*x)", "x", basis="fourier", order=8,

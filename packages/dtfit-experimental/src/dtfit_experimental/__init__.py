@@ -25,7 +25,15 @@ physically rather than being re-imported from here.
         fit_joint,            # #4 joint shared-parameter multi-channel fit
         boosted_fit,          # #5 stage-wise residual boosting
         InformationFilter,    # inverse-covariance (info-form) fusion primitive
+        FourierBasis,         # image-interface basis, fit(basis=...)
+        ChebyshevBasis,       # image-interface basis, fit(basis=...)
+        LaguerreBasis,        # image-interface basis, fit(basis=...)
     )
+
+``FourierBasis``, ``ChebyshevBasis`` and ``LaguerreBasis`` are the
+image-projection form, reached through ``dtfit.fit(basis=...)``;
+``fit_lsi_basis`` is the older spectral-criterion form. Both are
+experimental and coexist (see ``bases.py``).
 
 These signatures may change until promotion. Each of the four is here for its
 own reason. ``fit_lsi_basis`` buys vocabulary, not accuracy: a Fourier or
@@ -43,6 +51,7 @@ domain. Measured verdicts live in ``experiments/cases/analysis``.
 
 from dtfit._core._backend import available_backends, resolve_backend, Backend
 from .basis_lsi import fit_lsi_basis
+from .bases import ChebyshevBasis, FourierBasis, LaguerreBasis
 from .joint import fit_joint, JointResult
 from .boosting import boosted_fit, BoostedModel
 from .information import InformationFilter
@@ -57,4 +66,7 @@ __all__ = [
     "boosted_fit",
     "BoostedModel",
     "InformationFilter",
+    "FourierBasis",
+    "ChebyshevBasis",
+    "LaguerreBasis",
 ]
