@@ -13,6 +13,7 @@ prototyped and evaluated here.
   internals (`dtfit._core._spectral`, `dtfit._core._backend`, `dtfit._symbolic`, `dtfit._stats`). (The
   overlapping-window ensemble has been retired in favour of the robust image
   `dtfit`.) `FourierBasis`, `ChebyshevBasis` and `LaguerreBasis` sit beside
+- `weak_ode` -- weak-form ODE identification: rate laws linearized by clearing denominators or eliminating hidden states, fit by least squares with no ODE solve and no p0 (`weak_operators`, `fit_logistic`, `fit_michaelis_menten`, `fit_lotka_volterra_prey`).
   `fit_lsi_basis`: the image-projection form of an alternate basis, reached
   through `dtfit.fit(basis=...)`, rather than the older spectral-criterion
   match.

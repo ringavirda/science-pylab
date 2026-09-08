@@ -52,6 +52,12 @@ domain. Measured verdicts live in ``experiments/cases/analysis``.
 from dtfit._core._backend import available_backends, resolve_backend, Backend
 from .basis_lsi import fit_lsi_basis
 from .bases import ChebyshevBasis, FourierBasis, LaguerreBasis
+from .weak_ode import (
+    fit_logistic,
+    fit_lotka_volterra_prey,
+    fit_michaelis_menten,
+    weak_operators,
+)
 from .joint import fit_joint, JointResult
 from .boosting import boosted_fit, BoostedModel
 from .information import InformationFilter
@@ -69,4 +75,8 @@ __all__ = [
     "FourierBasis",
     "ChebyshevBasis",
     "LaguerreBasis",
+    "weak_operators",
+    "fit_logistic",
+    "fit_michaelis_menten",
+    "fit_lotka_volterra_prey",
 ]
