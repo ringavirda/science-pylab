@@ -366,15 +366,20 @@ low-frequency spectrum that follows a power law, a damped cosine. So you fit the
 
 ### How it works
 
-1. Compute a deterministic functional of the series (the sample autocorrelation,
-   or the aggregated-variance curve across block sizes, or the low-frequency
-   spectrum).
-2. Fit that functional with `fit_lsi` / `fit_eac` -- the same machinery as any
+1. Build the tier's image, one additive statistic of the record's second-order
+   structure (`SecondOrderImage`): its lagged sums, dyadic block sums and
+   fixed-grid DFT hold everything the estimators below read.
+2. Each estimator reads one functional off that image: `hurst_aggvar` the
+   aggregated-variance curve, `hurst_spectral` the low-frequency spectrum,
+   `ar1_reversion` the autocovariance, `garch_persistence` the autocovariance
+   of the squares, `cycle_period` the same autocovariance for a damped-cosine
+   fit, `decompose_trend_cycle` the trend and the seasonal DFT.
+3. Fit that functional with `fit_lsi` / `fit_eac` -- the same machinery as any
    curve, because its shape is a decaying exponential / power law / damped cosine.
-3. Read the stochastic parameter off the fitted shape: the AR(1) mean-reversion
+4. Read the stochastic parameter off the fitted shape: the AR(1) mean-reversion
    `phi` from the ACF decay, the long-memory **Hurst** exponent from the
    aggregated-variance (or spectral) slope, the **GARCH** volatility persistence
-   from the ACF of `|returns|`, a stochastic cycle's period from a damped-cosine
+   from the ACF of the squares, a stochastic cycle's period from a damped-cosine
    ACF fit.
 
 ### The merged solution

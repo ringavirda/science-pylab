@@ -45,6 +45,11 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
 
 ### Changed
 
+- The stochastic tier reads every estimator, gate, forecaster and generator
+  from its own additive second-order image (`SecondOrderImage`), with a
+  block-stream form (`SecondOrderStream`); `garch_persistence(use=...)`,
+  `decompose_trend_cycle(trend_deg=...)` and the private `_stats` / `_model`
+  / `_estimators` modules are gone.
 - `fit_many` now lives in `dtfit.image.parallel`.
 - `fit_lsi` and `fit_eac` are now presets of `fit` on the Legendre and block
   bases. The default order comes from `order_for` (Legendre) or four windows

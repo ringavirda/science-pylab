@@ -5,7 +5,8 @@ routing on signal *shape*; `auto_forecast` is a structured fit-then-extrapolate
 forecaster with no-structure and divergence guards. For genuinely *random* series
 (asset returns, rates, river levels) fit the deterministic functionals of the
 process with `fit_stochastic` / `StochasticModel` instead of a deterministic
-curve.
+curve -- every gate and estimator reads them off one additive second-order
+image of the record, `SecondOrderImage`.
 
 ::: dtfit.auto_estimate
 
@@ -16,3 +17,7 @@ curve.
 ::: dtfit.fit_stochastic
 
 ::: dtfit.StochasticModel
+
+::: dtfit.stochastic.SecondOrderImage
+
+::: dtfit.stochastic.SecondOrderStream

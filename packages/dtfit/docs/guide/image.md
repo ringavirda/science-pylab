@@ -311,5 +311,7 @@ Legendre and block bases; [ImageStream](https://github.com/ringavirda/science-no
 and `G` update over a running accumulator, block images or channel batches;
 the [EACFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Equal-Areas-Filter) and
 [LSIFilter](https://github.com/ringavirda/science-nonline/wiki/Methods-Legendre-Filter) read a window image each step; and the
-stochastic tier fits the functionals of a random process through the same
-Legendre image -- see [the stochastic tier](https://github.com/ringavirda/science-nonline/wiki/Methods-Stochastic).
+stochastic tier builds its own second-order image -- lagged sums, dyadic block
+sums and a fixed-grid DFT -- and fits the functionals it reads off that with
+the same LSI and EAC presets -- see
+[the stochastic tier](https://github.com/ringavirda/science-nonline/wiki/Methods-Stochastic).

@@ -41,7 +41,7 @@ signatures, arguments, return types, and behavior.
 | **sklearn estimator** | `NonlineRegressor` | [estimator.md](API-Estimator) |
 | **One-call entry points** | `auto_estimate`, `auto_forecast` | [auto.md](API-Auto) |
 | **Model framework** | `models`, `Model`, `suggest_models` (+ catalog families) | [models.md](API-Models) |
-| **Stochastic series** | `fit_stochastic`, `StochasticModel`, `StochasticFilter`, `Stochastic`, `stochastic` (estimators) | [stochastic.md](API-Stochastic) |
+| **Stochastic series** | `fit_stochastic`, `StochasticModel`, `StochasticFilter`, `SecondOrderImage`, `SecondOrderStream`, `Stochastic` | [stochastic.md](API-Stochastic) |
 | **Streaming / online** | `ImageFilter`, `LSIFilter`, `EACFilter` (`DriftDetector` in `dtfit.streaming`) | [streaming.md](API-Streaming) |
 | **Streams and scale** | `ImageStream`, `fit_many`, `FittingProblem` (`coverage`, `assemble`, `legendre_transfer`, `block_transfer` in `dtfit.image`) | [scaling.md](API-Scaling) |
 | **Diagnostics** | `fit_report`, `residual_diagnostics`, `residual_stats`, `FitDisplay`, `ResidualsDisplay` | [diagnostics.md](API-Diagnostics) |
@@ -63,9 +63,10 @@ from dtfit import models, Model, suggest_models
 
 # stochastic series (characterize / forecast / generate / track random data)
 from dtfit import fit_stochastic, StochasticModel, StochasticFilter, Stochastic
-from dtfit.stochastic import (hurst_spectral, ar1_reversion, garch_persistence,
-                              cycle_period, decompose_trend_cycle,
-                              ar_order, fit_ar, fractional_difference, FORECASTERS)
+from dtfit.stochastic import (
+    SecondOrderImage, SecondOrderStream, hurst_spectral, ar1_reversion,
+    garch_persistence, cycle_period, decompose_trend_cycle, dickey_fuller,
+    FORECASTERS)
 
 # sklearn estimator
 from dtfit import NonlineRegressor

@@ -159,6 +159,10 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
   from itself (`simulate`).
 - **DSB** (`method="dsb"`) - symbolic differential spectra balance; kept as the
   analytical reference (requires a polynomial fit first in the pipeline).
+- **Stochastic** (`fit_stochastic`) - second-order characterization of a
+  random series: every gate, estimator and forecaster reads one additive
+  image of the record (`SecondOrderImage`), with a block-stream form
+  (`SecondOrderStream`) and an online tracker (`StochasticFilter`).
 
 ### Scaling out
 

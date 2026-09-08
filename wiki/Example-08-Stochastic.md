@@ -92,16 +92,18 @@ if __name__ == "__main__":
 == fit_stochastic: an AR(1) mean-reverting series ==
 detected regime : mean-reverting
 10-step forecast: [0.326 0.171 0.075] ...  (band widens with horizon)
-band at h=10    : [-2.53, 2.38]
+band at h=10    : [-2.50, 2.36]
 simulate() round-trips: mean-reverting
 
 == fit_stochastic: trend + cycle ==
 regime     : trend+seasonal
 StochasticModel  regime='trend+seasonal'  n=600
-  components: trend, seasonal
+  components: trend, seasonal, long-memory, vol-clustering
   trend       slope = 0.01887
-  seasonal    period = 50 (1 harmonic(s))
-  innovation sigma = 1.041
+  seasonal    period = 49.99 (1 harmonic(s))
+  long memory H = 0.754 (d = 0.254)
+  volatility  persistence = 0.986
+  innovation sigma = 1.035
   forecaster: trend+seasonal
 
 == StochasticFilter: online second-order tracking ==

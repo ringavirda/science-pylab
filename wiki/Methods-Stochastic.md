@@ -2,35 +2,57 @@
 
 dtfit fits a deterministic `y = f(t; theta)`. A genuinely random series (economic
 / financial data, near a martingale) has no such `f` -- fitting a curve to the path
-is meaningless. The way to *use* dtfit on it is to point the fitters not at the
-random **path** but at a deterministic **functional** of the process, whose form is
-known and happens to be exactly the shapes dtfit excels at. Each route then recovers
-a *parameter of a stochastic model* from that functional.
+is meaningless. What it has is **second-order structure**: an autocovariance, a
+spectrum, the variance of block means across scales, a deterministic mean of trend
+plus seasonal cycle, and the volatility of its increments. `SecondOrderImage` is
+the additive sufficient statistic of exactly that structure -- one accumulator that
+holds every field a gate or estimator reads, and adds over sample sets the way an
+image in the batch fitting core does.
 
 API: [api/stochastic.md](API-Stochastic). Validation against ground truth and the
 classical estimators: [the stochastic-series domain report](Domain-Stochastic-Series).
 
 ---
 
+## The image
+
+`SecondOrderImage` accumulates, per chunk of samples: the first moments and time
+cross-sums (the trend); lagged sums of the level, the increments, the squared
+increments and the squared level, to a lag budget; squared block sums at the
+dyadic scales; the residues of a fixed-grid DFT; and the first and last `lag + 1`
+samples as head and tail carries. Every field is additive over sample sets, so two
+images of consecutive stretches merge into the image of their union exactly.
+
+The only cost of merging is at the join: the lagged sums of the merged image gain
+the cross terms between the first image's tail carry and the second's head
+carry -- the pairs of samples that straddle the boundary and would otherwise be
+missed. Carrying `lag + 1` samples on each side is exactly enough to compute them,
+so merging two images costs one FFT cross-correlation per lagged-sum field and
+nothing that grows with either image's length.
+
+---
+
 ## The functionals and their fits
 
 For a second-order stationary process, the deterministic objects below have known
-closed forms; the named dtfit fitter recovers the parameter.
+closed forms; the named dtfit fitter recovers the parameter from the functional the
+image reads out.
 
 | process feature | functional | its form | dtfit fit |
 |---|---|---|---|
-| **mean reversion** (OU / AR(1)) | autocovariance `rho(k)` | `phi^k = exp(-k/tau)` | exponential to the ACF ([`ar1_reversion`](API-Stochastic#estimators)) |
+| **mean reversion** (OU / AR(1)) | autocovariance `rho(k)` (`image.acov()`) | `phi^k = exp(-k/tau)` | Yule-Walker `gamma_1/gamma_0`, or an exponential fit to the ACF ([`ar1_reversion`](API-Stochastic#estimators)) |
 | **stochastic cycle** (AR(2), complex roots) | autocovariance `rho(k)` | `r^k cos(w k + p)` | damped cosine to the ACF, oscillatory recipe ([`cycle_period`](API-Stochastic#estimators)) |
-| **volatility clustering** (GARCH(1,1)) | ACF of `\|returns\|` / returns^2 | `~ (alpha+beta)^k` | exponential to that ACF ([`garch_persistence`](API-Stochastic#estimators)) |
-| **long memory** (ARFIMA, `d = H - 1/2`) | spectral density near 0 | power law `S(f) ~ c f^{-2d}` | LSI slope of the log-periodogram, GPH ([`hurst_spectral`](API-Stochastic#estimators)) |
-| **self-similarity** | aggregated-variance curve | power law `Var(block mean at m) ~ c m^{2H-2}` | power-law fit ([`hurst_aggvar`](API-Stochastic#estimators)) |
-| **conditional mean** | trend + cycle | structural curve | LSI trend + LSI cycle, leaving a stochastic residual ([`decompose_trend_cycle`](API-Stochastic#estimators)) |
+| **volatility clustering** (GARCH(1,1)) | autocovariance of the squares (`image.acov_squares()` / `acov_volatility()`) | `~ (alpha+beta)^k` | exponential to that ACF ([`garch_persistence`](API-Stochastic#estimators)) |
+| **long memory** (ARFIMA, `d = H - 1/2`) | Blackman-Tukey spectrum near 0 (`image.spectrum()`) | power law `S(f) ~ c f^{-2d}` | LSI slope of the log-spectrum, GPH ([`hurst_spectral`](API-Stochastic#estimators)) |
+| **self-similarity** | aggregated-variance curve (`image.aggregated_variance()`) | power law `Var(block mean at m) ~ c m^{2H-2}` | power-law fit ([`hurst_aggvar`](API-Stochastic#estimators)) |
+| **conditional mean** | trend + cycle (`image.trend()` / `image.seasonal()`) | structural curve | the image's own trend plus a Dirichlet-kernel seasonal read-out, leaving a stochastic residual ([`decompose_trend_cycle`](API-Stochastic#estimators)) |
 
-The autocovariance is itself an *integral* functional (a lagged second moment) and
-is computed in `O(n log n)` by the Wiener-Khinchin FFT; the spectrum is the
-periodogram. So the work the fitters do here is the same weighted-spectral
-([LSI](Methods-LSI)) and area ([EAC](Methods-EAC)) matching used everywhere else --
-applied to the functional rather than the path.
+The autocovariance, the block sums and the DFT residues are themselves additive
+functionals, so the image accumulates them in `O(n log n)` by the Wiener-Khinchin
+FFT rather than storing the record. So the work the fitters do here is the same
+weighted-spectral ([LSI](Methods-LSI)) and area ([EAC](Methods-EAC)) matching used
+everywhere else -- applied to the functional the image carries rather than to the
+path.
 
 ---
 
@@ -43,28 +65,33 @@ claims only the structure that is really there:
 ```
    y
    |
- (0) unit-root gate (ADF, ct, AIC)  --I(1)-->  difference; report random walk [+ drift]
+ (0) unit-root gate (ADF, ct, AIC lags, from the autocovariances)  --I(1)-->
+   |                                          difference; report random walk [+ drift]
    | stationary / trend-stationary
- (1) deterministic mean: LSI trend (|t|>trend_t, R^2 gate)
-                         + multi-harmonic Fourier seasonal/cycle (spectral-peak gate)
+ (1) deterministic mean: the image's LSI trend (|t|>trend_t, R^2 gate)
+                         + multi-harmonic Fourier seasonal/cycle off the
+                           fixed-grid DFT (spectral-peak gate)
    | residual
- (2) whiten with AR(1)
+ (2) whiten with an AR(1) off the residual autocovariance
    |
  (3) long memory on the INNOVATIONS (spectral Hurst > lm_hurst)
- (4) mean reversion (AR(1) phi)   (5) volatility clustering (whitened |residual|)
+ (4) mean reversion (AR(1) phi)   (5) volatility clustering (excess squared ACF)
 ```
 
 Two disambiguations matter. Long memory is tested on the **whitened innovations**,
 so a near-unit-root AR(1) (whose innovations are white) is not mislabelled as long
-memory. Volatility is tested on the **whitened residual**, so a persistent level
-(whose `|values|` are trivially autocorrelated) is not a false positive. The
-**unit-root gate** is the load-bearing guard -- without it a random walk's wandering
-level draws a spurious trend / cycle / long memory (the classic spurious
-regression). It is a vendored augmented Dickey-Fuller test (constant+trend
-regression, AIC lag selection) reproducing `statsmodels.adfuller` to machine
-precision in pure NumPy, with a strict cyclical exemption so a genuine interior
-spectral peak (a real cycle, near the unit circle but at `f > 0`) is kept for the
-stationary branch instead of being differenced.
+memory. Volatility clustering is tested on the **excess squared autocorrelation**
+`rho_2 - rho^2` of the residual -- a Gaussian linear process with autocorrelation
+`rho` has squared-series autocorrelation `rho^2` on its own, so subtracting it
+isolates the genuine ARCH-type structure and a persistent level does not read as a
+false positive. The **unit-root gate** is the load-bearing guard -- without it a
+random walk's wandering level draws a spurious trend / cycle / long memory (the
+classic spurious regression). It is the augmented Dickey-Fuller statistic of the
+constant+trend regression, computed from the image's autocovariances in Toeplitz
+form (AIC lag selection), reproducing `statsmodels.adfuller` to machine precision,
+with a strict cyclical exemption so a genuine interior spectral peak (a real cycle,
+near the unit circle but at `f > 0`) is kept for the stationary branch instead of
+being differenced.
 
 ---
 
@@ -80,6 +107,9 @@ seasonal cycle for CO2) and ties it on a near-martingale, never losing badly. Th
 seasonal forecast extrapolates the *fitted* trend + seasonal (not the noisy last
 value, which would carry that residual forward as a bias) for a noisy series, while
 a clean strong-trend series keeps the anchored variant -- the backtest decides which.
+Each fold refits its own image of the training stretch, so a fit from a
+`SecondOrderImage` with no underlying series cannot be backtest-selected: the chosen
+name carries `" (no backtest)"`.
 
 The confidence band is keyed off the **selected** forecaster rather than the
 detected flags, so its growth matches the point forecast: **bounded** for mean
@@ -117,6 +147,11 @@ in closed form using dtfit's own principles in streaming form:
   `fit_eac("exp(-g*k)")`. Only lags above the white-noise band `~2/sqrt(n_eff)` count
   as signal, so a fast-decay ACF's noisy tail does not trigger the integration;
 - the **cycle** from the AR(2) characteristic roots of the running autocovariances.
+
+Its batch counterpart is `SecondOrderStream`'s block form: block images resolve a
+change at block granularity and merge exactly, where the filter's exponentially
+weighted statistics resolve it within about a half-life instead. Measured on a
+tracked AR(1) coefficient, block images and the filter both reach RMSE 0.033.
 
 A two-timescale **fused statistic** (a fast/slow EWMA of the persistence and log
 volatility, normalized by a frozen in-control gap variance) flags a structural break
