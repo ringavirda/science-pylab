@@ -87,7 +87,6 @@ from ._catalog import (
 
 __all__ = [
     "Model",
-    "as_fit_data",
     "Stochastic",
     "ModelSpec",
     "resolve_model",

@@ -340,7 +340,8 @@ corpus's `c + A*sin(w*x + p)` scenario at 3% noise, bare-default
 R^2 1.00000 by routing to the block basis at 16 windows on 4 of 10
 seeds; on the other 6 the same `p0=ones` seed already misses the cycle
 inside the block candidate, so the route lands on `basis="legendre"`
-at its order rule (9), reaching R^2 0.078 -- the same floor a fit
+at its order rule (9 or, when the peak-share test adds the
+oscillatory candidate, 18), reaching R^2 0.078 -- the same floor a fit
 pinned to `basis="legendre"` reaches. Fixing the basis is not what
 loses the cycle at those seeds; the shared bare seed is. A
 `freq_param` or a hand-seeded `p0` removes the seed dependence. See

@@ -13,7 +13,8 @@ from dtfit.sklearn import NonlineRegressor
 reg = NonlineRegressor(expr="a*exp(b*x)", var="x")
 search = GridSearchCV(reg, {"basis": ["legendre", "block"],
                             "order": [4, 6, 12]}, cv=5)
-search.fit(X, y)          # X is a 2-D column vector of the single feature
+X = x.reshape(-1, 1)      # a 2-D column vector of the single feature
+search.fit(X, y)
 ```
 
 ::: dtfit.sklearn.NonlineRegressor

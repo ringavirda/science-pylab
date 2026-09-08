@@ -159,9 +159,9 @@ def suggest_models(
 
     Args:
         data: An :class:`~dtfit.Original`, an :class:`~dtfit.Image`, or the
-            sample positions with ``y``. An Image is shortlisted and scored
+            sample positions with ``y``. An Image is shortlisted and seeded
             on its reconstruction over 400 evenly spaced positions, and
-            fitted as itself.
+            fitted and scored on the image itself.
         y: The sample values, when ``data`` is a bare positions array.
         candidates: Models to try. Defaults to a shape-based shortlist of the
             catalog: oscillatory data skips the peak and monotone families,

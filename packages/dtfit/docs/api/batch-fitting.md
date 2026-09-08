@@ -37,5 +37,3 @@ and the [guide](../guide/choosing-a-method.md) for the decision tree.
 ::: dtfit.fit_eac
 
 ::: dtfit.FittingResult
-
-::: dtfit.models.resolve_model

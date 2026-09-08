@@ -88,6 +88,14 @@ def test_suggest_models_include_exclude_filter():
     assert set(names) <= {"linear", "quadratic"}
 
 
+def test_suggest_models_forwards_an_explicit_basis():
+    rng = np.random.default_rng(4)
+    t = np.linspace(0, 10, 150)
+    y = 3.0 / (1 + np.exp(-0.8 * (t - 5))) + rng.normal(0, 0.05, t.size)
+    ranked = suggest_models(t, y, basis="block")
+    assert all(s.result.basis_name == "block" for s in ranked)
+
+
 @pytest.mark.parametrize("name,fn,kw", [
     ("first_order", lambda t: 3.0 * (1 - np.exp(-t / 1.2)), {}),
     ("hill", lambda t: 5.0 * t**2 / (3.0**2 + t**2), {}),
@@ -518,11 +526,19 @@ def test_model_fit_needs_values_with_a_bare_array():
         models.exponential().fit(np.linspace(0.0, 1.0, 20))
 
 
-def test_model_fit_on_an_image_rejects_the_auto_basis():
+def test_model_fit_on_an_image_drops_to_the_image_basis():
+    # data.fit's own basis="auto" needs the samples an Image does not
+    # carry; Model.fit falls back to the image's own basis instead of
+    # raising, and an Original still goes through the route.
     x = np.linspace(0.0, 5.0, 120)
-    img = Original(x, np.exp(0.4 * x)).image("legendre", 10)
-    with pytest.raises(TypeError, match="needs the samples"):
-        models.exponential().fit(img)
+    orig = Original(x, np.exp(0.4 * x))
+    img = orig.image("legendre", 10)
+    m = models.exponential()
+    from_image = m.fit(img)
+    assert from_image.basis_name == "legendre"
+    assert from_image.image_order == 10
+    from_original = m.fit(orig)
+    assert from_original.basis_name in ("legendre", "block")
 
 
 def test_suggest_models_accepts_an_original_and_an_image():
@@ -557,6 +573,7 @@ def test_model_fit_forwards_the_seeded_bounds(monkeypatch, basis):
 
     def spy(*args, **kwargs):
         seen.setdefault("bounds", []).append(kwargs.get("bounds"))
+        seen.setdefault("order", []).append(kwargs.get("order"))
         return orig(*args, **kwargs)
 
     monkeypatch.setattr(_mod, "fit", spy)
@@ -564,5 +581,6 @@ def test_model_fit_forwards_the_seeded_bounds(monkeypatch, basis):
     m = CATALOG["logistic"]()
     x = np.linspace(0.0, 10.0, 160)
     y = 5.0 / (1.0 + np.exp(-0.8 * (x - 5.0)))
-    m.fit(x, y, basis=basis)
+    m.fit(x, y, basis=basis, order=12)
     assert seen["bounds"][0] is not None, "Model.fit lost the seeded bounds"
+    assert seen["order"][0] == 12, "Model.fit lost the seeded order"

@@ -21,7 +21,7 @@ When an adaptation proves effective across enough domains it is **promoted into
 stable `dtfit`** and physically moved there; it is then imported from `dtfit`,
 not from here. Already promoted: the LSI **oscillatory recipe**
 (`dtfit.fit_lsi(oscillatory=..., freq_param=...)` +
-`dtfit.fft_frequency_seed`); the filter bank and the fused chi-square
+`dtfit.image.fft_frequency_seed`); the filter bank and the fused chi-square
 detector live here in `dtfit_experimental.streaming`.
 Adaptive-window EAC (#6, curvature-placed windows) is retired; `fit_eac`
 places equal windows. The map-reduce estimators (`PartitionedLSI` /

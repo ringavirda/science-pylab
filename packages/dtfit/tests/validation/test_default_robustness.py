@@ -66,16 +66,16 @@ def test_nonline_regressor_defaults(name, basis):
     assert r2(clean, pred) > 0.9, f"{name}/{basis}: R2={r2(clean, pred):.3f}"
 
 
-def test_bare_defaults_recover_a_cycle_through_the_auto_route():
-    """At this scenario's noise (0.03) and seed (0), ``p0=None`` (ones)
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_bare_defaults_recover_a_cycle_through_the_auto_route(seed):
+    """At this scenario's noise (0.03) and seeds 0-3, ``p0=None`` (ones)
     puts a cycle out of reach of the Legendre basis at its order rule,
     which smooths it away, while the auto route reaches it through the
-    block basis. This is a seed-specific existence proof, not a general
-    guarantee: the block candidate's own bare-default seed can itself
-    miss the cycle at other seeds, and the auto route then lands on
-    Legendre too (see the accuracy corpus sweep)."""
+    block basis. Seeds 4-9 of the same scenario land on Legendre instead
+    (see the accuracy corpus sweep), so this is an existence proof over
+    the seeds parametrized here, not a general guarantee."""
     scn = next(s for s in SCENARIOS if s.name == "sine")
-    x, y, clean = scn.make(0.03, seed=0)
+    x, y, clean = scn.make(0.03, seed=seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         auto = NonlineRegressor(scn.model().expr, "x").fit(x, y)

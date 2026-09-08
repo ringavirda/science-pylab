@@ -14,7 +14,8 @@ Fitting:
     fit(model, data) on either type, with basis="auto" routing by outcome;
     fit_lsi and fit_eac are its Legendre and block presets; order_for gives
     the order a model's sensitivities need. fit_many fans independent fits
-    across processes or threads.
+    across processes or threads. auto_forecast fits a deterministic curve
+    through fit_lsi, then extrapolates it.
 
 Streaming and scale:
     ImageFilter tracks parameters online on the window image; LSIFilter and
@@ -31,8 +32,7 @@ Stochastic series:
     image: the autocovariance, the spectrum, the aggregated variance and
     the trend plus seasonal cycle, each read off one additive statistic.
     The fitted model forecasts, bands and generates, and StochasticFilter
-    tracks the same structure per input. auto_forecast is the structured
-    fit-then-extrapolate router.
+    tracks the same structure per input.
 
 Every fit returns a FittingResult: named parameters, uncertainty, an
 optimizer ``converged`` flag, and extrapolation-aware ``predict``.
@@ -41,8 +41,9 @@ imported explicitly, after the scikit-learn convention, as are
 dtfit.sklearn (the NonlineRegressor estimator), dtfit.reference (DSB, the
 exact-balance ancestor) and dtfit.log (opt-in library logging).
 
-Core dependencies: numpy, scipy, sympy. Optional extras: scikit-learn for
-dtfit.sklearn, matplotlib for the plots, via ``pip install 'dtfit[viz]'``.
+Core dependencies: numpy, scipy, sympy, scikit-learn (imported only by
+dtfit.sklearn). Optional extras: matplotlib for the plots, via
+``pip install 'dtfit[viz]'``.
 """
 
 from dtfit.__about__ import __version__

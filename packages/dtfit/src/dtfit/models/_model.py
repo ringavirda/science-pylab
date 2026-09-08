@@ -286,9 +286,10 @@ class Model:
                 there (an Original or a bare array). ``"auto"`` (default)
                 fits the candidate bases and keeps the one with the lowest
                 sample residual sum of squares; ``"legendre"`` and
-                ``"block"`` fix it. ``"auto"`` needs the samples and so
-                raises on an Image; any other value is silently ignored on
-                an Image, which is fitted in its own basis regardless.
+                ``"block"`` fix it. On an Image, which carries no samples
+                to route on, ``"auto"`` drops to the image's own basis and
+                any other value is silently ignored: it is fitted in its
+                own basis regardless.
             order: The basis order, ``None`` for the order rule of
                 :func:`dtfit.fit`. Silently ignored on an Image, which is
                 fitted at its own order regardless.
@@ -313,6 +314,10 @@ class Model:
         image's domain, since the seeders read shapes off samples.
         """
         target, seed_from = as_fit_data(data, y)
+        if isinstance(target, Image) and basis == "auto":
+            # No samples to route on; fit the image in its own basis,
+            # as suggest_models already does.
+            basis = target.basis.name
         sp0, sb = self._seed_arrays(seed_from.x, seed_from.y)
         p0 = sp0 if p0 is None else p0
         bounds = sb if bounds is None else bounds

@@ -9,8 +9,9 @@ against, not part of `fit`.
 import numpy as np
 from dtfit.reference import find_degree, fit_dsb
 
+expr, n_params = "a0 + a1*exp(a2*x)", 3
 deg = max(find_degree(x, y, method="bic"), n_params - 1, 1)
-res = fit_dsb(np.polyfit(x, y, deg)[::-1], "a0 + a1*exp(a2*x)", "x")
+res = fit_dsb(np.polyfit(x, y, deg)[::-1], expr, "x")
 ```
 
 ::: dtfit.reference.fit_dsb

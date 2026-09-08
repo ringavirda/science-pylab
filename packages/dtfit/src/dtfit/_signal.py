@@ -1,7 +1,9 @@
 """FFT-based shape detection.
 
-Used by the shape router (:mod:`dtfit.forecast`) and the model recommender
-(:mod:`dtfit.models`); it lives here so neither has to import the other.
+Used by the shape router (:mod:`dtfit.forecast`), the model recommender
+(:mod:`dtfit.models`) and the auto route's peak-share test
+(:mod:`dtfit.image`); it lives here so none of the three has to import
+another.
 """
 
 from __future__ import annotations
