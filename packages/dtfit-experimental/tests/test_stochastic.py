@@ -65,8 +65,8 @@ def test_ar1_reversion_recovers_phi(phi):
 def test_garch_persistence_recovers_alpha_plus_beta():
     truth = 0.08 + 0.90
     est = _mean(lambda s: garch_persistence(
-        B.gen_garch(4000, 0.05, 0.08, 0.90, np.random.default_rng(40 + s)),
-        use="abs")["persistence"], range(3))
+        B.gen_garch(4000, 0.05, 0.08, 0.90,
+                    np.random.default_rng(40 + s)))["persistence"], range(3))
     assert abs(est - truth) / truth < 0.20
 
 
@@ -82,7 +82,7 @@ def test_cycle_period_recovers_period():
 # E6 trend + cycle decomposition
 def test_decompose_recovers_trend_and_cycle():
     t, y = B.gen_trend_cycle(600, 0.02, 50.0, 3.0, 1.0, np.random.default_rng(0))
-    dec = decompose_trend_cycle(t, y, trend_deg=1)
+    dec = decompose_trend_cycle(t, y)
     assert abs(dec["period"] - 50.0) / 50.0 < 0.10
     assert abs(dec["slope"] - 0.02) / 0.02 < 0.30
     fc = dec["forecast"](20)

@@ -31,7 +31,7 @@ offers ``.forecast()``, ``.simulate()`` and ``.summary()``. There is no
 from .image import SecondOrderImage
 from .stream import SecondOrderStream
 
-from dtfit.stochastic._estimators import (
+from .estimators import (
     sample_acf,
     hurst_aggvar,
     hurst_spectral,
@@ -42,6 +42,9 @@ from dtfit.stochastic._estimators import (
     garch_persistence,
     cycle_period,
     decompose_trend_cycle,
+    dickey_fuller,
+    adf_pvalue,
+    as_image,
 )
 from dtfit.stochastic._model import fit_stochastic, StochasticModel
 from dtfit.stochastic._forecast import FORECASTERS
@@ -60,6 +63,9 @@ __all__ = [
     "garch_persistence",
     "cycle_period",
     "decompose_trend_cycle",
+    "dickey_fuller",
+    "adf_pvalue",
+    "as_image",
     "fit_stochastic",
     "StochasticModel",
     "FORECASTERS",

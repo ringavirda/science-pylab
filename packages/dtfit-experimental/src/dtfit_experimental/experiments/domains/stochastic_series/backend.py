@@ -273,7 +273,7 @@ def exp_garch(seeds: int = 8, *, n: int = 4000,
         for s in range(seeds):
             r = gen_garch(n, omega, alpha, beta, np.random.default_rng(4000 + s))
             try:
-                est = garch_persistence(r, method="lsi", use="abs")["persistence"]
+                est = garch_persistence(r, method="lsi")["persistence"]
                 dt_e.append(_rel(est, persist))
             except Exception:
                 dt_e.append(np.nan)
@@ -288,7 +288,7 @@ def exp_garch(seeds: int = 8, *, n: int = 4000,
         "param": "alpha+beta", "metric": "rel.err %",
         "dt_err": err, "base_err": _mean(base_e),
         "verdict": _verdict(err, 12.0, 30.0),
-        "method": "LSI exponential fit to ACF of |returns|",
+        "method": "LSI exponential fit to ACF of squared returns",
         "extra": {"GARCH(1,1) QMLE": _mean(base_e)},
     }
 
@@ -335,7 +335,7 @@ def exp_decompose(seeds: int = 8, *, n: int = 600, slope: float = 0.02,
         t, y = gen_trend_cycle(n, slope, period, amp, noise_sd,
                                np.random.default_rng(6000 + s))
         try:
-            dec = decompose_trend_cycle(t, y, trend_deg=1)
+            dec = decompose_trend_cycle(t, y)
             slope_e.append(_rel(dec["slope"], slope))
             period_e.append(_rel(dec["period"], period))
         except Exception:
