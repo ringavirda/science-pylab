@@ -223,6 +223,10 @@ def channel_gemm_rate(
         )
         started = time.perf_counter()
         stream.update(DAY_POSITIONS[: Y.shape[0]], Y)
+        if backend == "cupy":
+            import cupy  # local: only the cupy row pays this import
+
+            cupy.cuda.runtime.deviceSynchronize()
         best = min(best, time.perf_counter() - started)
     assert stream is not None
     images: list[Image] = stream.images()
@@ -264,8 +268,9 @@ def _reduce_twice(
     started = time.perf_counter()
     rows = work()
     seconds = time.perf_counter() - started
+    rss = peak_rss_mib()
     _, peak = peak_memory(work)
-    queue.put((rows, seconds, peak, peak_rss_mib()))
+    queue.put((rows, seconds, peak, rss))
 
 
 def reduce_rate(

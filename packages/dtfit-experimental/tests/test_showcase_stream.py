@@ -243,13 +243,13 @@ def test_replay_feeds_the_tracker_and_gets_block_images_back(tmp_path):
     assert got["n_blocks"] == 3 and got["bytes_back"] > 0
     assert sent["n_frames_back"] == got["n_blocks"] == len(received)
     assert got["params"]["c"] == pytest.approx(float(y[-1]))
-    # ship() derives block from the image's own domain start and reuses
-    # n_blocks as seq for every image of one batch: check both, and that
-    # the image itself survives the wire.
+    # ship() derives block from the image's own domain start and its own
+    # running seq, one per image sent: check both, and that the image
+    # itself survives the wire.
     for k, (header, payload) in enumerate(received):
         assert header["station"] == "AAAA" and header["field"] == "east"
         assert header["block"] == k
-        assert header["seq"] == k + 1
+        assert header["seq"] == k
         img = stream.image_from_frame(header, payload)
         assert img.domain == (float(k), float(k + 1))
         assert stream.image_digest(img) == stream.image_digest(img)

@@ -312,8 +312,10 @@ def chunk_is_late(
 
 
 def image_digest(image: Image) -> str:
-    """SHA-256 over ``S`` and ``G`` as float64 bytes: two images agree bit
-    for bit exactly when their digests match."""
+    """SHA-256 over ``S`` and ``G`` as float64 bytes: a matching digest
+    means ``S`` and ``G`` agree bit for bit, not that the whole image
+    does -- the grid, ``n``, ``sumsq``, ``sumy``, ``wsum`` and domain can
+    still differ behind the same statistic."""
     h = hashlib.sha256()
     h.update(np.ascontiguousarray(image.S, dtype=np.float64).tobytes())
     h.update(np.ascontiguousarray(image.G, dtype=np.float64).tobytes())
@@ -754,16 +756,19 @@ def track(
     flags: list[float] = []
     expected = 0
     current_station: str | None = None
+    send_seq = 0
     started = time.perf_counter()
 
     def ship(images: list[Any]) -> int:
+        nonlocal send_seq
         sent = 0
         for img in images:
             sent += send_image(
-                conn, img, station=station, field=field,
-                block=int(round(float(img.domain[0]))), seq=n_blocks,
+                conn, img, station=current_station or station, field=field,
+                block=int(round(float(img.domain[0]))), seq=send_seq,
                 flags=0,
             )
+            send_seq += 1
         return sent
 
     try:

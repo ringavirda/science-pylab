@@ -29,14 +29,14 @@ from typing import Any, Sequence
 import numpy as np
 from threadpoolctl import threadpool_limits
 
-from dtfit.image import ImageStream
+from dtfit.image import ImageStream, assemble
 from dtfit.streaming import LSIFilter
 
 from . import (
     compare, filters, isd, isd_fits, isd_reduce, ngl, ngl_fits,
     ngl_reduce, paths, stream, throughput,
 )
-from .store import write_table
+from .store import load_images, write_table
 
 RESULTS = {
     "ngl-reduce": "ngl_reduce",
@@ -55,7 +55,40 @@ RESULTS = {
     "stream-serve": "leg5_serve",
     "stream-replay": "leg5_replay",
     "stream-track": "leg5_track",
+    "leg5-tables": "leg5_tables",
 }
+
+# One entry per leg-5 run this domain has produced: the JSON summary's
+# stem under results/leg5/, its optional producer-side sibling, the
+# direction and block length the table reports it under, and the image
+# subtree its groups reassemble from (see task 18's brief). A source
+# whose JSON is absent is skipped, so a partial leg 5 (one direction
+# unmeasured) still tables what exists.
+LEG5_SOURCES: tuple[tuple[str, str | None, str, float, str], ...] = (
+    ("pi_to_pc", "pi_to_pc_producer", "pi->pc", 1.0, "ngl"),
+    ("pc_to_pi", "pc_to_pi_producer", "pc->pi", 1.0, "ngl"),
+    ("block_0.25", None, "local", 0.25, "ngl-b0.25"),
+    ("block_4.0", None, "local", 4.0, "ngl-b4.0"),
+)
+LEG5_RATE_TAGS = ("1000", "10000", "100000", "max")
+
+LEG5_STREAM_COLUMNS = [
+    "direction", "block_years", "n_images", "bytes_header",
+    "bytes_payload", "seconds", "images_per_second",
+    "latency_ms_median", "latency_ms_p90", "clock_delta_s", "groups",
+    "n_flags", "mismatched",
+]
+LEG5_GROUP_COLUMNS = [
+    "direction", "block_years", "station", "field", "n_blocks",
+    "samples", "bytes_header", "bytes_payload", "n_flags", "digest",
+    "mismatched",
+]
+LEG5_REPLAY_COLUMNS = [
+    "direction", "rate_requested", "rate_achieved", "n_samples",
+    "n_frames", "dropped_sender", "dropped_receiver", "us_per_update",
+    "n_flags", "n_blocks_back", "bytes_forward", "bytes_back",
+    "seconds", "flags_match",
+]
 
 TIMING_COLUMNS = ["host", "command", "rows", "seconds"]
 
@@ -403,8 +436,12 @@ def cmd_throughput(args: argparse.Namespace) -> int:
             steps_by_station=_steps_by_station(paths.data_root()),
         ))
     if files:
+        # The largest file by bytes, not the last of the (limited,
+        # name-sorted) list: the spec's leg 1 wants this measured on the
+        # longest series, and file size tracks epoch count directly.
+        longest = max(files, key=lambda p: p.stat().st_size)
         t_list, y_list = [], []
-        for chunk in ngl.read_tenv3(files[-1]):
+        for chunk in ngl.read_tenv3(longest):
             t_list.append(chunk.t)
             y_list.append(chunk.east)
         t = np.concatenate(t_list)
@@ -635,6 +672,170 @@ def cmd_stream_track(args: argparse.Namespace) -> int:
     return 0
 
 
+def _leg5_group_mismatch(
+    images_root: Path, subdir: str, key: str, group: dict[str, Any]
+) -> int | None:
+    """0 or 1: a local reassembly of ``key``'s blocks digests differently
+    from ``group``'s remote assembly. ``None`` when the station's images
+    are not on this machine (or carry no matching block), so the column
+    stays blank rather than claiming a match nothing checked."""
+    station, field = key.split("/")
+    npz = images_root / subdir / f"{station}.npz"
+    if not npz.exists():
+        return None
+    images, _info = load_images(npz)
+    blocks = [
+        img for name, img in images.items()
+        if name.startswith("blk") and name.endswith(f"_{field}")
+    ]
+    if not blocks:
+        return None
+    local = assemble(blocks[: int(group["n_blocks"])],
+                     order=min(b.order for b in blocks))
+    return int(stream.image_digest(local) != group["digest"])
+
+
+def _leg5_local_flags(
+    stations: Sequence[str], tenv3_dir: Path, field: str = "east"
+) -> int:
+    """Total drift flags the NGL detection filter raises on ``field`` for
+    ``stations``, run fresh off their ``.tenv3`` files: the number the
+    wire replay's flag count is checked against, not the 200-station
+    ``filters_ngl.csv`` run (a different station set)."""
+    config = {"detection": filters.NGL_CONFIGS["detection"]}
+    total = 0
+    for sta in stations:
+        path = tenv3_dir / f"{sta}.tenv3"
+        if not path.exists():
+            continue
+        summary, _steps = filters.ngl_filter_station(path, [],
+                                                       configs=config)
+        total += sum(
+            r["n_flags"] for r in summary if r["component"] == field
+        )
+    return total
+
+
+def leg5_tables(
+    leg5_dir: Path,
+    images_root: Path,
+    results_dir: Path,
+    tenv3_dir: Path,
+    *,
+    sources: Sequence[tuple[str, str | None, str, float, str]] =
+    LEG5_SOURCES,
+    rate_tags: Sequence[str] = LEG5_RATE_TAGS,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build and write the leg-5 tables from the run's own JSON summaries.
+
+    ``leg5_dir`` holds one ``<name>.json`` per entry of ``sources`` that
+    was actually run (and its producer sibling, when named); ``mismatched``
+    is recomputed here rather than trusted from the run, by reassembling
+    each group locally from ``images_root`` and comparing digests
+    (:func:`_leg5_group_mismatch`). ``rate_tags`` names the sample-rate
+    sweep whose ``leg5_replay_rate_<tag>.csv``/``leg5_track_rate_<tag>.csv``
+    pairs live in ``results_dir``; each sweep row's ``flags_match`` is
+    checked against a fresh local run of the detection filter on
+    ``tenv3_dir`` over the stations the localhost block-length sources
+    used -- the same twenty stations the sample-rate sweep replayed.
+
+    Writes ``leg5_stream.csv``, ``leg5_groups.csv`` and ``leg5_replay.csv``
+    into ``results_dir`` and returns the three row lists written.
+    """
+    rows: list[dict[str, Any]] = []
+    group_rows: list[dict[str, Any]] = []
+    for name, producer, direction, block, subdir in sources:
+        path = leg5_dir / f"{name}.json"
+        if not path.exists():
+            continue
+        s = json.loads(path.read_text())
+        p: dict[str, Any] = {}
+        if producer and (leg5_dir / f"{producer}.json").exists():
+            p = json.loads((leg5_dir / f"{producer}.json").read_text())
+        mismatched = 0
+        for key, g in sorted(s["groups"].items()):
+            bad = _leg5_group_mismatch(images_root, subdir, key, g)
+            if bad is not None:
+                mismatched += bad
+            station, field = key.split("/")
+            group_rows.append({
+                "direction": direction, "block_years": block,
+                "station": station, "field": field,
+                "n_blocks": g["n_blocks"], "samples": g["samples"],
+                "bytes_header": g["bytes_header"],
+                "bytes_payload": g["bytes_payload"],
+                "n_flags": g["n_flags"], "digest": g["digest"],
+                "mismatched": bad,
+            })
+        rows.append({
+            "direction": direction, "block_years": block,
+            "n_images": s["n_images"], "bytes_header": s["bytes_header"],
+            "bytes_payload": s["bytes_payload"], "seconds": s["seconds"],
+            "images_per_second": s["images_per_second"],
+            "latency_ms_median": p.get("latency_ms_median"),
+            "latency_ms_p90": p.get("latency_ms_p90"),
+            "clock_delta_s": s["clock_delta_s"],
+            "groups": len(s["groups"]),
+            "n_flags": sum(g["n_flags"] for g in s["groups"].values()),
+            "mismatched": mismatched,
+        })
+
+    stations = sorted({
+        r["station"] for r in group_rows if r["direction"] == "local"
+    })
+    local_flags = _leg5_local_flags(stations, tenv3_dir) if stations else None
+
+    sweep: list[dict[str, Any]] = []
+    for tag in rate_tags:
+        send = results_dir / f"leg5_replay_rate_{tag}.csv"
+        recv = results_dir / f"leg5_track_rate_{tag}.csv"
+        if not (send.exists() and recv.exists()):
+            continue
+        s_row = _read_rows(send)[0]
+        r_row = _read_rows(recv)[0]
+        matches = (
+            local_flags is not None
+            and int(s_row["n_dropped"]) == 0
+            and int(r_row["n_dropped"]) == 0
+            and int(r_row["n_flags"]) == local_flags
+        )
+        sweep.append({
+            "direction": "pc->pi",
+            "rate_requested": s_row["rate_requested"],
+            "rate_achieved": s_row["samples_per_second"],
+            "n_samples": s_row["n_samples"],
+            "n_frames": s_row["n_frames"],
+            "dropped_sender": s_row["n_dropped"],
+            "dropped_receiver": r_row["n_dropped"],
+            "us_per_update": r_row["us_per_update"],
+            "n_flags": r_row["n_flags"],
+            "n_blocks_back": r_row["n_blocks"],
+            "bytes_forward": s_row["bytes_sent"],
+            "bytes_back": r_row["bytes_back"],
+            "seconds": r_row["seconds"], "flags_match": matches,
+        })
+
+    write_table(results_dir / "leg5_stream.csv", rows, LEG5_STREAM_COLUMNS)
+    write_table(results_dir / "leg5_groups.csv", group_rows,
+                LEG5_GROUP_COLUMNS)
+    write_table(results_dir / "leg5_replay.csv", sweep, LEG5_REPLAY_COLUMNS)
+    return rows, group_rows, sweep
+
+
+def cmd_leg5_tables(args: argparse.Namespace) -> int:
+    """Fold the leg-5 JSON summaries (``results/leg5/``) into the three
+    published tables; see :func:`leg5_tables`. ``--images`` is the image
+    tree root, defaulting to ``<data>/images``."""
+    rows, group_rows, sweep = leg5_tables(
+        paths.results_dir() / "leg5", Path(args.images),
+        paths.results_dir(), paths.ngl_dir() / "tenv3",
+    )
+    _WRITTEN[0] += len(rows) + len(group_rows) + len(sweep)
+    print(f"{len(rows)} stream rows, {len(group_rows)} group rows, "
+          f"{len(sweep)} sweep rows")
+    return 0
+
+
 BLAS_THREAD_VARS = (
     "OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
 )
@@ -656,6 +857,7 @@ _COMMANDS = {
     "stream-serve": cmd_stream_serve,
     "stream-replay": cmd_stream_replay,
     "stream-track": cmd_stream_track,
+    "leg5-tables": cmd_leg5_tables,
 }
 
 

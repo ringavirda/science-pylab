@@ -308,10 +308,12 @@ def dropped_times(
 def coordinate_changes(
     path: Any, field: str = "TMP"
 ) -> list[dict[str, Any]]:
-    """Every change of ``LATITUDE``, ``LONGITUDE`` or ``ELEVATION`` in one
-    station-year, as ``{"t", "lat", "lon", "elev"}`` at the first row that
-    carries the new position. The first row is the reference, not a
-    change; an empty file gives an empty list."""
+    """Every change of ``LATITUDE``, ``LONGITUDE`` or ``ELEVATION`` among
+    the rows the reader keeps, as ``{"t", "lat", "lon", "elev"}`` at the
+    first row that carries the new position. ``read_isd`` has already
+    dropped quality-failed, missing and repeated rows, so a move recorded
+    only on a dropped row is invisible here. The first row is the
+    reference, not a change; an empty file gives an empty list."""
     out: list[dict[str, Any]] = []
     prev: tuple[float, float, float] | None = None
     for c in read_isd(path, field):

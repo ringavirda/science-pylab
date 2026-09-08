@@ -15,9 +15,10 @@ from . import (  # noqa: F401  (re-exported for the notebook)
     ngl_reduce, paths, store, stream, throughput,
 )
 from .compare import (
-    COVERAGE_TOL, EXACTNESS_TOL, fit_from_image, gram_rebuild_error,
+    COVERAGE_TOL, EPS, EXACTNESS_TOL, SCORE_FLOOR, attainable,
+    design_condition, fit_from_image, gram_condition, gram_rebuild_error,
     legendre_order, p0_from_image, param_score, raw_bic, raw_lstsq,
-    worst_param,
+    verdict, worst_param,
 )
 from .filters import (
     ISD_CONFIG, NGL_CONFIGS, event_window_share, isd_filter_station,
@@ -25,8 +26,8 @@ from .filters import (
     run_filter, run_isd_filters, run_ngl_filters,
 )
 from .isd_fits import (
-    amp_phase, day_rows, exactness_year, normals_rows, run_normals,
-    run_year_fits, year_rows,
+    amp_phase, day_rows, exactness_year, normals_rows, run_exactness_isd,
+    run_normals, run_year_fits, year_rows,
 )
 from .isd_reduce import (
     ANNUAL_EXPR, ANNUAL_NAMES, ANNUAL_ORDER, DIURNAL_EXPR, DIURNAL_ORDER,
@@ -59,10 +60,11 @@ __all__ = [
     "compare", "filters", "isd", "isd_fits", "isd_reduce", "ngl",
     "ngl_fits", "ngl_reduce", "paths", "store", "stream", "throughput",
     # comparison and storage
-    "EXACTNESS_TOL", "COVERAGE_TOL", "fit_from_image", "legendre_order",
-    "p0_from_image", "param_score", "worst_param", "raw_lstsq",
-    "raw_bic", "gram_rebuild_error", "image_nbytes", "load_images",
-    "save_images", "write_table",
+    "EXACTNESS_TOL", "COVERAGE_TOL", "EPS", "SCORE_FLOOR",
+    "fit_from_image", "legendre_order", "p0_from_image", "param_score",
+    "worst_param", "raw_lstsq", "raw_bic", "gram_rebuild_error",
+    "gram_condition", "design_condition", "attainable", "verdict",
+    "image_nbytes", "load_images", "save_images", "write_table",
     # NGL
     "NGL_EXPR", "NGL_NAMES", "ngl_design", "reduce_station",
     "reduce_to_file", "reduce_many", "segment_bounds", "station_rows",
@@ -73,7 +75,7 @@ __all__ = [
     "DIURNAL_ORDER", "reduce_station_year", "reduce_year_to_file",
     "reduce_many_years", "day_batch", "year_rows", "day_rows",
     "normals_rows", "exactness_year", "amp_phase", "run_year_fits",
-    "run_normals",
+    "run_normals", "run_exactness_isd",
     # filters
     "NGL_CONFIGS", "ISD_CONFIG", "run_filter", "match_flags",
     "reachable_events", "event_window_share", "ratio_bin",

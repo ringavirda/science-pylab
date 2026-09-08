@@ -274,10 +274,7 @@ def project_day_grids(
         call, not the ``S`` GEMM alone: that call also builds ``Phi``,
         copies the explicit grid and accumulates ``G`` on the host with
         numpy regardless of ``backend``, and only ``S`` reaches
-        ``cupy``/``torch``. Measured on this box the GEMM itself is under
-        1 percent of the reported time, so a GPU-versus-numpy row built on
-        this number compares host bookkeeping, not the matrix multiply.
-        Empty ``columns`` gives ``([], 0.0)``.
+        ``cupy``/``torch``. Empty ``columns`` gives ``([], 0.0)``.
     """
     if not columns:
         return [], 0.0
@@ -288,8 +285,9 @@ def project_day_grids(
     )
     started = time.perf_counter()
     stream.update(DAY_POSITIONS, Y)
+    elapsed = time.perf_counter() - started
     images = stream.images()
-    return images, time.perf_counter() - started
+    return images, elapsed
 
 
 def day_batch(

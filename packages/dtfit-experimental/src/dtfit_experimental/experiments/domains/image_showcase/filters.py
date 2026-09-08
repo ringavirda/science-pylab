@@ -304,7 +304,7 @@ def match_flags(
 ) -> dict[str, Any]:
     """Match drift flags to known events.
 
-    An event is detected by the earliest unused flag in ``(event, event +
+    An event is detected by the earliest unused flag in ``[event, event +
     horizon]``; a flag that explains no event and has none within
     ``horizon`` either side is a false alarm. Times and ``horizon`` share
     whatever unit the series uses.
@@ -362,7 +362,8 @@ def ngl_filter_station(
     Every step row carries ``reachable``, and the summary carries the
     recall over the reachable subset beside the recall over every step,
     because the detector is structurally blind for
-    ``WARMUP * window`` samples after each flag. The summary also carries
+    ``(WARMUP + 1) * window`` samples after each flag. The summary also
+    carries
     ``event_window_share`` and the false-alarm rate a randomly placed
     flag would produce at that share, so the observed rate is read
     against its null.

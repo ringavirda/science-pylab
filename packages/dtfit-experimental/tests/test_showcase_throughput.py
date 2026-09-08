@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -9,6 +11,14 @@ from dtfit.image import Image, Original
 
 from dtfit_experimental.experiments.domains.image_showcase import (
     throughput,
+)
+
+# The numpy-only assertions below run always; the three that touch a real
+# GPU (a cupy matrix product on whatever device this box has) only run
+# opted in, since a present cupy is not the same as a fixture that skips.
+requires_gpu = pytest.mark.skipif(
+    not os.environ.get("DTFIT_GPU"),
+    reason="set DTFIT_GPU=1 to run the real GPU probes",
 )
 
 ISD_HEAD = ('"STATION","DATE","SOURCE","LATITUDE","LONGITUDE","ELEVATION",'
@@ -45,6 +55,7 @@ def test_gpu_probe_reports_the_failure_instead_of_raising():
     assert ok is False and "not-a-backend" in message
 
 
+@requires_gpu
 def test_gpu_probe_cupy_and_torch_never_raise():
     # Exercises the cupy and torch branches for real: whichever library is
     # missing takes the except-Exception path, whichever is present and
@@ -55,6 +66,7 @@ def test_gpu_probe_cupy_and_torch_never_raise():
         assert isinstance(message, str) and message
 
 
+@requires_gpu
 def test_gpu_probe_cupy_multiplies_when_installed():
     cp = pytest.importorskip("cupy")
     ok, message = throughput.gpu_probe("cupy")
@@ -71,6 +83,7 @@ def test_gpu_probe_torch_multiplies_when_a_cuda_device_is_present():
     assert message == f"torch {torch.__version__}"
 
 
+@requires_gpu
 def test_channel_gemm_rate_cupy_matches_numpy_when_installed():
     pytest.importorskip("cupy")
     rng = np.random.default_rng(4)
