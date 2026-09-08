@@ -42,22 +42,16 @@ jobs:
               - '.github/workflows/ci.yml'
 
   # The stable, published package -- gated on its own: ruff, the accuracy gate,
-  # mypy and the pytest coverage floor, across the full OS/Python matrix, with
-  # the optional native kernels built on Linux.
+  # mypy and the pytest coverage floor, across the full OS/Python matrix.
   dtfit:
     needs: changes
     if: ${{ needs.changes.outputs.dtfit == 'true' }}
     runs-on: ${{ matrix.os }}
-    # Enforce the optional native build only where CI actually builds it (Linux);
-    # Windows/macOS run the pure-Python fallback, so native-required tests skip.
-    env:
-      DTFIT_REQUIRE_NATIVE: ${{ startsWith(matrix.os, 'ubuntu') && '1' || '' }}
     strategy:
       fail-fast: false
       matrix:
-        # The package claims Windows/Linux/macOS parity (see the README's MKL
-        # note) and the native kernels have a pure-Python fallback -- exercise
-        # all three OSes so that parity is actually tested, not just asserted.
+        # The package targets Windows/Linux/macOS parity -- exercise all three
+        # OSes so that parity is actually tested, not just asserted.
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
@@ -72,17 +66,6 @@ jobs:
 
       - name: Install dtfit (with viz + dev extras)
         run: pip install -e "packages/dtfit[viz,dev]"
-
-      # The optional C kernels need clang; only the Linux runner builds them.
-      # Windows/macOS deliberately run on the NumPy/SciPy fallback, so CI also
-      # covers the no-native code path.
-      - name: Build native extension (dtfit)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang
-          python build_native.py
-        working-directory: packages/dtfit
 
       - name: Lint (ruff)
         run: ruff check packages/dtfit
