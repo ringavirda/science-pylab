@@ -11,7 +11,6 @@ import dtfit
 
 def test_top_level_api():
     for name in [
-        "NonlineRegressor",
         "ImageFilter",
         "EACFilter",
         "fit_lsi",
@@ -30,6 +29,23 @@ def test_the_reference_method_has_its_own_module():
     assert callable(fit_dsb) and callable(find_degree)
     for name in ("fit_dsb", "find_degree"):
         assert not hasattr(dtfit, name)
+
+
+def test_the_estimator_has_its_own_module():
+    from dtfit.sklearn import NonlineRegressor
+
+    assert NonlineRegressor is not None
+    assert not hasattr(dtfit, "NonlineRegressor")
+
+
+def test_importing_dtfit_does_not_import_scikit_learn():
+    """The estimator is the only part that needs it, and it is opt-in."""
+    out = __import__("subprocess").run(
+        [sys.executable, "-c",
+         "import dtfit, sys; print('sklearn' in sys.modules)"],
+        capture_output=True, text=True, check=True,
+    )
+    assert out.stdout.strip() == "False"
 
 
 def test_all_submodules_import():

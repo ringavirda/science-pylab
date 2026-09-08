@@ -7,11 +7,11 @@ from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import KFold, cross_val_score
 from sklearn.pipeline import Pipeline
 
-from dtfit import NonlineRegressor
+from dtfit.sklearn import NonlineRegressor
 
 
 def _reg():
-    return NonlineRegressor("a*atan(w*x)", "x", method="eac", p0=[1.0, 1.0])
+    return NonlineRegressor("a*atan(w*x)", "x", basis="block", p0=[1.0, 1.0])
 
 
 def test_fit_predict_score(arctan_data):
@@ -25,7 +25,7 @@ def test_fit_predict_score(arctan_data):
 
 def test_clone_and_get_params():
     reg = _reg()
-    assert reg.get_params()["method"] == "eac"
+    assert reg.get_params()["basis"] == "block"
     cloned = clone(reg)
     assert not hasattr(cloned, "coef_")
 
@@ -134,7 +134,7 @@ def test_dict_p0_and_bounds_pass_through(arctan_data):
     reg = NonlineRegressor(
         "a*atan(w*x)",
         "x",
-        method="eac",
+        basis="block",
         p0={"a": 4.0, "w": 1.0},
         bounds={"a": (0.0, 10.0)},
     ).fit(x, y)
@@ -150,48 +150,11 @@ def test_nan_policy_forwarded(arctan_data):
     with pytest.raises(ValueError):
         _reg().fit(x, y_bad)
     reg = NonlineRegressor(
-        "a*atan(w*x)", "x", method="eac", p0=[1.0, 1.0], nan_policy="omit"
+        "a*atan(w*x)", "x", basis="block", p0=[1.0, 1.0], nan_policy="omit"
     )
     assert reg.__sklearn_tags__().input_tags.allow_nan is True
     reg.fit(x, y_bad)
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
-
-
-def test_eac_kwargs_reach_fitter(monkeypatch, arctan_data):
-    """Constructor kwargs reach ``fit_eac`` verbatim, apart from the retired
-    ones the image core has no equivalent for. Behaviour alone cannot catch
-    a dropped kwarg here: ``robust=True`` and ``loss="soft_l1"`` each rescue
-    the outlier case on their own. Hence the spy."""
-    x, y, _ = arctan_data
-    captured = {}
-
-    class _Stub:
-        coeffs = np.array([1.0, 1.0])
-        model = staticmethod(np.asarray)
-
-    def fake_eac(xx, yy, expr, var, **kwargs):
-        captured.update(kwargs)
-        return _Stub()
-
-    monkeypatch.setattr("dtfit.estimators._regressor.fit_eac", fake_eac)
-    NonlineRegressor(
-        "a*atan(w*x)", "x", method="eac", p0=[1.0, 1.0],
-        robust=True, huber_c=2.5, loss="soft_l1", window_mode="curvature",
-        nan_policy="omit", active_ratio=0.9,
-    ).fit(x, y)
-    assert captured["robust"] is True
-    assert captured["nan_policy"] == "omit"
-    assert "loss" not in captured
-    assert "window_mode" not in captured
-    assert "huber_c" not in captured
-    assert "active_ratio" not in captured
-
-    captured.clear()
-    NonlineRegressor(
-        "a*atan(w*x)", "x", method="eac", p0=[1.0, 1.0],
-        robust=False, loss="soft_l1",
-    ).fit(x, y)
-    assert captured["robust"] is True
 
 
 def test_robust_levers_rescue_outliers(arctan_data):
@@ -204,7 +167,7 @@ def test_robust_levers_rescue_outliers(arctan_data):
     robust = NonlineRegressor(
         "a*atan(w*x)",
         "x",
-        method="eac",
+        basis="block",
         p0=[1.0, 1.0],
         robust=True,
     ).fit(x, y_out)
@@ -214,7 +177,7 @@ def test_robust_levers_rescue_outliers(arctan_data):
         plain.coef_ - expected
     )
     robust_lsi = NonlineRegressor(
-        "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0], robust=True
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0], robust=True
     ).fit(x, y_out)
     assert np.allclose(robust_lsi.coef_, expected, rtol=0.15)
 
@@ -261,26 +224,6 @@ def test_sparse_input_rejected(arctan_data):
         _reg().fit(sparse.csr_matrix(x.reshape(-1, 1)), y)
 
 
-def test_dict_p0_works_on_dsb_route(lint_exp_data):
-    """Dict ``p0`` is documented for every method route. ``fit_dsb`` takes
-    positional parameters only, so the estimator normalises the dict to an
-    array on its behalf."""
-    x, y = lint_exp_data
-    pos = NonlineRegressor(
-        "a + b*x + c*exp(d*x)", "x", method="dsb",
-        p0=[0.5, 0.2, 0.3, 0.4],
-    ).fit(x, y)
-    named = NonlineRegressor(
-        "a + b*x + c*exp(d*x)", "x", method="dsb",
-        p0={"a": 0.5, "b": 0.2, "c": 0.3, "d": 0.4},
-    ).fit(x, y)
-    assert np.allclose(pos.coef_, named.coef_)
-    with pytest.raises(ValueError, match=r"p0"):
-        NonlineRegressor(
-            "a + b*x + c*exp(d*x)", "x", method="dsb", p0={"a": 0.5}
-        ).fit(x, y)
-
-
 def test_callable_model_fits_and_scores(arctan_data):
     """A plain callable ``f(x, a, w)`` fits on the LSI route. Its parameter
     names come from the signature, and the result carries a numeric evaluator
@@ -290,7 +233,7 @@ def test_callable_model_fits_and_scores(arctan_data):
     def model(x, a, w):
         return a * np.arctan(w * x)
 
-    reg = NonlineRegressor(model, "x", method="lsi", p0=[1.0, 1.0]).fit(x, y)
+    reg = NonlineRegressor(model, "x", basis="legendre", p0=[1.0, 1.0]).fit(x, y)
     assert reg.coef_.shape == (2,)
     assert reg.score(x, y) > 0.8
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
@@ -309,7 +252,7 @@ def test_callable_param_names_when_signature_opaque(arctan_data):
         return p[0] * np.arctan(p[1] * x)
 
     reg = NonlineRegressor(
-        model, "x", method="lsi", param_names=["a", "w"], p0=[1.0, 1.0]
+        model, "x", basis="legendre", param_names=["a", "w"], p0=[1.0, 1.0]
     ).fit(x, y)
     assert reg.result_.names == ("a", "w")
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
@@ -326,30 +269,20 @@ def test_callable_and_param_names_forwarded_to_fitter(monkeypatch, arctan_data):
         coeffs = np.array([1.0, 1.0])
         model = staticmethod(np.asarray)
 
-    def fake_lsi(xx, yy, expr, var, **kwargs):
-        captured["expr"] = expr
+    def fake_fit(model, data, var=None, **kwargs):
+        captured["model"] = model
         captured["param_names"] = kwargs.get("param_names")
         return _Stub()
 
-    monkeypatch.setattr("dtfit.estimators._regressor.fit_lsi", fake_lsi)
+    monkeypatch.setattr("dtfit.sklearn.fit", fake_fit)
 
     def model(x, *p):
         return p[0] * x
 
-    NonlineRegressor(model, "x", method="lsi", param_names=["a", "b"]).fit(x, y)
-    assert captured["expr"] is model
+    NonlineRegressor(model, "x", basis="legendre",
+                     param_names=["a", "b"]).fit(x, y)
+    assert captured["model"] is model
     assert list(captured["param_names"]) == ["a", "b"]
-
-
-def test_callable_model_on_dsb_raises(lint_exp_data):
-    """DSB is symbolic-only: a callable model raises a clear error at fit time."""
-    x, y = lint_exp_data
-
-    def model(x, a, b):
-        return a + b * x
-
-    with pytest.raises(ValueError, match=r"dsb"):
-        NonlineRegressor(model, "x", method="dsb").fit(x, y)
 
 
 def test_sample_weight_downweights_outliers(arctan_data):
@@ -363,10 +296,10 @@ def test_sample_weight_downweights_outliers(arctan_data):
     weight = np.ones_like(x)
     weight[corrupt] = 1e-3  # near-zero trust in the corrupted band
     weighted = NonlineRegressor(
-        "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
     ).fit(x, y_bad, sample_weight=weight)
     plain = NonlineRegressor(
-        "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
     ).fit(x, y_bad)
     assert np.linalg.norm(weighted.coef_ - expected) < np.linalg.norm(
         plain.coef_ - expected
@@ -384,18 +317,20 @@ def test_sample_weight_forwarded_as_sigma(monkeypatch, arctan_data):
         coeffs = np.array([1.0, 1.0])
         model = staticmethod(np.asarray)
 
-    def fake_lsi(xx, yy, expr, var, **kwargs):
+    def fake_fit(model, data, var=None, **kwargs):
+        captured["w"] = data.w
         captured.update(kwargs)
         return _Stub()
 
-    monkeypatch.setattr("dtfit.estimators._regressor.fit_lsi", fake_lsi)
+    monkeypatch.setattr("dtfit.sklearn.fit", fake_fit)
     weight = np.linspace(0.5, 2.0, x.size)
-    NonlineRegressor("a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]).fit(
+    NonlineRegressor("a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]).fit(
         x, y, sample_weight=weight
     )
-    # arctan_data x is already ascending, so the estimator's x-sort is a no-op
-    # and sigma aligns 1:1 with the input weights.
-    assert np.allclose(captured["sigma"], 1.0 / np.sqrt(weight))
+    # arctan_data x is already ascending, so the estimator's x-sort is a
+    # no-op and the image weights align 1:1 with the input weights:
+    # sigma = 1/sqrt(w) going in, w = 1/sigma**2 coming out.
+    assert np.allclose(captured["w"], weight)
     assert captured.get("absolute_sigma", False) is False
 
 
@@ -406,7 +341,7 @@ def test_zero_sample_weight_ignores_sample(arctan_data):
     weight = np.ones_like(x)
     weight[::7] = 0.0
     reg = NonlineRegressor(
-        "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
     ).fit(x, y, sample_weight=weight)
     assert np.all(np.isfinite(reg.coef_))
     assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.15)
@@ -416,7 +351,7 @@ def test_all_zero_sample_weight_raises(arctan_data):
     x, y, _ = arctan_data
     with pytest.raises(ValueError, match=r"(?i)zero"):
         NonlineRegressor(
-            "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+            "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
         ).fit(x, y, sample_weight=np.zeros_like(x))
 
 
@@ -427,24 +362,15 @@ def test_negative_sample_weight_raises(arctan_data):
     weight[0] = -1.0
     with pytest.raises(ValueError, match=r"(?i)non-negative|negative"):
         NonlineRegressor(
-            "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+            "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
         ).fit(x, y, sample_weight=weight)
-
-
-def test_sample_weight_on_dsb_raises(lint_exp_data):
-    """DSB has no per-sample weighting at all."""
-    x, y = lint_exp_data
-    with pytest.raises(ValueError, match=r"sample_weight is not supported"):
-        NonlineRegressor(
-            "a + b*x + c*exp(d*x)", "x", method="dsb"
-        ).fit(x, y, sample_weight=np.ones_like(x))
 
 
 def test_result_has_rsquared(arctan_data):
     """The LSI fitter records the fit-quality stats and ``result_`` exposes
     them."""
     x, y, _ = arctan_data
-    reg = NonlineRegressor("a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]).fit(
+    reg = NonlineRegressor("a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]).fit(
         x, y
     )
     r2 = reg.result_.rsquared
@@ -455,17 +381,17 @@ def test_result_has_rsquared(arctan_data):
     assert reg.result_.n_obs == x.size
 
 
-def test_sample_weight_with_nan_omit_both_routes(arctan_data):
-    """``sample_weight`` plus ``nan_policy='omit'`` plus a NaN row must fit on
-    both the lsi and the eac route. The hazard is sigma length: the two fitters
-    have to agree on how many weights survive the dropped rows."""
+def test_sample_weight_with_nan_omit_on_every_basis(arctan_data):
+    """``sample_weight`` plus ``nan_policy='omit'`` plus a NaN row must fit in
+    every basis. The hazard is sigma length: the weights and the samples have
+    to agree on how many survive the dropped rows."""
     x, y, truth = arctan_data
     y = y.copy()
     y[7] = np.nan
     w = np.full(x.size, 2.0)  # full-length weights, one per raw sample
-    for method in ("lsi", "eac"):
+    for basis in ("auto", "legendre", "block"):
         reg = NonlineRegressor(
-            "a*atan(w*x)", "x", method=method, p0=[1.0, 1.0],
+            "a*atan(w*x)", "x", basis=basis, p0=[1.0, 1.0],
             nan_policy="omit",
         ).fit(x, y, sample_weight=w)
         assert np.allclose(reg.coef_, [truth["a"], truth["w"]], rtol=0.2)
@@ -532,10 +458,49 @@ def test_sample_weight_as_series_works(arctan_data):
     weight[corrupt] = 1e-3
     sw = pd.Series(weight, index=pd.RangeIndex(x.size))
     weighted = NonlineRegressor(
-        "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
     ).fit(x, y_bad, sample_weight=sw)
     weighted_np = NonlineRegressor(
-        "a*atan(w*x)", "x", method="lsi", p0=[1.0, 1.0]
+        "a*atan(w*x)", "x", basis="legendre", p0=[1.0, 1.0]
     ).fit(x, y_bad, sample_weight=weight)
     assert np.allclose(weighted.coef_, weighted_np.coef_)
     assert np.allclose(weighted.coef_, [truth["a"], truth["w"]], rtol=0.15)
+
+
+def test_basis_and_order_reach_the_fit(monkeypatch, arctan_data):
+    """``basis`` and ``order`` are estimator parameters and must arrive at
+    :func:`dtfit.fit` unchanged, which is what puts them in a grid search."""
+    import dtfit.sklearn as sk
+
+    x, y, _ = arctan_data
+    captured = {}
+    real = sk.fit
+
+    def spy(model, data, var=None, **kwargs):
+        captured.update(kwargs)
+        return real(model, data, var, **kwargs)
+
+    monkeypatch.setattr(sk, "fit", spy)
+    NonlineRegressor(
+        "a*atan(w*x)", "x", basis="block", order=10, p0=[1.0, 1.0],
+        robust=True,
+    ).fit(x, y)
+    assert captured["basis"] == "block"
+    assert captured["order"] == 10
+    assert captured["robust"] is True
+
+
+def test_grid_search_over_basis_and_order(arctan_data):
+    """The estimator parameters compose with GridSearchCV, which is the point
+    of exposing the basis and the order rather than fixing them."""
+    from sklearn.model_selection import GridSearchCV
+
+    x, y, _ = arctan_data
+    grid = GridSearchCV(
+        NonlineRegressor("a*atan(w*x)", "x", p0=[1.0, 1.0]),
+        {"basis": ["legendre", "block"], "order": [6, 12]},
+        cv=3,
+    )
+    grid.fit(x, y)
+    assert grid.best_params_["basis"] in ("legendre", "block")
+    assert grid.best_params_["order"] in (6, 12)

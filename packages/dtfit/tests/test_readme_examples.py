@@ -25,7 +25,9 @@ def test_readme_batch_and_estimator(series):
     result = dt.fit_eac(x, y, "a*atan(w*x)", "x")
     assert set(result.params) == {"a", "w"}
 
-    reg = dt.NonlineRegressor("a0 + a1*x + a2*exp(a3*x)", "x", method="lsi")
+    from dtfit.sklearn import NonlineRegressor
+
+    reg = NonlineRegressor("a0 + a1*x + a2*exp(a3*x)", "x")
     reg.fit(x, y)
     assert reg.predict(x).shape == x.shape
 

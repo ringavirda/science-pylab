@@ -16,6 +16,7 @@ import pytest
 
 import dtfit as dt
 from dtfit.reference import find_degree, fit_dsb
+from dtfit.sklearn import NonlineRegressor
 from accuracy.scenarios import SCENARIOS
 from accuracy.harness import ordered_params, r2, param_err, predict
 
@@ -42,10 +43,7 @@ def test_suggest_recommends_true_family(scn):
 
 
 # One model per non-oscillatory category, fit through the sklearn estimator on
-# its defaults alone (p0=None -> ones, k_star=5, no pre-filter). Oscillatory
-# models are excluded on purpose: the bare NonlineRegressor has no freq_param
-# and never applies the oscillatory recipe. See
-# test_oscillatory_needs_recipe_path below.
+# its defaults alone (p0=None -> ones, no bounds).
 _REGRESSOR_MODELS = [
     "linear", "exponential", "exp_decay", "logistic", "gaussian",
     "michaelis_menten",
@@ -53,37 +51,36 @@ _REGRESSOR_MODELS = [
 
 
 @pytest.mark.parametrize("name", _REGRESSOR_MODELS)
-@pytest.mark.parametrize("method", ["lsi", "eac"])
-def test_nonline_regressor_defaults(name, method):
+@pytest.mark.parametrize("basis", ["auto", "legendre", "block"])
+def test_nonline_regressor_defaults(name, basis):
     scn = next(s for s in SCENARIOS if s.name == name)
     x, y, clean = scn.make(0.03, seed=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        reg = dt.NonlineRegressor(scn.model().expr, scn.model().var,
-                                  method=method).fit(x, y)
+        reg = NonlineRegressor(scn.model().expr, scn.model().var,
+                               basis=basis).fit(x, y)
     pred = reg.predict(x)
     assert np.all(np.isfinite(reg.coef_))
     assert np.all(np.isfinite(pred))
     # a bare-default fit on a clean signal must still be a usable curve
-    assert r2(clean, pred) > 0.9, f"{name}/{method}: R2={r2(clean, pred):.3f}"
+    assert r2(clean, pred) > 0.9, f"{name}/{basis}: R2={r2(clean, pred):.3f}"
 
 
-def test_oscillatory_needs_recipe_path():
-    """A cycle is recovered only through the oscillatory recipe: Model.fit,
-    auto_estimate, or an explicit freq_param. Smoothing at the bare
-    NonlineRegressor's low default order erases it."""
+def test_bare_defaults_recover_a_cycle_through_the_auto_route():
+    """From ``p0=None`` (ones) a cycle is out of reach of the Legendre basis
+    at its order rule, which smooths it away; the auto route finds a basis
+    that holds it, without a frequency seed or a hand-made p0."""
     scn = next(s for s in SCENARIOS if s.name == "sine")
     x, y, clean = scn.make(0.03, seed=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        # recommended path: routes through the oscillatory recipe
-        good = scn.model().fit(x, y)
-        good_r2 = r2(clean, predict(good, x))
-        # bare regressor, no recipe: the documented underperformer on cycles
-        bare = dt.NonlineRegressor(scn.model().expr, "x", method="lsi").fit(x, y)
-        bare_r2 = r2(clean, bare.predict(x))
-    assert good_r2 > 0.98, f"recipe path should recover the cycle, got {good_r2:.3f}"
-    assert good_r2 > bare_r2, "oscillatory recipe must beat the bare regressor"
+        auto = NonlineRegressor(scn.model().expr, "x").fit(x, y)
+        legendre = NonlineRegressor(
+            scn.model().expr, "x", basis="legendre").fit(x, y)
+        seeded = scn.model().fit(x, y)
+    assert r2(clean, auto.predict(x)) > 0.98
+    assert r2(clean, legendre.predict(x)) < 0.5
+    assert r2(clean, predict(seeded, x)) > 0.98
 
 
 def test_dsb_reference_additive():

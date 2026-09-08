@@ -47,11 +47,12 @@ def test_residual_diagnostics(exp_fit):
 def test_fit_display_from_estimator(arctan_data):
     plt = pytest.importorskip("matplotlib.pyplot")
     plt.switch_backend("Agg")
-    from dtfit import NonlineRegressor
     from dtfit.diagnostics import FitDisplay
+    from dtfit.sklearn import NonlineRegressor
 
     x, y, _ = arctan_data
-    reg = NonlineRegressor("a*atan(w*x)", "x", method="eac", p0=[1, 1]).fit(x, y)
+    reg = NonlineRegressor("a*atan(w*x)", "x", basis="block",
+                           p0=[1, 1]).fit(x, y)
     disp = FitDisplay.from_estimator(reg, x, y)
     assert disp.ax_ is not None
     assert disp.figure_ is not None

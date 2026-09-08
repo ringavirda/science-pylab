@@ -11,7 +11,7 @@ with its own reason; everything else must pass.
 import pytest
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
-from dtfit import NonlineRegressor
+from dtfit.sklearn import NonlineRegressor
 
 # Raises IndexError while building y, before the estimator is called.
 _BODY_SLICES_1D_X = (

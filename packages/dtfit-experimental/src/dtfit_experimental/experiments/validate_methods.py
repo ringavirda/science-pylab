@@ -28,6 +28,7 @@ from scipy.optimize import curve_fit
 from sklearn.model_selection import KFold, cross_val_score
 
 import dtfit as dt
+from dtfit.sklearn import NonlineRegressor
 from dtfit.streaming import EACFilter
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -117,7 +118,7 @@ def experiment_covid_sklearn() -> None:
     t = np.linspace(0, 1.5, y.size)
     ys = y / y[0]
 
-    reg = dt.NonlineRegressor("a*exp(b*x)", "x", method="eac", p0=[1.0, 1.0])
+    reg = NonlineRegressor("a*exp(b*x)", "x", basis="block", p0=[1.0, 1.0])
     reg.fit(t, ys)
     print(f"  fitted coef_ (a, b): {reg.coef_}")
     print(f"  in-sample R^2      : {reg.score(t, ys):.4f}")

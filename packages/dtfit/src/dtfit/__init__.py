@@ -13,10 +13,6 @@ Batch fitters:
     block presets. ensemble_fit is the overlapping-window ensemble for
     densely contaminated data.
 
-Estimator:
-    NonlineRegressor, an sklearn-compatible fit/predict/score over LSI, EAC
-    and DSB. It composes with Pipeline and GridSearchCV.
-
 High level:
     auto_estimate and auto_forecast route by signal shape. models / Model /
     suggest_models are a catalog of self-seeding model families and an AIC
@@ -62,7 +58,6 @@ from dtfit.methods import (
     EnsembleResult,
 )
 from dtfit.image import Original, Image, ImageStream, fit, order_for
-from dtfit.estimators import NonlineRegressor
 from dtfit.streaming import (
     ImageFilter,
     LSIFilter,
@@ -81,7 +76,6 @@ __all__ = [
     "ImageStream",
     "fit",
     "order_for",
-    "NonlineRegressor",
     "auto_estimate",
     "auto_forecast",
     "ForecastResult",

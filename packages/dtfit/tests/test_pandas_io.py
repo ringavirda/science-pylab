@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from dtfit import fit_lsi, fit_eac
+from dtfit.sklearn import NonlineRegressor
 from dtfit._pandas import (
     HAS_PANDAS,
     as_series,
@@ -199,7 +200,7 @@ def test_multivariate_x_raises_clear_error_everywhere():
         lambda: dt.auto_estimate(X2, y, "a*x", "x"),
         lambda: dt.auto_forecast(X2, y, horizon=3),
         lambda: dt.fit_stochastic(X2),
-        lambda: dt.NonlineRegressor("a*x", "x").fit(X2, y),
+        lambda: NonlineRegressor("a*x", "x").fit(X2, y),
         lambda: dt.fit_lsi(pd.DataFrame({"a": np.arange(40.0), "b": np.arange(40.0)}),
                            y, "a*x", "x"),
     ]
