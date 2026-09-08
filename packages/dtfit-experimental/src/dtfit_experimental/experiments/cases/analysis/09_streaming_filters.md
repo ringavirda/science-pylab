@@ -140,9 +140,11 @@ comfortably on a Cortex-M0+/M4/ESP32 and feasible even on a 2 KB AVR. At a few
 thousand FLOPs per epoch against a 1–10 Hz GPS rate, **compute is never the
 bottleneck** — memory and float discipline are. Honest caveat: NumPy does not run
 on an MCU, so the per-sample latency (~34 µs desktop) is a reference for the
-algorithm shape while the deployable artifact is a hand-coded C recurrence (the
-integration kernels are already C in `dtfit._native`); the memory verdict, which
-usually decides feasibility, is exact.
+algorithm shape while the deployable artifact is a hand-coded C recurrence (on
+desktop the integration hot loop runs on numpy/scipy, `dtfit._core._kernels`; there
+is no compiled `dtfit._native` any more, and the MCU port was always hand-written C,
+not a build of that library code); the memory verdict, which usually decides
+feasibility, is exact.
 
 ### A library robustness bug found along the way (the durable fix)
 
