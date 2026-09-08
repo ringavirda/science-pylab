@@ -158,20 +158,20 @@ class SecondOrderImage:
         self.sum_t = 0
         self.sum_t2 = 0
         self.sum_ty = 0.0
-        self.c_y = np.zeros(self.lag + 1)
-        self.c_dy = np.zeros(self.lag + 1)
-        self.c_d2 = np.zeros(self.lag + 1)
-        self.c_sq = np.zeros(self.lag + 1)
+        self.c_y: np.ndarray = np.zeros(self.lag + 1)
+        self.c_dy: np.ndarray = np.zeros(self.lag + 1)
+        self.c_d2: np.ndarray = np.zeros(self.lag + 1)
+        self.c_sq: np.ndarray = np.zeros(self.lag + 1)
         j = self.scales + 1
-        self.ss = np.zeros(j)
-        self.nb = np.zeros(j, dtype=np.int64)
-        self.lead_sum = np.zeros(j)
-        self.lead_len = np.zeros(j, dtype=np.int64)
-        self.part_sum = np.zeros(j)
-        self.part_len = np.zeros(j, dtype=np.int64)
-        self.residues = np.zeros(2 * self.nfreq)
-        self.head = np.zeros(0)
-        self.tail = np.zeros(0)
+        self.ss: np.ndarray = np.zeros(j)
+        self.nb: np.ndarray = np.zeros(j, dtype=np.int64)
+        self.lead_sum: np.ndarray = np.zeros(j)
+        self.lead_len: np.ndarray = np.zeros(j, dtype=np.int64)
+        self.part_sum: np.ndarray = np.zeros(j)
+        self.part_len: np.ndarray = np.zeros(j, dtype=np.int64)
+        self.residues: np.ndarray = np.zeros(2 * self.nfreq)
+        self.head: np.ndarray = np.zeros(0)
+        self.tail: np.ndarray = np.zeros(0)
 
     # ------------------------------------------------------------ building
     @classmethod
