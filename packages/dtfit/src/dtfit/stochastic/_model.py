@@ -35,7 +35,7 @@ from ._forecast import (
     _bind_forecaster, _fc_rw, _fc_drift, _fc_meanrev, _fc_trend,
     _make_seasonal_fc, _make_seasonal_fc_anchored, _resolve_forecaster,
 )
-from ._simulate import (
+from .simulate import (
     _sim_ar1, _sim_long_memory, _sim_garch, make_innovations,
 )
 
