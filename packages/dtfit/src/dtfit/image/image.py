@@ -340,15 +340,67 @@ class Image:
         return Phi @ self.beta
 
     def simulate(
-        self, sigma: float, rng: np.random.Generator | None = None
+        self,
+        n: int | None = None,
+        sigma: float | None = None,
+        rng: np.random.Generator | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """``(x, y)`` on the image's grid: the reconstruction plus Gaussian
-        noise of std ``sigma``."""
+        """A synthetic record drawn from this image.
+
+        The reconstruction (:meth:`reconstruct`) plus independent Gaussian
+        noise, on the image's own sample grid or on a fresh uniform one.
+
+        Args:
+            n: Number of positions. ``None`` uses the image's own grid;
+                an int at least 2 uses that many evenly spaced positions
+                over the domain, endpoints included.
+            sigma: Standard deviation of the added noise, at least 0.
+                ``None`` takes :meth:`noise_sigma`.
+            rng: A ``numpy.random.Generator``; ``None`` makes a fresh one,
+                so the draw is not reproducible.
+
+        Returns:
+            ``(x, y)``, both of length ``n`` (or of the image's sample
+            count).
+
+        Raises:
+            TypeError: ``n`` is not an integer; the noise level is
+                ``sigma``, the second argument.
+            ValueError: ``n`` below 2; ``sigma`` negative or not finite;
+                or ``sigma=None`` with no readable noise level (a
+                non-Legendre basis, or fewer than eight orders above the
+                effective order).
+        """
+        from .analytics import _tail_variance
+
         rng = np.random.default_rng() if rng is None else rng
-        x = self.grid.positions()
-        return x, self.reconstruct(x) + float(sigma) * rng.standard_normal(
-            x.size
-        )
+        if n is None:
+            x = self.grid.positions()
+        else:
+            if isinstance(n, bool) or not isinstance(n, (int, np.integer)):
+                raise TypeError(
+                    "simulate(n, sigma, rng): n is a sample count; pass the "
+                    f"noise level as sigma= (got n={n!r})"
+                )
+            if int(n) < 2:
+                raise ValueError(f"simulate needs n >= 2; got {int(n)}")
+            x = np.linspace(self.domain[0], self.domain[1], int(n))
+        if sigma is None:
+            v = _tail_variance(self)
+            if v is None:
+                raise ValueError(
+                    "simulate(sigma=None) reads the noise level from the "
+                    "image's tail orders, which this image does not have; "
+                    "pass sigma explicitly"
+                )
+            s = float(np.sqrt(v))
+        else:
+            s = float(sigma)
+            if not np.isfinite(s) or s < 0.0:
+                raise ValueError(
+                    f"sigma must be finite and non-negative; got {sigma}"
+                )
+        return x, self.reconstruct(x) + s * rng.standard_normal(x.size)
 
     def noise_sigma(self) -> float | None:
         """The noise standard deviation read off the tail orders.

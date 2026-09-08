@@ -142,11 +142,50 @@ def test_beta_reconstruct_and_serialisation():
 
 def test_simulate_shape_and_seed():
     img = Image.of(_orig(), "legendre", 8)
-    x1, y1 = img.simulate(0.05, rng=np.random.default_rng(3))
-    x2, y2 = img.simulate(0.05, rng=np.random.default_rng(3))
+    x1, y1 = img.simulate(sigma=0.05, rng=np.random.default_rng(3))
+    x2, y2 = img.simulate(sigma=0.05, rng=np.random.default_rng(3))
     assert x1.shape == (200,) and x2.shape == y2.shape
+    assert np.array_equal(x1, img.grid.positions())
     assert np.array_equal(y1, y2)
     assert np.std(y1 - img.reconstruct(x1)) == pytest.approx(0.05, rel=0.3)
+
+
+def test_simulate_on_a_fresh_grid():
+    img = Image.of(_orig(), "legendre", 8)
+    x, y = img.simulate(50, sigma=0.0)
+    assert x.shape == (50,) and y.shape == (50,)
+    assert x[0] == img.domain[0] and x[-1] == img.domain[1]
+    assert np.allclose(np.diff(x), x[1] - x[0])
+    assert np.array_equal(y, img.reconstruct(x))
+
+
+def test_simulate_defaults_sigma_to_the_noise_level():
+    o = _orig(n=600)
+    img = Image.of(o, "legendre", 40)
+    level = img.noise_sigma()
+    assert level is not None
+    _, y = img.simulate(rng=np.random.default_rng(0))
+    spread = float(np.std(y - img.reconstruct(img.grid.positions())))
+    assert spread == pytest.approx(level, rel=0.2)
+
+
+def test_simulate_rejects_a_float_sample_count():
+    img = Image.of(_orig(), "legendre", 8)
+    with pytest.raises(TypeError, match="sample count"):
+        img.simulate(0.05)
+    with pytest.raises(ValueError, match="n >= 2"):
+        img.simulate(1)
+    with pytest.raises(ValueError, match="non-negative"):
+        img.simulate(sigma=-1.0)
+
+
+def test_simulate_without_a_readable_noise_level():
+    img = Image.of(_orig(), "legendre", 6)
+    with pytest.raises(ValueError, match="tail orders"):
+        img.simulate()
+    block = Image.of(_orig(), "block", 8)
+    with pytest.raises(ValueError, match="tail orders"):
+        block.simulate()
 
 
 def test_of_model_equals_image_of_sampled_model():
