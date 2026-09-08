@@ -42,7 +42,7 @@ constructing them.
 
 **`expr` may be symbolic *or* a callable.** Pass either a SymPy-expression
 string (e.g. `"a*exp(b*x)"`) or a plain Python callable
-`f(x, *params)` -- resolved through [`resolve_model`](API-Fitting#also-exported-from-dtfitmethods),
+`f(x, *params)` -- resolved through [`resolve_model`](#resolve_model),
 so a callable's parameter order is the callable's **signature** order (not the
 sorted order symbolic models use) and it fits through the same engines.
 [`Model.from_callable(func, names=..., var=..., ...)`](#from_callable) is a
@@ -54,19 +54,26 @@ raises a clear error there (see [`__add__`](#__add__-composition-with-)).
 **Key attributes:** `expr` (the SymPy string when symbolic, else `None`), `func`
 (the Python callable when non-symbolic, else `None`), `is_symbolic` (`True` for a
 string model, `False` for a callable), `var`, `name`, `shape` (`"bulk"` /
-`"oscillatory"` / `"transient"` / `"peak"` / `"composite"` -- decides the estimator
-under `method="auto"`), `category`, `freq_param`, `params` (the parameter-name
-tuple, in **sorted** order for a symbolic model, **signature** order for a callable).
+`"oscillatory"` / `"transient"` / `"peak"` / `"composite"` -- a label for the
+catalog and for `suggest_models`, not a route), `category`, `freq_param`,
+`params` (the parameter-name tuple, in **sorted** order for a symbolic model,
+**signature** order for a callable).
 
-### `fit(x, y, *, method="auto", p0=None, bounds=None) -> FittingResult`
+### `fit(data, y=None, *, basis="auto", order=None, p0=None, bounds=None) -> FittingResult`
 Fit this family to the data, **self-seeding** `p0`/`bounds` from the model's
 seeder unless you override them.
 
-| `method` | engine | bounds forwarded? |
+`data` is an [`Original`](API-Fitting#original), an
+[`Image`](API-Fitting#image), or the sample positions with `y`. An Image is
+fitted as it is; its seed comes from an Original reconstructed on 400 points
+over the image's domain, since the seeders read shapes off samples, and
+`basis="auto"` raises on one because the routing needs the samples.
+
+| `basis` | fits with | needs samples |
 |---|---|---|
-| `"auto"` (default) | routes by `shape` through [`auto_estimate`](API-Auto#auto_estimate) | yes |
-| `"lsi"` | [`fit_lsi`](API-Fitting#fit_lsi) (passing `freq_param`) | yes |
-| `"eac"` | [`fit_eac`](API-Fitting#fit_eac) | yes (per-parameter pair list) |
+| `"auto"` (default) | [`fit`](API-Fitting#fit)'s candidates, keeping the lowest residual over the samples | yes |
+| `"legendre"` | the Legendre basis at `order`, or `order_for` when `order` is `None` | no |
+| `"block"` | the block basis at `order` windows, or `4 * n_params` when `order` is `None` | no |
 
 > **Partially-bounded seeds are kept.** A seeder that bounds some parameters
 > and leaves others infinite does not lose *all* its bounds: the mixed pairs
@@ -146,9 +153,14 @@ scattered multivariate cloud.
 ## `suggest_models`
 
 ```python
-suggest_models(x, y, candidates=None, *, method="auto", top=None,
+suggest_models(data, y=None, candidates=None, *, basis="auto", top=None,
                include=None, exclude=None) -> list[Suggestion]
 ```
+
+`data` is an `Original`, an `Image`, or the sample positions with `y`; `basis`
+is forwarded to every candidate's [`Model.fit`](#modelfit). An Image is
+shortlisted and seeded on its 400-point reconstruction but scored on the image
+itself, so the ranking is the one the samples would give.
 
 Fit candidate families to `(x, y)` and rank them **best-first by AIC**.
 
@@ -186,8 +198,10 @@ dict). Convenience properties: `aic`, `bic`, `r2`.
 ## `register` / `unregister`
 
 ```python
-dtfit.register(name, factory, *, overwrite=False)   # also dtfit.models.register
-dtfit.unregister(name)
+from dtfit.models import register, unregister
+
+register(name, factory, *, overwrite=False)
+unregister(name)
 ```
 
 Add your own family to the catalog so `all_models()` **and** `suggest_models`
@@ -198,10 +212,13 @@ A registered family with a custom `category` is **never silently dropped** from
 the `suggest_models` shortlist.
 
 ```python
-import dtfit, numpy as np
-dtfit.register("myline", lambda: dtfit.Model("a0 + a1*x", name="myline"))
-[s.name for s in dtfit.suggest_models(x, y)]   # "myline" is a candidate now
-dtfit.unregister("myline")
+import numpy as np
+from dtfit import suggest_models
+from dtfit.models import Model, register, unregister
+
+register("myline", lambda: Model("a0 + a1*x", name="myline"))
+[s.name for s in suggest_models(x, y)]   # "myline" is a candidate now
+unregister("myline")
 ```
 
 ---
@@ -227,7 +244,7 @@ full registry and `models.all_models()` returns one instance of each.
 from dtfit import models
 
 models.logistic()            # L/(1 + exp(-k*(x - x0))), shape="bulk"/sigmoid, self-seeds L,k,x0
-models.gaussian()            # a peak family; auto routes it to the block image (fit_eac)
+models.gaussian()            # a peak family; auto routes it to Legendre at order_for
 models.damped_oscillation()  # oscillatory, carries a freq_param
 
 [m.name for m in models.all_models()]   # every family
@@ -261,11 +278,11 @@ volatility) behind significance gates -- but it is driven the same way. `fit`
 accepts `fit(series)` or `fit(t, series)` and returns a `StochasticModel` (also on
 `.model_`) that forecasts and generates. It is not a `Model` subclass (no sympy
 expression) and is not in the AIC catalog -- it just shares the convention; full
-reference in [stochastic.md](API-Stochastic). Available as `dtfit.Stochastic` and
+reference in [stochastic.md](API-Stochastic). Available as
 `dtfit.models.Stochastic`.
 
 ```python
-from dtfit import Stochastic
+from dtfit.models import Stochastic
 walk = np.cumsum(rng.normal(size=300))
 m = Stochastic().fit(walk)          # -> a fitted StochasticModel
 print(m.regime); m.forecast(12); m.simulate(200)
@@ -301,21 +318,26 @@ For these, trust the **fitted curve** (`R^2`, prediction) rather than the
 individual coefficients, and prefer extra data / lower noise / bounds if you need
 the parameters themselves.
 
-### Cycles need the oscillatory recipe
+### Cycles and the frequency seed
 
-Recovering a frequency requires the FFT-seeded frequency. A **pure** oscillatory
-family (`models.sine().fit(x, y)`, `models.damped_oscillation()`, or
-[`auto_estimate`](API-Auto#auto_estimate) with an oscillatory shape) routes through
-the full **oscillatory recipe** (smoothing off, order raised to resolve the cycle,
-FFT-seeded frequency). A **composite** such as `(linear() + sine()).fit(...)` does
-*not* -- it fits as **bulk LSI** and relies on the **tight FFT frequency seed** the
-composed seeder computes on the detrended residual (empirically more robust here
-than forcing the raised-order recipe, which can over-fit a trend+cycle spectrum);
-the cycle is still recovered, just via the seed rather than the recipe. Either way
-the self-seeding path handles the frequency for you. The **bare**
-[`NonlineRegressor("...sin...", method="lsi")`](API-Estimator) does *not* (its
-low default order and unseeded frequency guess miss the cycle); pass
-`freq_param=` or use the model/`auto_estimate` path instead. See the
+Recovering a frequency needs either a basis that resolves the cycle or a seed
+for it, and the routing supplies both. An oscillatory family
+(`models.sine()`, `models.damped_oscillation()`) names a `freq_param`, so
+every candidate of [`fit(basis="auto")`](API-Fitting#fit) runs the
+**oscillatory recipe**: smoothing off, the order raised to resolve the cycle,
+and the frequency seeded from the peak of the *detrended* spectrum
+([`fft_frequency_seed`](API-Fitting#fft_frequency_seed)). A **composite** such
+as `(linear() + sine()).fit(...)` forwards its `freq_param` the same way;
+removing the straight line before the FFT is what lets that seed see a cycle
+riding on a trend (R^2 0.999990 and `w` 1.3003 against a true 1.3, where the
+undetrended seed gave 0.794 and 0.376).
+
+Without a `freq_param` the route still finds the cycle, by outcome rather than
+by recipe: on the validation corpus's `c + A*sin(w*x + p)` scenario from bare
+defaults, [`NonlineRegressor("c + A*sin(w*x + p)", "x")`](API-Estimator)
+reaches R^2 1.00000 by routing to the block basis at 16 windows, where the
+same fit pinned to `basis="legendre"` at its order rule (9) reaches 0.078.
+Fixing the basis is what loses a cycle, not the estimator. See the
 [LSI oscillatory recipe](Methods-LSI#the-oscillatory-recipe).
 
 ### `suggest_models` coverage
@@ -327,3 +349,16 @@ everything, so the true family is never silently dropped). `fourier_series` is t
 one exception -- a parametric factory offered separately, not in the default sweep,
 so a periodic signal surfaces its fundamental `sine`; add `fourier_series()`
 explicitly to the `candidates` if you need the harmonic model.
+
+---
+
+<a name="resolve_model"></a>
+## Also exported from `dtfit.models`
+
+`resolve_model(model, var=None, *, param_names=None) -> ModelSpec` turns a
+SymPy-expression string, a `sympy.Expr` or a callable `f(x, *params)` into the
+one object every fitter evaluates; `ModelSpec.names` is the canonical
+parameter order. `normalize_p0(p0, names)` and `normalize_bounds(bounds,
+names)` put a guess and a box into that order, accepting the positional, the
+`{name: value}` and the scipy forms. `result_kwargs(spec, coeffs)` bridges a
+spec to a [`FittingResult`](API-Types).

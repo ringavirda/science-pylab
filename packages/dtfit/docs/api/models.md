@@ -16,12 +16,12 @@ for s in suggest_models(x, y)[:3]:                # ranked best-first by AIC
     print(s.name, round(s.r2, 4), round(s.aic, 1))
 ```
 
-::: dtfit.Model
+::: dtfit.models.Model
 
 ::: dtfit.suggest_models
 
-::: dtfit.register
+::: dtfit.models.register
 
-::: dtfit.unregister
+::: dtfit.models.unregister
 
-::: dtfit.find_degree
+::: dtfit.models.resolve_model

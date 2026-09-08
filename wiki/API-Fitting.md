@@ -19,9 +19,8 @@ return a
 - [`order_for`](#order_for), [`coverage`](#coverage) -- picking and checking the order
 - [`fit_lsi`](#fit_lsi) -- `fit` in the Legendre basis
 - [`fit_eac`](#fit_eac) -- `fit` in the block basis
-- [`ensemble_fit`](#ensemble_fit) -- overlapping-window robust ensemble (outliers)
-- [`fit_dsb`](#fit_dsb) -- Differential Spectra Balance (symbolic reference)
-- [`find_degree`](#find_degree) -- polynomial degree selection (DSB support)
+- [`fit_dsb`](#fit_dsb) -- Differential Spectra Balance (the reference method, in `dtfit.reference`)
+- [`find_degree`](#find_degree) -- polynomial degree selection (DSB support, in `dtfit.reference`)
 - [`fft_frequency_seed`](#fft_frequency_seed) -- frequency seed for oscillatory fits
 
 ---
@@ -44,10 +43,10 @@ and block bases respectively -- presets, not separate methods.
 
 | name | type | default | meaning |
 |---|---|---|---|
-| `model` | str \| sympy.Expr \| callable | -- | the model, in any of three equivalent forms (resolved by [`resolve_model`](#also-exported-from-dtfitmethods)): a SymPy-expression **string** `"a0 + a1*exp(a2*x)"`, a `sympy.Expr`, or a plain Python **callable** `f(x, *params)`. A symbolic model lays its parameters out **sorted by name**; a callable follows **signature order** (the parameters after the leading `x`) |
+| `model` | str \| sympy.Expr \| callable | -- | the model, in any of three equivalent forms (resolved by [`resolve_model`](API-Models#resolve_model)): a SymPy-expression **string** `"a0 + a1*exp(a2*x)"`, a `sympy.Expr`, or a plain Python **callable** `f(x, *params)`. A symbolic model lays its parameters out **sorted by name**; a callable follows **signature order** (the parameters after the leading `x`) |
 | `data` | `Original` \| `Image` | -- | an `Original` is imaged first in `basis` at `order`; an `Image` is used as given |
 | `var` | str \| None | `None` | main variable name, required for a symbolic model; a label only for a callable |
-| `basis` | str \| Basis | `"legendre"` | `"legendre"`, `"block"`, a `Basis` instance, or `"auto"`: the candidates are the Legendre basis with the oscillatory recipe when `oscillatory` or `freq_param` is given or the detrended spectral peak share exceeds 0.3, then the Legendre basis at its default order, then the block basis at its default order; the candidate with the lowest unweighted sample RSS wins, a later candidate only by more than 0.1 percent. Needs an `Original` -- rejected with an `Image` (`TypeError`), which does not carry the samples the routing needs |
+| `basis` | str \| Basis | `"legendre"` | the basis to image an `Original` in: `"legendre"`, `"block"`, a `Basis` instance, or `"auto"`. `"auto"` fits the candidates -- the Legendre basis with the oscillatory recipe (added when `oscillatory` or `freq_param` is given, or the detrended spectrum has a peak share above 0.3), the Legendre basis at its default order, and the block basis at its default order -- and returns whichever leaves the lowest unweighted residual sum of squares over the samples, a later candidate winning only by more than 0.1 percent. With a `freq_param` the plain Legendre candidate is dropped, the flag turning it back into the oscillatory one. It needs the samples, so it raises `TypeError` on an `Image`. Measured over the whole validation corpus at 20 noise draws, `"auto"` recovers parameters within 1.054 of `scipy.optimize.curve_fit` on every family |
 | `order` | int \| None | `None` | basis order (polynomial degree for Legendre, window count for block). Omitted with an `Original`, it defaults to [`order_for`](#order_for) at `p0` (`osc_order` too, and the larger taken, when `oscillatory`), floored at `n_params - 1` and capped at `n_obs - 2`; for the block basis, `4 * n_params`. A `Basis` instance sets its own order; passing `order` with one that disagrees raises |
 | `p0` | array \| dict \| None | `None` | initial guess (defaults to ones): positional in canonical parameter order, or a `{name: value}` dict |
 | `bounds` | list[(lo, hi)] \| dict \| (lo, hi) \| None | `None` | per-parameter bounds: a pair list in canonical order, a partial `{name: (lo, hi)}` dict, or a scipy-style `(lo, hi)` 2-tuple |
@@ -119,6 +118,10 @@ img = orig.image("legendre", order=8)
 res2 = fit("a0 + a1*exp(a2*x)", img, "x")
 print(res2.params)
 ```
+
+`basis="auto"` is what [`Model.fit`](API-Models) and
+[`NonlineRegressor`](API-Estimator) use by default. The result records the
+winner in `basis_name` and `image_order`.
 
 ---
 
@@ -463,66 +466,11 @@ res = fit_eac(x, y, "a0 + a1*exp(a2*x)", "x", n_windows=16, robust=True)
 
 ---
 
-<a name="ensemble_fit"></a>
-## `ensemble_fit`
-
-```python
-ensemble_fit(data_x, data_y, expr, var, *, method="eac", n_windows=8,
-             overlap=0.5, aggregate="median", p0=None, **kwargs) -> EnsembleResult
-```
-
-Fit the model on many **overlapping subwindows** and aggregate the per-window
-coefficients robustly -- bagging over the time axis. The **median** of the
-per-window estimates rejects windows corrupted by outliers, and the
-inter-window spread is a cheap empirical uncertainty band.
-
-**Use it for outlier-contaminated data.** On clean (Gaussian-noise) data
-prefer a single whole-record fit: the ensemble trades a little accuracy there
-for the outlier robustness, so it is a specialised tool, not the default
-path.
-
-**Arguments**
-
-| name | type | default | meaning |
-|---|---|---|---|
-| `data_x`, `data_y` | array | -- | observed samples |
-| `expr`, `var` | str | -- | model and main variable |
-| `method` | str | `"eac"` | underlying batch fitter, `"eac"` or `"lsi"` |
-| `n_windows` | int | `8` | target number of overlapping subwindows |
-| `overlap` | float | `0.5` | fractional overlap between consecutive windows (`0..0.9`) |
-| `aggregate` | str | `"median"` | `"median"` (robust) or `"mean"` |
-| `p0` | array \| dict \| None | `None` | initial guess forwarded to each window fit |
-| `**kwargs` | -- | -- | extra args forwarded to the underlying fitter (e.g. `bounds`) |
-
-**Returns** an [`EnsembleResult`](#ensembleresult) -- a [`FittingResult`](API-Types)
-(so `params`, `predict`, `stderr`, `to_dict` all work) that additionally
-carries the per-window `members` and their `spread`, which also fills the
-covariance.
-
-**Example**
-
-```python
-from dtfit import ensemble_fit
-
-res = ensemble_fit(x, y, "a*exp(-b*x)", "x", method="eac", p0=[1.0, 1.0])
-print(res.params, res.spread)   # robust estimate + per-parameter spread
-```
-
-<a name="ensembleresult"></a>
-### `EnsembleResult`
-
-Subclass of [`FittingResult`](API-Types) returned by `ensemble_fit`. Extra
-attributes: `spread` (per-parameter inter-window standard deviation),
-`members` (`(n_windows_fitted, n_params)` raw per-window coefficients),
-`n_failed` (windows whose fit raised -- a `UserWarning` is emitted whenever it
-is non-zero) and `last_error` (message of the last window failure, `None` if
-all fit). The spread populates the covariance diagonal, so `stderr()` returns
-it and `predict(return_std=True)` reports the ensemble's uncertainty.
-
----
-
 <a name="fit_dsb"></a>
 ## `fit_dsb`
+
+> Not part of [`fit`](#fit): the exact-balance ancestor, in `dtfit.reference`.
+> See [dsb.md](Methods-DSB).
 
 ```python
 fit_dsb(coeffs_poly, expr, var, *, rank=None, p0=None) -> FittingResult
@@ -552,7 +500,7 @@ numeric refinement.
 **Example**
 
 ```python
-from dtfit import fit_dsb, find_degree
+from dtfit.reference import fit_dsb, find_degree
 import numpy as np
 
 deg = find_degree(x, y)              # BIC-selected degree
@@ -566,6 +514,8 @@ res = fit_dsb(pc, "a*exp(b*x)", "x")
 ## `find_degree`
 
 ```python
+from dtfit.reference import find_degree
+
 find_degree(data_x, data_y, method="bic", max_degree=12) -> int
 ```
 
@@ -584,34 +534,15 @@ fft_frequency_seed(x, y) -> float
 ```
 
 Dominant **angular** frequency of `y` over the grid `x` -- the peak of the
-mean-removed real FFT, with the DC bin ignored, returned as `2*pi*f`. The
-samples are interpolated onto a uniform grid first (an identity when `x`
-already is one). This is the seed [`fit_lsi`](#fit_lsi)'s oscillatory recipe
-uses for `freq_param`; a sinusoid's frequency can't be recovered without it.
+real FFT of the detrended signal, with the DC bin ignored, returned as
+`2*pi*f`. The samples are interpolated onto a uniform grid first (an identity
+when `x` already is one) and the least-squares straight line is removed, which
+is what lets a cycle riding on a trend be seen: the trend's own leakage
+otherwise owns the lowest non-zero bin and the peak lands there. This is the
+seed [`fit_lsi`](#fit_lsi)'s oscillatory recipe uses for `freq_param`; a
+sinusoid's frequency can't be recovered without it.
 
 ```python
-from dtfit import fft_frequency_seed
+from dtfit.image import fft_frequency_seed
 w0 = fft_frequency_seed(x, y)   # ~= angular frequency of the dominant cycle
 ```
-
----
-
-### Also exported from `dtfit.methods`
-
-`model_params(f_sym, t)` and `taylor_coeffs(f_sym, t, order)` are the symbolic
-helpers the scheme is built on (free-parameter extraction and Maclaurin
-coefficients). They're available via `from dtfit.methods import model_params,
-taylor_coeffs` for advanced/extension use; most users won't need them.
-
-`resolve_model(model, var=None, *, param_names=None) -> ModelSpec` is the
-public model-input resolver behind every fitter's `model`/`expr` argument. It
-accepts a SymPy-expression **string**, a `sympy.Expr`, or a plain Python
-**callable** `f(x, *params)`, and returns a `ModelSpec` exposing the canonical
-parameter order (`.names` -- sorted-by-name for a symbolic model, **signature
-order** for a callable), the numeric evaluator (`.eval`), the parameter
-sensitivities (`.param_derivs`), and `.is_symbolic` / `.expr` / `.var`. It is
-what makes a callable model interchangeable with an expression string across
-[`fit`](#fit) / [`fit_lsi`](#fit_lsi) / [`fit_eac`](#fit_eac) /
-[`auto_estimate`](API-Auto#auto_estimate) / [`NonlineRegressor`](API-Estimator)
-/ [`Model`](API-Models#model) and the streaming filters. Import both via `from
-dtfit.methods import resolve_model, ModelSpec`.

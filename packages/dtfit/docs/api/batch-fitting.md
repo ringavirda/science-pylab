@@ -36,10 +36,6 @@ and the [guide](../guide/choosing-a-method.md) for the decision tree.
 
 ::: dtfit.fit_eac
 
-::: dtfit.ensemble_fit
-
-::: dtfit.EnsembleResult
-
 ::: dtfit.FittingResult
 
-::: dtfit.methods.resolve_model
+::: dtfit.models.resolve_model

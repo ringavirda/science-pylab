@@ -11,12 +11,9 @@ signatures, arguments, return types, and behavior.
 > **Looking for the experimental adaptations** (`fit_lsi_basis`, `fit_joint`,
 > `boosted_fit`)? Those live in the separate `dtfit-experimental` package -- see
 > [../experimental/adaptations-api.md](Experimental-Adaptations-API). The
-> overlapping-window ensemble `ensemble_fit` is documented in
-> [fitting.md](API-Fitting#ensemble_fit) and the stochastic-series solution in
-> [stochastic.md](API-Stochastic). The `InformationFilter` fusion primitive
-> lives in `dtfit-experimental` (`from dtfit_experimental import
-> InformationFilter`), not in the stable streaming surface. This page covers
-> the **stable** `dtfit` API.
+> `InformationFilter` fusion primitive lives there too (`from
+> dtfit_experimental import InformationFilter`), not in the stable streaming
+> surface. This page covers the **stable** `dtfit` API.
 
 ## Conventions
 
@@ -36,48 +33,63 @@ signatures, arguments, return types, and behavior.
 
 | Area | Names | Page |
 |---|---|---|
-| **Batch fitting** | `fit`, `Original`, `Image`, `order_for`, `fit_lsi`, `fit_eac`, `ensemble_fit`, `EnsembleResult`, `fit_dsb`, `find_degree`, `fft_frequency_seed`, the `Image` analytics `noise_sigma` / `effective_order` / `decay` / `test_equal` / `test_structure` (also in `dtfit.image`) | [fitting.md](API-Fitting) |
+| **Batch fitting** | `fit`, `Original`, `Image`, `order_for`, `fit_lsi`, `fit_eac` (`coverage`, `fft_frequency_seed` and the `Image` analytics `noise_sigma` / `effective_order` / `decay` / `test_equal` / `test_structure` in `dtfit.image`) | [fitting.md](API-Fitting) |
 | **Result type** | `FittingResult` | [types.md](API-Types) |
-| **sklearn estimator** | `NonlineRegressor` | [estimator.md](API-Estimator) |
-| **One-call entry points** | `auto_estimate`, `auto_forecast` | [auto.md](API-Auto) |
-| **Model framework** | `models`, `Model`, `suggest_models` (+ catalog families) | [models.md](API-Models) |
-| **Stochastic series** | `fit_stochastic`, `StochasticModel`, `StochasticFilter`, `SecondOrderImage`, `SecondOrderStream`, `Stochastic` | [stochastic.md](API-Stochastic) |
+| **sklearn estimator** | `NonlineRegressor` (in `dtfit.sklearn`) | [estimator.md](API-Estimator) |
+| **Forecasting** | `auto_forecast`, `ForecastResult` | [auto.md](API-Auto) |
+| **Model framework** | `models`, `suggest_models` (`Model`, `register`, `unregister` and the catalog families in `dtfit.models`) | [models.md](API-Models) |
+| **Reference method** | `fit_dsb`, `find_degree` (in `dtfit.reference`) | [dsb.md](Methods-DSB) |
+| **Stochastic series** | `stochastic` (`fit_stochastic`, `StochasticModel`, `StochasticFilter`, `SecondOrderImage`, `SecondOrderStream` and the estimators in `dtfit.stochastic`; `Stochastic` in `dtfit.models`) | [stochastic.md](API-Stochastic) |
 | **Streaming / online** | `ImageFilter`, `LSIFilter`, `EACFilter` (`DriftDetector` in `dtfit.streaming`) | [streaming.md](API-Streaming) |
-| **Streams and scale** | `ImageStream`, `fit_many`, `FittingProblem` (`coverage`, `assemble`, `legendre_transfer`, `block_transfer` in `dtfit.image`) | [scaling.md](API-Scaling) |
-| **Diagnostics** | `fit_report`, `residual_diagnostics`, `residual_stats`, `FitDisplay`, `ResidualsDisplay` | [diagnostics.md](API-Diagnostics) |
-| **Logging** | `enable_logging`, `logger` | [below](#logging) |
+| **Streams and scale** | `ImageStream`, `fit_many` (`FittingProblem`, `assemble`, `legendre_transfer`, `block_transfer` in `dtfit.image`) | [scaling.md](API-Scaling) |
+| **Diagnostics** | `diagnostics` (`fit_report`, `residual_diagnostics`, `residual_stats`, `FitDisplay`, `ResidualsDisplay`) | [diagnostics.md](API-Diagnostics) |
+| **Logging** | `enable_logging`, `logger` (in `dtfit.log`) | [below](#logging) |
+
+The top level holds fifteen names and three subpackages: `Original`, `Image`,
+`ImageStream`, `ImageFilter`, `fit`, `fit_lsi`, `fit_eac`, `LSIFilter`,
+`EACFilter`, `order_for`, `fit_many`, `suggest_models`, `auto_forecast`,
+`FittingResult`, `ForecastResult`, plus `models`, `stochastic` and
+`diagnostics`. Everything else is reached through its own module, as the
+import map below shows.
 
 ## Import map
 
 ```python
 # batch fitting
-from dtfit import (fit, Original, Image, order_for, fit_lsi, fit_eac, fit_dsb,
-                   ensemble_fit, EnsembleResult, find_degree, fft_frequency_seed,
+from dtfit import (fit, Original, Image, order_for, fit_lsi, fit_eac,
                    FittingResult)
+from dtfit.image import coverage, fft_frequency_seed
 
-# high-level entry points
-from dtfit import auto_estimate, auto_forecast
+# forecasting
+from dtfit import auto_forecast, ForecastResult
 
 # model framework
-from dtfit import models, Model, suggest_models
+from dtfit import models, suggest_models
+from dtfit.models import Model, register, unregister, resolve_model
+
+# the reference method (the exact-balance ancestor, not part of fit)
+from dtfit.reference import fit_dsb, find_degree
 
 # stochastic series (characterize / forecast / generate / track random data)
-from dtfit import fit_stochastic, StochasticModel, StochasticFilter, Stochastic
+from dtfit import stochastic
+from dtfit.models import Stochastic
 from dtfit.stochastic import (
-    SecondOrderImage, SecondOrderStream, hurst_spectral, ar1_reversion,
-    garch_persistence, cycle_period, decompose_trend_cycle, dickey_fuller,
-    FORECASTERS)
+    fit_stochastic, StochasticModel, StochasticFilter, SecondOrderImage,
+    SecondOrderStream, hurst_spectral, ar1_reversion, garch_persistence,
+    cycle_period, decompose_trend_cycle, dickey_fuller, ar_order, fit_ar,
+    fractional_difference, FORECASTERS)
 
-# sklearn estimator
-from dtfit import NonlineRegressor
+# sklearn estimator (the only part of dtfit that imports scikit-learn)
+from dtfit.sklearn import NonlineRegressor
 
 # streaming
 from dtfit import ImageFilter, LSIFilter, EACFilter
 from dtfit.streaming import DriftDetector
 
 # streams and scale
-from dtfit import ImageStream, fit_many, FittingProblem
-from dtfit.image import coverage, assemble, legendre_transfer, block_transfer
+from dtfit import ImageStream, fit_many
+from dtfit.image import (FittingProblem, assemble, legendre_transfer,
+                         block_transfer)
 
 # Image analytics (also reachable as Image methods)
 from dtfit.image import (noise_sigma, effective_order, decay,
@@ -88,7 +100,7 @@ from dtfit.diagnostics import (fit_report, residual_diagnostics,
                                residual_stats, FitDisplay, ResidualsDisplay)
 
 # logging
-from dtfit import enable_logging, logger
+from dtfit.log import enable_logging, logger
 ```
 
 <a name="logging"></a>
@@ -97,12 +109,13 @@ from dtfit import enable_logging, logger
 `dtfit` is silent by default. Opt in to see what the solvers are doing:
 
 ```python
-from dtfit import enable_logging
+from dtfit.log import enable_logging
 enable_logging()              # INFO-level chatter from the methods
 enable_logging(level="DEBUG") # more detail
 ```
 
-- **`enable_logging(level="INFO")`** -- attach a handler to the library logger and
+- **`dtfit.log.enable_logging(level="INFO")`** -- attach a handler to the
+  library logger and
   set its level. Call once at startup.
 - **`logger`** -- the underlying `logging.Logger` (`"dtfit"`), if you want to wire
   it into your own logging configuration instead.

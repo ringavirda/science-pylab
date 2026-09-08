@@ -1,71 +1,11 @@
-# API: one-call entry points
+# API: the forecasting router
 
-Two high-level "just fit it" functions distilled from the domain studies, whose
-main finding was that **picking the structurally-correct model/estimator variant
-is the biggest lever** -- not the solver. These compose only validated, stable
-pieces behind a single call.
-
-- [`auto_estimate`](#auto_estimate) -- recover physical parameters, routing by signal shape
-- [`auto_forecast`](#auto_forecast) -- structured fit-then-extrapolate forecast, with safety guards
-
----
-
-<a name="auto_estimate"></a>
-## `auto_estimate`
-
-```python
-auto_estimate(x, y, expr, var, *,
-              shape="auto", freq_param=None,
-              p0=None, bounds=None, param_names=None) -> FittingResult
-```
-
-Recover the parameters of `expr` by routing to the estimator that fits the
-signal's *shape* (the parameter-estimation study's merged selector).
-
-**Arguments**
-
-| name | type | default | meaning |
-|---|---|---|---|
-| `x`, `y` | array | -- | observed samples |
-| `expr` | str \| callable | -- | model expression: a SymPy-expression string **or** a plain Python callable `f(x, *params)` (resolved via [`resolve_model`](API-Fitting#also-exported-from-dtfitmethods) and forwarded to whichever base fitter the shape routes to) |
-| `var` | str | -- | main variable (a label only for a callable) |
-| `shape` | str | `"auto"` | which variant to use (see table below) |
-| `freq_param` | str \| None | `None` | angular-frequency parameter name; forwarded to the LSI oscillatory recipe and **implies an oscillatory shape** |
-| `p0` | array \| dict \| None | `None` | initial guess -- positional or `{name: value}` dict, forwarded verbatim to the fitters |
-| `bounds` | list[(lo, hi)] \| dict \| (lo, hi) \| None | `None` | per-parameter bounds -- any form the fitters accept (pair list, partial `{name: (lo, hi)}` dict, scipy tuple) |
-| `param_names` | tuple[str] \| None | `None` | parameter names for a **callable** `expr` whose signature cannot be introspected (an `f(x, *params)` model or a builtin); forwarded to the base fitters. Optional (but validated) for a symbolic `expr` |
-
-**`shape` routing**
-
-| `shape` | routes to |
-|---|---|
-| `"auto"` | detect a cycle (FFT power share > 0.10) -> oscillatory; else `"bulk"`. `freq_param` given => oscillatory |
-| `"oscillatory"` | [`fit_lsi`](API-Fitting#fit_lsi) with the oscillatory recipe |
-| `"transient"` / `"peak"` | [`fit_eac`](API-Fitting#fit_eac) (the block image) |
-| `"robust"` | [`fit_eac`](API-Fitting#fit_eac) with `robust=True` |
-| `"bulk"` | fit both LSI and EAC, keep the lower in-sample RMSE |
-
-A bulk candidate that fails emits a `UserWarning` naming the fitter and the
-error; if **both** base fits fail, the raised error carries both underlying
-messages.
-
-**Returns** the `FittingResult` from the selected estimator.
-
-```python
-from dtfit import auto_estimate
-res = auto_estimate(x, y, "a*atan(w*x)", "x", shape="transient")
-res = auto_estimate(x, y, "A*sin(w*x + p)", "x", freq_param="w")   # oscillatory
-res = auto_estimate(x, y, "a*exp(b*x)", "x")                       # auto > bulk
-
-# a plain Python callable model works too; param_names only needed when
-# the signature can't be introspected (an f(x, *params) model or a builtin):
-def model(x, a, b):
-    return a * np.exp(b * x)
-res = auto_estimate(x, y, model, "x")                              # signature-order params
-```
-
-Honest ceiling: on clean bulk shapes `auto_estimate` *matches* but does not beat a
-well-initialized NLLS.
+`auto_forecast` is the one high-level entry point left: pick a model class from
+the series' structure, fit it, extrapolate, and refuse to when the fit cannot
+beat a random walk. Recovering *parameters* needs no router -- `fit(model,
+data, basis="auto")` fits the candidate bases and keeps whichever leaves the
+smallest residual over the samples ([fitting.md](API-Fitting#fit)), and
+[`Model.fit`](API-Models) is the self-seeded spelling of the same call.
 
 ---
 

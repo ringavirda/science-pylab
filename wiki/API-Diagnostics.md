@@ -133,7 +133,7 @@ scatter and the line.
 values, for spotting heteroscedasticity or leftover trend.
 
 ```python
-from dtfit import NonlineRegressor
+from dtfit.sklearn import NonlineRegressor
 from dtfit.diagnostics import FitDisplay, ResidualsDisplay
 
 reg = NonlineRegressor("a*exp(b*x)", "x").fit(x, y)

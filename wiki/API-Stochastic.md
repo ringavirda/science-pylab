@@ -24,7 +24,8 @@ exact call reference.
 
 ```python
 # the whole surface
-from dtfit import fit_stochastic, StochasticModel, StochasticFilter, Stochastic
+from dtfit.stochastic import (fit_stochastic, StochasticModel,
+                              StochasticFilter)
 from dtfit import stochastic            # submodule namespace
 from dtfit.stochastic import (
     SecondOrderImage, SecondOrderStream, sample_acf, hurst_aggvar,
@@ -382,7 +383,7 @@ and a generator.
 
 ```python
 import numpy as np
-from dtfit import fit_stochastic
+from dtfit.stochastic import fit_stochastic
 
 t = np.arange(600.0)
 rng = np.random.default_rng(0)
@@ -414,11 +415,11 @@ forwards the detection-gate overrides.
 index). It returns the fitted [`StochasticModel`](#model), also stored on
 `.model_`. It is **not** a `Model` subclass (it has no sympy expression) and is
 **not** in the AIC `CATALOG` -- it just shares the calling convention. Available as
-`dtfit.Stochastic` and `dtfit.models.Stochastic`.
+`dtfit.models.Stochastic`.
 
 ```python
 import numpy as np
-from dtfit import Stochastic
+from dtfit.models import Stochastic
 
 t = np.arange(600.0)
 data = 0.02 * t + np.random.default_rng(0).normal(0, 1, 600)
@@ -473,7 +474,7 @@ low false-alarm rate. Flat memory, bounded per-sample cost.
 
 ```python
 import numpy as np
-from dtfit import StochasticFilter
+from dtfit.stochastic import StochasticFilter
 
 f = StochasticFilter(halflife=200)
 for x in np.random.default_rng(0).standard_normal(50):

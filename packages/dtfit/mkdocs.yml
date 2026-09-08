@@ -101,3 +101,4 @@ nav:
       - Streaming: api/streaming.md
       - Streams and scale: api/streams.md
       - scikit-learn: api/sklearn.md
+      - Reference method: api/reference.md

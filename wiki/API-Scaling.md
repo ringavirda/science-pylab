@@ -36,7 +36,8 @@ Returns [`FittingResult`](API-Types) objects **in input order**, each carrying
 rather than aborting the batch.
 
 ```python
-from dtfit import fit_many, FittingProblem
+from dtfit import fit_many
+from dtfit.image import FittingProblem
 problems = [FittingProblem(x, y, "a*exp(b*t)", "t", label=name)
             for name, (x, y) in series.items()]
 results = fit_many(problems, n_jobs=-1)

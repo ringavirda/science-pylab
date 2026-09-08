@@ -16,4 +16,4 @@ processes with `fit_many`.
 
 ::: dtfit.fit_many
 
-::: dtfit.FittingProblem
+::: dtfit.image.FittingProblem
