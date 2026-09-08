@@ -1,28 +1,14 @@
-"""Numeric kernels with an optional compiled (C) backend.
+"""Numpy/scipy kernels for the window-projection inner loops.
 
-The optimizers and the streaming filters run two small inner loops thousands
-of times: composite-Simpson window integrals and Gauss-Legendre spectral
-projections. Per-call Python and SciPy overhead dominates both.
-
-When the compiled extension ``dtfit._core._native`` (built by ``build_native.py``
-with clang) imports, these dispatch to it, otherwise to NumPy / SciPy. The two
-paths match bit for bit: the C Simpson reproduces ``scipy.integrate.simpson``
-exactly. A fit gives the same answer either way. ``HAVE_NATIVE`` says which
-one is live.
+The optimizers and the streaming filters run two small inner loops many
+times: composite-Simpson window integrals and Gauss-Legendre spectral
+projections. These are their numpy/scipy implementations.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from scipy.integrate import simpson
-
-try:  # compiled backend is optional
-    from dtfit._core import _native
-
-    HAVE_NATIVE = True
-except Exception:  # pragma: no cover - exercised only without the build
-    _native = None  # type: ignore[assignment]
-    HAVE_NATIVE = False
 
 
 def _as_idx(a) -> np.ndarray:
@@ -41,8 +27,6 @@ def simpson_windows(
     x = np.ascontiguousarray(x, dtype=np.float64)
     starts = _as_idx(starts)
     stops = _as_idx(stops)
-    if HAVE_NATIVE and _native is not None:
-        return _native.simpson_windows(y, x, starts, stops)
     return np.array(
         [simpson(y=y[s:e], x=x[s:e]) for s, e in zip(starts, stops)],
         dtype=np.float64,
@@ -62,8 +46,6 @@ def simpson_windows_rows(
     x = np.ascontiguousarray(x, dtype=np.float64)
     starts = _as_idx(starts)
     stops = _as_idx(stops)
-    if HAVE_NATIVE and _native is not None:
-        return _native.simpson_windows_rows(Y, x, starts, stops)
     return np.array(
         [
             [simpson(y=row[s:e], x=x[s:e]) for s, e in zip(starts, stops)]
@@ -86,6 +68,4 @@ def legendre_project(
     qw = np.ascontiguousarray(qw, dtype=np.float64)
     legvander = np.ascontiguousarray(legvander, dtype=np.float64)
     norm = np.ascontiguousarray(norm, dtype=np.float64)
-    if HAVE_NATIVE and _native is not None:
-        return _native.legendre_project(fv, qw, legvander, norm)
     return norm * ((qw * fv) @ legvander)

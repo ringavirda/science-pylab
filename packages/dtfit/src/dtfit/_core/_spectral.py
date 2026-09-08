@@ -87,7 +87,7 @@ class Basis:
         raise NotImplementedError
 
     def _project_spectrum(self, fv: np.ndarray) -> np.ndarray:
-        """``norm ⊙ ((w ⊙ fv) @ V)`` through the native kernel, or NumPy.
+        """``norm ⊙ ((w ⊙ fv) @ V)`` through the numpy kernel.
 
         Shared by every basis that carries ``(_w, _V, _norm)``. The kernel is
         basis-agnostic despite the ``legendre_project`` name.

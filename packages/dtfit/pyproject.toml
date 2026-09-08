@@ -1,11 +1,5 @@
 [build-system]
-# numpy is a *build* requirement too: the optional C extension declared in
-# setup.py compiles against the NumPy C-API headers (numpy.get_include()).
-# The runtime floor is numpy>=2.0 as well: the library calls the NumPy-2.0
-# ``np.trapezoid`` API (scale/_partitioned.py, stochastic/_filter.py). If the
-# build can't run (no compiler/headers), the extension is optional=True and the
-# install falls back to pure NumPy.
-requires = ["setuptools>=61", "numpy>=2.0"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -71,16 +65,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 dtfit = [
     "py.typed",          # ship inline type information (PEP 561)
-]
-# The optional compiled kernels live in the private numeric core
-# (dtfit._core._native); the extension is declared in setup.py (optional=True)
-# so `pip install` builds it when it can. Ship the source + type stub (and any
-# pre-built artifact, e.g. from build_native.py) as package data too.
-"dtfit._core" = [
-    "_native.c",         # source of the optional compiled kernels
-    "_native.pyi",       # type stub for the compiled extension
-    "*.pyd",             # compiled kernels (Windows), if built
-    "*.so",              # compiled kernels (Linux/macOS), if built
 ]
 
 [tool.ruff]

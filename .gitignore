@@ -33,5 +33,5 @@ packages/dtfit/site/
 packages/dtfit-experimental/src/dtfit_experimental/experiments/domains/realtime_gps/data
 packages/dtfit-hardware/src/dtfit_hardware/data
 
-# Editor config written by packages/dtfit/build_native.py
+# Editor config
 .vscode/
