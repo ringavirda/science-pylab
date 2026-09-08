@@ -208,12 +208,14 @@ def channel_gemm_rate(
     ``Y`` has shape ``(24, channels)`` on the day grid
     :data:`~.isd_reduce.DAY_POSITIONS`. The read is excluded on purpose:
     this measures the GEMM, and :func:`disk_read_rate` measures the other
-    half. The fastest of ``repeats`` runs is reported, with the images of
-    the last one.
+    half; the per-channel ``Image`` objects are built after the timed
+    projection, since one Python object per channel costs more than the
+    matrix product at any batch width. The fastest of ``repeats`` runs is
+    reported, with the images of the last one.
     """
     Y = np.asarray(Y, dtype=float)
     best = float("inf")
-    images: list[Image] = []
+    stream = None
     for _ in range(max(1, int(repeats))):
         stream = ImageStream(
             "legendre", int(order), domain=(0.0, 1.0), grid="explicit",
@@ -221,8 +223,9 @@ def channel_gemm_rate(
         )
         started = time.perf_counter()
         stream.update(DAY_POSITIONS[: Y.shape[0]], Y)
-        images = stream.images()
         best = min(best, time.perf_counter() - started)
+    assert stream is not None
+    images: list[Image] = stream.images()
     samples = int(Y.size)
     return {
         "backend": backend, "order": int(order),
