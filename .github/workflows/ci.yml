@@ -118,7 +118,7 @@ jobs:
       - name: Test with pandas (optional interop)
         run: |
           pip install "pandas>=2.0"
-          pytest -q tests/test_pandas_io.py tests/methods/test_auto.py tests/stochastic tests/sklearn/test_regressor.py tests/test_result.py
+          pytest -q tests/test_pandas_io.py tests/test_forecast.py tests/stochastic tests/sklearn/test_regressor.py tests/test_result.py
         working-directory: packages/dtfit
 
       # Publish the coverage report once (one OS/interpreter) as a build

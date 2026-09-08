@@ -12,7 +12,8 @@ Run headless:   python examples/06_scaling.py
 
 import numpy as np
 
-from dtfit import fit_many, FittingProblem, ImageStream, fit
+from dtfit import fit_many, ImageStream, fit
+from dtfit.image import FittingProblem
 
 
 def parallel_fits(rng) -> None:

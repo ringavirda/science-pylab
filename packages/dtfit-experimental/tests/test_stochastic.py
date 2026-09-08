@@ -313,7 +313,7 @@ def test_filter_tracks_ar1_phi_online():
     by the low-phi case: a phi = 0.3 ACF decays within a couple of lags and
     offers the least to integrate, while at phi = 0.85 the error runs several
     times smaller."""
-    from dtfit import StochasticFilter
+    from dtfit.stochastic import StochasticFilter
     for phi in (0.3, 0.6, 0.85):
         errs = []
         for s in range(3):
@@ -326,7 +326,7 @@ def test_filter_tracks_ar1_phi_online():
 def test_filter_detects_persistence_break():
     """A persistence jump, phi 0.2 -> 0.9 at the midpoint, is flagged inside
     the 400 samples following the break on at least four of the five seeds."""
-    from dtfit import StochasticFilter
+    from dtfit.stochastic import StochasticFilter
     hits = 0
     for s in range(5):
         r = np.random.default_rng(10 + s)
@@ -342,7 +342,7 @@ def test_filter_detects_persistence_break():
 
 def test_filter_low_false_alarm_on_stationary_stream():
     """The false-alarm half of the break test runs at the same settings."""
-    from dtfit import StochasticFilter
+    from dtfit.stochastic import StochasticFilter
     counts = []
     for s in range(5):
         f = StochasticFilter(warmup=80, settle=500, z_thresh=4.0)

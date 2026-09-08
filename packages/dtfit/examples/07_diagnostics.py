@@ -72,7 +72,7 @@ def main() -> None:
     # Opt-in logging -- dtfit logs under the "dtfit" logger with a NullHandler by
     # default; enable_logging(DEBUG) surfaces the fitting internals.
     import logging
-    from dtfit import enable_logging
+    from dtfit.log import enable_logging
 
     enable_logging(logging.WARNING)   # quiet here; use DEBUG to see fit detail
     logging.getLogger("dtfit").handlers = [logging.NullHandler()]

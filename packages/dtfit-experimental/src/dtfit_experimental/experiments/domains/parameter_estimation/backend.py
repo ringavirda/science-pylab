@@ -273,13 +273,12 @@ def est_robust(m, t, y):
 
 
 def est_merged(m, t, y):
-    """The merged selector, delegated to :func:`dtfit.auto_estimate`: it routes
-    an oscillatory family to the LSI oscillatory recipe through ``freq_param``
-    and otherwise keeps whichever of LSI and EAC fits better in-sample. Part C
-    exercises the dedicated regime variants #3, #4 and #6."""
-    r = dt.auto_estimate(t, y, m["expr"], "t", shape="auto",
-                         freq_param=m.get("osc") or None,
-                         p0=m.get("p0"), bounds=m.get("bounds"))
+    """The merged selector, :func:`dtfit.fit` with ``basis="auto"``: it fits
+    the candidate bases and keeps whichever leaves the smallest residual over
+    the samples. Part C exercises the dedicated regime variants #4 and #6."""
+    r = dt.fit(m["expr"], dt.Original(t, y), "t", basis="auto",
+               freq_param=m.get("osc") or None,
+               p0=m.get("p0"), bounds=m.get("bounds"))
     return dict(zip(sorted(m["names"]), r.coeffs))
 
 
@@ -327,7 +326,7 @@ A_METHODS = [("dtfit LSI", est_lsi), ("dtfit EAC", est_eac),
              ("Method of moments", est_moment)]
 # The per-method dtfit diagnostic breakdown: the estimators whose minimum is
 # the honest best explicit dtfit method. ``est_merged`` is a selector over
-# these two of them, keeping whichever of LSI and EAC fits better in-sample, so
+# these two of them, keeping whichever basis fits better in-sample, so
 # pooling it into the same minimum would double-count its own inputs and
 # flatter the "best dtfit" number, a min-over-4 containing the min-over-2 of
 # two of the four. ``merged`` is reported separately instead, as the single

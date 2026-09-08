@@ -1,33 +1,22 @@
-"""High-level "just fit it" entry points.
+"""The structured forecasting router.
 
-The structure of the model and the choice of estimator variant decide the
-answer here, not the solver. Both functions route on the signal's shape:
-
-* :func:`auto_estimate` recovers physical parameters. Oscillatory goes to the
-  LSI oscillatory recipe, transient or peaked to the block preset,
-  outlier-heavy to the robust image, anything else to whichever of LSI and
-  EAC fits better in sample.
-* :func:`auto_forecast` fits and extrapolates. Saturating growth goes to a
-  logistic, a detected cycle to a joint linear+seasonal fit, anything else to
-  a quadratic level, behind two guards: persist when the fit cannot beat a
-  random walk on a held-out training tail, and drop a runaway quadratic to
-  linear.
-
-Both build on :func:`dtfit.fit_lsi`, :func:`dtfit.fit_eac` and
-:func:`dtfit.fft_frequency_seed`. A near-random-walk series falls back to
-persistence, and ``auto_estimate`` matches rather than beats a
-well-initialised NLLS on clean bulk shapes.
+:func:`auto_forecast` fits and extrapolates. Saturating growth goes to a
+logistic, a detected cycle to a joint linear-plus-seasonal fit, anything else
+to a quadratic level, behind two guards: persist when the fit cannot beat a
+random walk on a held-out training tail, and drop a runaway quadratic to
+linear. Each candidate is a :func:`dtfit.fit_lsi` call. A near-random-walk
+series falls back to persistence.
 """
 
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
-from dtfit.types import FittingResult, InitialGuess
+from dtfit.types import FittingResult
 from dtfit._signal import dominant_period
 from dtfit._pandas import (
     HAS_PANDAS,
@@ -36,122 +25,11 @@ from dtfit._pandas import (
     extend_index,
     to_1d_array,
 )
-from dtfit.image.fit import fit_lsi, fit_eac, fft_frequency_seed
+from dtfit.image.fit import fit_lsi, fft_frequency_seed
 
 
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
-
-
-def auto_estimate(
-    x: np.ndarray,
-    y: np.ndarray,
-    expr: str | Callable[..., Any],
-    var: str,
-    *,
-    shape: str = "auto",
-    freq_param: str | None = None,
-    p0: InitialGuess | Mapping[str, float] = None,
-    bounds: (
-        Sequence[tuple[float, float]]
-        | Mapping[str, tuple[float, float]]
-        | tuple[Any, Any]
-        | None
-    ) = None,
-    param_names: tuple[str, ...] | None = None,
-) -> FittingResult:
-    """Recover the parameters of ``expr``, routing on the signal's shape.
-
-    Args:
-        x, y: Observed samples.
-        expr, var: Model expression and main variable. ``expr`` is either a
-            SymPy-expression string or a callable ``f(x, *params)`` (see
-            :func:`dtfit.models.resolve_model`); either form is forwarded as
-            given to whichever base fitter the shape routes to.
-        shape: ``"auto"`` (detect oscillation, else bulk), ``"oscillatory"``,
-            ``"transient"`` / ``"peak"`` (the EAC block preset), ``"robust"``
-            (the robust image, ``fit_eac(robust=True)``), or ``"bulk"``
-            (whichever of LSI and EAC fits better in sample).
-        freq_param: Name of the angular-frequency parameter, forwarded to the
-            LSI oscillatory recipe (:func:`fit_lsi`). Implies an oscillatory
-            shape.
-        p0: Initial guess, forwarded verbatim to the base fitters: a sequence
-            in sorted-name order, or a full ``{name: value}`` dict (see
-            :func:`dtfit.models.normalize_p0`).
-        bounds: Parameter bounds, forwarded verbatim: a per-parameter
-            ``(min, max)`` list in sorted-name order, a partial
-            ``{name: (min, max)}`` dict leaving the rest unbounded, or a
-            scipy-style ``(lo, hi)`` 2-tuple (see
-            :func:`dtfit.models.normalize_bounds`).
-        param_names: Parameter names for a callable ``expr`` whose signature
-            cannot be introspected. Validated but ignored for a symbolic one.
-
-    Returns:
-        FittingResult from the selected estimator.
-
-    ``x`` and ``y`` accept pandas ``Series`` and single-column ``DataFrame``
-    inputs; an ndarray or list input stays bit-identical.
-    """
-    x = to_1d_array(x, "x")
-    y = to_1d_array(y, "y")
-
-    if shape == "auto":
-        if freq_param is not None:
-            shape = "oscillatory"
-        else:
-            _, strength = dominant_period(y)
-            shape = "oscillatory" if strength > 0.10 else "bulk"
-
-    if shape == "oscillatory":
-        return fit_lsi(x, y, expr, var, p0=p0, bounds=bounds, oscillatory=True,
-                       freq_param=freq_param, param_names=param_names)
-    if shape in ("transient", "peak"):
-        # Peak and saturating families need their bounds for the positivity
-        # and width guards, a Gaussian's sigma > 0 being the obvious one.
-        return fit_eac(x, y, expr, var, p0=p0, bounds=bounds,
-                       param_names=param_names)
-    if shape == "robust":
-        return fit_eac(x, y, expr, var, p0=p0, bounds=bounds, robust=True,
-                       param_names=param_names)
-    if shape != "bulk":
-        raise ValueError(
-            f"unknown shape {shape!r}; expected auto/oscillatory/transient/peak/"
-            "robust/bulk"
-        )
-
-    # bulk: fit both base methods and keep the lower in-sample residual.
-    best: FittingResult | None = None
-    best_rmse = np.inf
-    failures: list[str] = []
-    for name, fitter in (
-        ("fit_lsi", lambda: fit_lsi(x, y, expr, var, p0=p0, bounds=bounds,
-                                    param_names=param_names)),
-        ("fit_eac", lambda: fit_eac(x, y, expr, var, p0=p0, bounds=bounds,
-                                    param_names=param_names)),
-    ):
-        try:
-            res = fitter()
-            r = _rmse(y, np.asarray(res.model(x), dtype=float))
-        except Exception as exc:
-            failures.append(f"{name}: {exc}")
-            warnings.warn(
-                f"auto_estimate: bulk candidate {name} failed ({exc}); "
-                "falling back to the remaining base fitter",
-                UserWarning,
-                stacklevel=2,
-            )
-            continue
-        if not np.isfinite(r):
-            failures.append(f"{name}: non-finite in-sample RMSE")
-            continue
-        if r < best_rmse:
-            best, best_rmse = res, r
-    if best is None:
-        raise RuntimeError(
-            "both base fits (LSI and EAC) failed for this series: "
-            + "; ".join(failures)
-        )
-    return best
 
 
 def _looks_like_growth(y: np.ndarray) -> bool:
@@ -215,7 +93,7 @@ def _fit_model(model: str, t: np.ndarray, y: np.ndarray, t_all: np.ndarray,
         if period is not None and period > 0:
             w0 = 2 * np.pi / (period * dx)
         else:
-            w0 = fft_frequency_seed(t, y - np.polyval(np.polyfit(t, y, 1), t)) or (2 * np.pi / xspan)
+            w0 = fft_frequency_seed(t, y) or (2 * np.pi / xspan)
         amp = float(np.std(y)) + 1e-3
         expr = "a0 + a1*x + A*sin(w*x + p)"
         r = fit_lsi(

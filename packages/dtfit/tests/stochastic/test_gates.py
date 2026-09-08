@@ -4,7 +4,8 @@ forecasters that read it and the generator that round-trips through it."""
 import numpy as np
 import pytest
 
-from dtfit import fit_stochastic, StochasticModel, Stochastic
+from dtfit.models import Stochastic
+from dtfit.stochastic import StochasticModel, fit_stochastic
 from dtfit.stochastic import (
     FORECASTERS, SecondOrderImage, is_nonstationary,
 )

@@ -1,7 +1,7 @@
 """The classical twin of ``dtfit.stochastic``: the same unified stochastic
 characterization, built entirely from textbook (non-dtfit) estimators.
 
-``dtfit.fit_stochastic`` recovers a process's second-order structure by fitting
+``dtfit.stochastic.fit_stochastic`` recovers a process's second-order structure by fitting
 the deterministic functionals of the series (its ACF, spectrum, aggregated
 variance, trend/cycle) with dtfit's own LSI/EAC integral fitters. To answer
 whether the dtfit route actually improves on what a practitioner already uses,
@@ -265,7 +265,7 @@ def fit_classical_stochastic(
     mr_phi: float = 0.15,
     vol_persist: float = 0.60,
 ) -> ClassicalStochasticModel:
-    """Characterize ``y`` on the gated routing of :func:`dtfit.fit_stochastic`
+    """Characterize ``y`` on the gated routing of :func:`dtfit.stochastic.fit_stochastic`
     but with the classical estimators throughout: an ADF unit-root test, an OLS
     trend and AR(1), an FFT-periodogram cycle, a DFA Hurst and a GARCH-QMLE
     volatility persistence. Returns a :class:`ClassicalStochasticModel`

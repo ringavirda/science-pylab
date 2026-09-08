@@ -13,7 +13,8 @@ Run headless:   python examples/08_stochastic.py
 
 import numpy as np
 
-from dtfit import fit_stochastic, StochasticFilter, Stochastic
+from dtfit.models import Stochastic
+from dtfit.stochastic import StochasticFilter, fit_stochastic
 from dtfit.stochastic import SecondOrderImage, SecondOrderStream
 
 
@@ -96,7 +97,7 @@ def model_wrapper(rng) -> None:
     for t in range(1, n):
         x[t] = 0.7 * x[t - 1] + rng.normal(0, 1.0)
     model = Stochastic().fit(x)
-    print("\n== dtfit.Stochastic model wrapper ==")
+    print("\n== dtfit.models.Stochastic wrapper ==")
     print("regime:", model.regime, " | forecaster:", model.forecaster_name)
 
 

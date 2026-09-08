@@ -5,94 +5,83 @@ Methods for fitting models that are nonlinear in their parameters
 built in the scheme of differential / non-Taylor transformations. Written as
 part of the author's PhD dissertation.
 
-The public interface is layered, from choosing the engine yourself to letting
-it choose.
+Everything is built on one data structure. An Original is a sampled signal;
+its Image in a basis at an order is the pair of sums ``S = Phi^T (w y)`` and
+``G = Phi^T diag(w) Phi``, a sufficient statistic for estimation in the span
+of that basis, additive over sample sets and nested in the order.
 
-Batch fitters:
-    fit on an Original or an Image; fit_lsi and fit_eac are its Legendre and
-    block presets.
+Fitting:
+    fit(model, data) on either type, with basis="auto" routing by outcome;
+    fit_lsi and fit_eac are its Legendre and block presets; order_for gives
+    the order a model's sensitivities need. fit_many fans independent fits
+    across processes or threads.
 
-High level:
-    auto_estimate and auto_forecast route by signal shape. models / Model /
-    suggest_models are a catalog of self-seeding model families and an AIC
-    recommender for picking structure rather than sympy strings.
-
-Streaming:
+Streaming and scale:
     ImageFilter tracks parameters online on the window image; LSIFilter and
-    EACFilter fix its basis; start from ``.tracking()`` / ``.robust()``;
-    ``result()`` returns a FittingResult with the calibrated covariance.
+    EACFilter fix its basis. ImageStream accumulates a signal in fixed
+    memory as it arrives, emits block images and assembles them back.
 
-Scale:
-    ImageStream accumulates a signal in fixed memory as it arrives. Its
-    blocks are retained and assemble merges them into one Image; a channel
-    axis batches many signals through the same accumulator. fit_many fans
-    independent fits across processes or threads.
+Models:
+    dtfit.models is a catalog of self-seeding families (Model), composable
+    with "+", plus register / unregister and suggest_models, which ranks
+    families by AIC.
 
 Stochastic series:
-    fit_stochastic, StochasticModel and Stochastic characterize a random
-    series from its second-order image: the autocovariance, the spectrum,
-    the aggregated variance and the trend plus seasonal cycle, each read off
-    one additive statistic. The fitted model forecasts, bands and generates.
-    StochasticFilter tracks the same structure per input.
+    dtfit.stochastic characterizes a random series from its second-order
+    image: the autocovariance, the spectrum, the aggregated variance and
+    the trend plus seasonal cycle, each read off one additive statistic.
+    The fitted model forecasts, bands and generates, and StochasticFilter
+    tracks the same structure per input. auto_forecast is the structured
+    fit-then-extrapolate router.
 
-Every fit returns a FittingResult: named parameters, uncertainty, an optimizer
-``converged`` flag, and extrapolation-aware ``predict``. enable_logging and
-logger are the opt-in library logging. dtfit.diagnostics (fit_report, residual
-tests, the ``*Display`` helpers) is imported explicitly, after the
-scikit-learn convention.
+Every fit returns a FittingResult: named parameters, uncertainty, an
+optimizer ``converged`` flag, and extrapolation-aware ``predict``.
+dtfit.diagnostics (fit_report, residual tests, the ``*Display`` helpers) is
+imported explicitly, after the scikit-learn convention, as are
+dtfit.sklearn (the NonlineRegressor estimator), dtfit.reference (DSB, the
+exact-balance ancestor) and dtfit.log (opt-in library logging).
 
-Core dependencies: numpy, scipy, sympy, scikit-learn.
-Optional extras: matplotlib, via ``pip install 'dtfit[viz]'``.
+Core dependencies: numpy, scipy, sympy. Optional extras: scikit-learn for
+dtfit.sklearn, matplotlib for the plots, via ``pip install 'dtfit[viz]'``.
 """
 
 from dtfit.__about__ import __version__
 from dtfit import diagnostics
 from dtfit.types import FittingResult
-from dtfit.log import enable_logging, logger
-from dtfit.image import fit_lsi, fit_eac, fft_frequency_seed
-from dtfit.image import Original, Image, ImageStream, fit, order_for
-from dtfit.streaming import (
-    ImageFilter,
-    LSIFilter,
-    EACFilter,
-)
-from dtfit.image.parallel import fit_many, FittingProblem
-from dtfit.auto import auto_estimate, auto_forecast, ForecastResult
 from dtfit import models
-from dtfit.models import Model, Stochastic, suggest_models, register, unregister
+from dtfit.image import (
+    Original,
+    Image,
+    ImageStream,
+    fit,
+    fit_lsi,
+    fit_eac,
+    order_for,
+)
+from dtfit.image.parallel import fit_many
+from dtfit.streaming import ImageFilter, LSIFilter, EACFilter
+from dtfit.models import suggest_models
+from dtfit.forecast import auto_forecast, ForecastResult
 from dtfit import stochastic
-from dtfit.stochastic import fit_stochastic, StochasticModel, StochasticFilter
 
 __all__ = [
     "Original",
     "Image",
     "ImageStream",
-    "fit",
-    "order_for",
-    "auto_estimate",
-    "auto_forecast",
-    "ForecastResult",
-    "models",
-    "Model",
-    "suggest_models",
-    "register",
-    "unregister",
-    "stochastic",
-    "Stochastic",
-    "fit_stochastic",
-    "StochasticModel",
-    "StochasticFilter",
     "ImageFilter",
-    "EACFilter",
-    "LSIFilter",
+    "fit",
     "fit_lsi",
-    "fft_frequency_seed",
     "fit_eac",
+    "LSIFilter",
+    "EACFilter",
+    "order_for",
     "fit_many",
-    "FittingProblem",
+    "models",
+    "suggest_models",
+    "auto_forecast",
     "FittingResult",
-    "enable_logging",
-    "logger",
+    "ForecastResult",
+    "stochastic",
     "diagnostics",
     "__version__",
 ]

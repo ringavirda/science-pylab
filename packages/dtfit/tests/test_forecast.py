@@ -1,122 +1,14 @@
-"""Shape routing and fallbacks in ``auto_estimate`` and ``auto_forecast``.
+"""Model-class routing and fallbacks in ``auto_forecast``.
 
-``auto_estimate`` picks an estimator variant from the shape of the signal.
-``auto_forecast`` picks a model class, then applies the no-structure and
-divergence guards, falling back down a chain that ends at persistence.
+It picks a model class, then applies the no-structure and divergence guards,
+falling back down a chain that ends at persistence.
 """
 
 import numpy as np
 import pytest
 
-from dtfit import auto_estimate, auto_forecast
+from dtfit import auto_forecast
 from sklearn.metrics import r2_score
-
-
-def test_auto_estimate_bulk_recovers_exponential():
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 3, 300)
-    y = 1.0 * np.exp(0.9 * t) + rng.normal(0, 0.02, t.size)
-    r = auto_estimate(t, y, "a*exp(b*t)", "t", shape="bulk", p0=[1.0, 1.0])
-    assert abs(r.coeffs[0] - 1.0) < 0.2 and abs(r.coeffs[1] - 0.9) < 0.2
-
-
-def test_auto_estimate_oscillatory_recovers_sine():
-    rng = np.random.default_rng(1)
-    t = np.linspace(0, 4 * np.pi, 300)
-    y = 2.0 * np.sin(1.5 * t) + rng.normal(0, 0.05, t.size)
-    r = auto_estimate(t, y, "A*sin(w*x)", "x", freq_param="w", p0=[1.0, 1.0])
-    assert abs(r.coeffs[1] - 1.5) < 0.1  # sorted names: A, w
-
-
-def test_auto_estimate_auto_detects_oscillation():
-    rng = np.random.default_rng(2)
-    t = np.linspace(0, 4 * np.pi, 300)
-    y = 2.0 * np.sin(1.2 * t) + rng.normal(0, 0.05, t.size)
-    # The default shape="auto" routes to the oscillatory recipe once a
-    # frequency parameter is named.
-    r = auto_estimate(t, y, "A*sin(w*x)", "x", freq_param="w", p0=[1.0, 1.0])
-    assert abs(r.coeffs[1] - 1.2) < 0.1
-
-
-def test_auto_estimate_transient_uses_block_basis():
-    x = np.linspace(0.0, 10.0, 300)
-    y = (2.0 * (1.0 - np.exp(-x / 1.5))
-         + 0.02 * np.random.default_rng(0).standard_normal(300))
-    r = auto_estimate(x, y, "K*(1 - exp(-x/tau))", "x", shape="transient",
-                      p0=[1.0, 1.0])
-    assert abs(r.params["K"] - 2.0) < 0.05 and abs(r.params["tau"] - 1.5) < 0.1
-
-
-def test_auto_estimate_unknown_shape_raises():
-    t = np.linspace(0, 1, 30)
-    with pytest.raises(ValueError, match="shape"):
-        auto_estimate(t, np.exp(t), "a*exp(b*t)", "t", shape="weird")
-
-
-def test_auto_estimate_bulk_accepts_dict_p0_and_bounds():
-    # The bulk route tries both base fitters; both have to take the dict forms
-    # unchanged.
-    rng = np.random.default_rng(4)
-    t = np.linspace(0, 3, 300)
-    y = 1.0 * np.exp(0.9 * t) + rng.normal(0, 0.02, t.size)
-    r = auto_estimate(
-        t, y, "a*exp(b*t)", "t", shape="bulk",
-        p0={"a": 1.0, "b": 1.0},
-        bounds={"a": (0.1, 10.0), "b": (0.1, 5.0)},
-    )
-    assert abs(r.coeffs[0] - 1.0) < 0.2 and abs(r.coeffs[1] - 0.9) < 0.2
-
-
-def test_auto_estimate_transient_accepts_dict_and_pair_bounds():
-    # The EAC routes accept the same p0/bounds forms as LSI.
-    rng = np.random.default_rng(5)
-    t = np.linspace(0, 3, 400)
-    y = 2.0 * (1 - np.exp(-3.0 * t)) + rng.normal(0, 0.02, t.size)
-    r_dict = auto_estimate(
-        t, y, "K*(1-exp(-a*x))", "x", shape="transient",
-        p0={"K": 1.0, "a": 1.0},
-        bounds={"K": (0.0, 10.0), "a": (0.0, 20.0)},
-    )
-    r_pairs = auto_estimate(
-        t, y, "K*(1-exp(-a*x))", "x", shape="transient",
-        p0=[1.0, 1.0],
-        bounds=[(0.0, 10.0), (0.0, 20.0)],
-    )
-    for r in (r_dict, r_pairs):
-        assert abs(r.coeffs[0] - 2.0) < 0.2 and abs(r.coeffs[1] - 3.0) < 0.6
-
-
-def test_auto_estimate_bulk_primary_failure_warns_and_falls_back(monkeypatch):
-    import dtfit.auto as auto_mod
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("lsi boom")
-
-    monkeypatch.setattr(auto_mod, "fit_lsi", boom)
-    rng = np.random.default_rng(6)
-    t = np.linspace(0, 3, 200)
-    y = 2.0 * np.exp(0.5 * t) + rng.normal(0, 0.01, t.size)
-    with pytest.warns(UserWarning, match=r"fit_lsi failed \(lsi boom\)"):
-        r = auto_estimate(t, y, "a*exp(b*t)", "t", shape="bulk", p0=[1.0, 1.0])
-    assert np.all(np.isfinite(r.coeffs))  # the EAC fallback delivered
-
-
-def test_auto_estimate_bulk_both_fail_raises_with_both_messages(monkeypatch):
-    import dtfit.auto as auto_mod
-
-    def lsi_boom(*args, **kwargs):
-        raise RuntimeError("lsi boom")
-
-    def eac_boom(*args, **kwargs):
-        raise RuntimeError("eac boom")
-
-    monkeypatch.setattr(auto_mod, "fit_lsi", lsi_boom)
-    monkeypatch.setattr(auto_mod, "fit_eac", eac_boom)
-    t = np.linspace(0, 1, 30)
-    with pytest.warns(UserWarning):  # each failed candidate also warns
-        with pytest.raises(RuntimeError, match="lsi boom") as excinfo:
-            auto_estimate(t, np.exp(t), "a*exp(b*t)", "t", shape="bulk")
-    assert "eac boom" in str(excinfo.value)
 
 
 def test_auto_forecast_logistic_growth():
@@ -200,7 +92,7 @@ def test_auto_forecast_divergent_poly_failed_linear_falls_to_persistence(
     # The second fallback: the divergence guard fires and its linear refit
     # raises as well, leaving persistence at y[-1]. Reaching that needs a stub
     # where poly "fits" but runs away and linear raises.
-    import dtfit.auto as auto_mod
+    import dtfit.forecast as fc_mod
 
     t = np.linspace(0, 1, 20)
     y = np.linspace(1.0, 2.0, 20)
@@ -212,11 +104,11 @@ def test_auto_forecast_divergent_poly_failed_linear_falls_to_persistence(
             return np.full(t_all.size, 1e12), None  # wildly divergent prediction
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(auto_mod, "_fit_model", fake_fit_model)
+    monkeypatch.setattr(fc_mod, "_fit_model", fake_fit_model)
     with pytest.warns(
         UserWarning, match=r"linear fit failed .*falling back to persistence"
     ):
-        fc = auto_mod.auto_forecast(t, y, horizon=5, model="poly")
+        fc = fc_mod.auto_forecast(t, y, horizon=5, model="poly")
     assert fc.shape == (5,)
     assert np.allclose(fc, y[-1])
     # The persistence fallback records why it persisted, and carries no fit.
@@ -235,7 +127,7 @@ def _horizon_std_ok(fc, horizon):
 
 
 def test_auto_forecast_returns_ndarray_and_forecastresult():
-    from dtfit.auto import ForecastResult
+    from dtfit.forecast import ForecastResult
 
     t = np.linspace(0, 12, 120)
     y = 1000.0 / (1 + np.exp(-0.8 * (t - 6)))
@@ -305,13 +197,13 @@ def test_auto_forecast_no_structure_provenance(monkeypatch):
     # The guard is forced rather than provoked. Its factor-8 threshold is
     # deliberately hard to trip on real data, and a natural trigger would tie
     # the test to one particular fit realisation.
-    import dtfit.auto as auto_mod
+    import dtfit.forecast as fc_mod
 
-    monkeypatch.setattr(auto_mod, "_no_structure", lambda *a, **k: True)
+    monkeypatch.setattr(fc_mod, "_no_structure", lambda *a, **k: True)
     t = np.linspace(0, 30, 300)
     y = 1.0 + 2.0 * t
     n_tr = 240
-    fc = auto_mod.auto_forecast(t[:n_tr], y[:n_tr], horizon=60, model="poly")
+    fc = fc_mod.auto_forecast(t[:n_tr], y[:n_tr], horizon=60, model="poly")
     assert fc.model_name.startswith("persistence (") and "no structure" in fc.model_name
     assert fc.model_name == "persistence (poly no structure)"
     assert np.allclose(fc, y[n_tr - 1])
@@ -321,10 +213,10 @@ def test_auto_forecast_no_structure_provenance(monkeypatch):
 def test_auto_forecast_divergence_guard_reports_provenance(monkeypatch):
     # The stub makes poly "fit" and then run away. Here the divergence guard's
     # linear refit succeeds; the forecast is then a real linear one.
-    import dtfit.auto as auto_mod
+    import dtfit.forecast as fc_mod
     from dtfit import FittingResult
 
-    real_fit_model = auto_mod._fit_model
+    real_fit_model = fc_mod._fit_model
     t = np.linspace(0, 1, 20)
     y = np.linspace(1.0, 2.0, 20)
 
@@ -333,16 +225,16 @@ def test_auto_forecast_divergence_guard_reports_provenance(monkeypatch):
             return np.full(t_all.size, 1e12), None  # divergent
         return real_fit_model(chosen, x, yy, t_all, period)
 
-    monkeypatch.setattr(auto_mod, "_fit_model", fake_fit_model)
-    fc = auto_mod.auto_forecast(t, y, horizon=5, model="poly")
-    assert isinstance(fc, auto_mod.ForecastResult)
+    monkeypatch.setattr(fc_mod, "_fit_model", fake_fit_model)
+    fc = fc_mod.auto_forecast(t, y, horizon=5, model="poly")
+    assert isinstance(fc, fc_mod.ForecastResult)
     assert fc.model_name == "linear (poly diverged)"
     assert isinstance(fc.result, FittingResult)
     assert _horizon_std_ok(fc, 5)
 
 
 def test_auto_forecast_zero_horizon_is_forecastresult():
-    from dtfit.auto import ForecastResult
+    from dtfit.forecast import ForecastResult
 
     fc = auto_forecast(np.linspace(0, 1, 50), np.exp(np.linspace(0, 1, 50)), horizon=0)
     assert isinstance(fc, ForecastResult)
@@ -353,9 +245,9 @@ def test_auto_forecast_zero_horizon_is_forecastresult():
 def test_auto_forecast_std_fallback_when_no_covariance(monkeypatch):
     # A missing covariance leaves std_band as None instead of crashing; the
     # values and model_name still arrive.
-    import dtfit.auto as auto_mod
+    import dtfit.forecast as fc_mod
 
-    real_fit_model = auto_mod._fit_model
+    real_fit_model = fc_mod._fit_model
     t = np.linspace(0, 3, 200)
     y = 1.0 + 2.0 * t
 
@@ -364,30 +256,14 @@ def test_auto_forecast_std_fallback_when_no_covariance(monkeypatch):
         res.cov = None  # simulate a method that produced no covariance
         return pred, res
 
-    monkeypatch.setattr(auto_mod, "_fit_model", strip_cov)
-    fc = auto_mod.auto_forecast(t, y, horizon=10, model="linear")
+    monkeypatch.setattr(fc_mod, "_fit_model", strip_cov)
+    fc = fc_mod.auto_forecast(t, y, horizon=10, model="linear")
     assert fc.std_band is None
     assert fc.model_name == "linear"
     assert fc.shape == (10,)
 
 
 # pandas interop
-def test_auto_estimate_accepts_series_and_single_col_dataframe():
-    pd = pytest.importorskip("pandas")
-    rng = np.random.default_rng(0)
-    t = np.linspace(0, 3, 300)
-    y = 1.0 * np.exp(0.9 * t) + rng.normal(0, 0.02, t.size)
-    r_series = auto_estimate(
-        pd.Series(t), pd.Series(y), "a*exp(b*t)", "t", shape="bulk", p0=[1.0, 1.0]
-    )
-    r_frame = auto_estimate(
-        pd.DataFrame({"t": t}), pd.DataFrame({"y": y}),
-        "a*exp(b*t)", "t", shape="bulk", p0=[1.0, 1.0],
-    )
-    for r in (r_series, r_frame):
-        assert abs(r.coeffs[0] - 1.0) < 0.2 and abs(r.coeffs[1] - 0.9) < 0.2
-
-
 def test_auto_forecast_series_values_match_ndarray_path():
     # A pandas input adds .index and nothing else; the values are identical.
     pd = pytest.importorskip("pandas")
@@ -402,7 +278,7 @@ def test_auto_forecast_series_values_match_ndarray_path():
 
 def test_auto_forecast_series_datetimeindex_future_index_and_to_series():
     pd = pytest.importorskip("pandas")
-    from dtfit.auto import ForecastResult
+    from dtfit.forecast import ForecastResult
 
     n_tr = 90
     t = np.linspace(0, 12, 120)

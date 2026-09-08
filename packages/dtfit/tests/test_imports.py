@@ -1,4 +1,4 @@
-"""Package surface: public names, submodule importability, removed modules."""
+"""Package surface: the public names, submodule importability, what left."""
 
 import importlib
 import pkgutil
@@ -8,34 +8,41 @@ import pytest
 
 import dtfit
 
+# The whole top-level surface. Fifteen entry points and the three
+# subpackages that carry the rest; everything else is reached through its
+# own module.
+PUBLIC = {
+    "Original",
+    "Image",
+    "ImageStream",
+    "ImageFilter",
+    "fit",
+    "fit_lsi",
+    "fit_eac",
+    "LSIFilter",
+    "EACFilter",
+    "order_for",
+    "fit_many",
+    "models",
+    "suggest_models",
+    "auto_forecast",
+    "FittingResult",
+    "ForecastResult",
+    "stochastic",
+    "diagnostics",
+    "__version__",
+}
 
-def test_top_level_api():
-    for name in [
-        "ImageFilter",
-        "EACFilter",
-        "fit_lsi",
-        "fit_eac",
-        "models",
-        "suggest_models",
-        "auto_estimate",
-        "enable_logging",
-    ]:
+
+def test_top_level_api_is_exactly_the_public_surface():
+    assert set(dtfit.__all__) == PUBLIC
+    for name in PUBLIC:
         assert hasattr(dtfit, name), f"missing public name: {name}"
 
 
-def test_the_reference_method_has_its_own_module():
-    from dtfit.reference import find_degree, fit_dsb
-
-    assert callable(fit_dsb) and callable(find_degree)
-    for name in ("fit_dsb", "find_degree"):
-        assert not hasattr(dtfit, name)
-
-
-def test_the_estimator_has_its_own_module():
-    from dtfit.sklearn import NonlineRegressor
-
-    assert NonlineRegressor is not None
-    assert not hasattr(dtfit, "NonlineRegressor")
+def test_all_submodules_import():
+    for mod in pkgutil.walk_packages(dtfit.__path__, "dtfit."):
+        importlib.import_module(mod.name)
 
 
 def test_importing_dtfit_does_not_import_scikit_learn():
@@ -48,19 +55,12 @@ def test_importing_dtfit_does_not_import_scikit_learn():
     assert out.stdout.strip() == "False"
 
 
-def test_all_submodules_import():
-    for mod in pkgutil.walk_packages(dtfit.__path__, "dtfit."):
-        importlib.import_module(mod.name)
-
-
 @pytest.mark.parametrize(
     "mod",
     [
-        "dtfit.methods.dsbi",
-        "dtfit.methods.dsbe",
-        # Hand-written differential-transform tables replaced by generic Taylor.
-        "dtfit.methods.discretes",
-        "dtfit.methods.spectrum",
+        "dtfit.methods",
+        "dtfit.estimators",
+        "dtfit.auto",
         "dtfit.scale",
         "dtfit.stochastic._estimators",
         "dtfit.stochastic._model",
@@ -70,9 +70,35 @@ def test_all_submodules_import():
         "dtfit.stochastic._filter",
     ],
 )
-def test_removed_methods_are_gone(mod):
+def test_removed_modules_are_gone(mod):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(mod)
+
+
+@pytest.mark.parametrize(
+    "name,module",
+    [
+        ("NonlineRegressor", "dtfit.sklearn"),
+        ("fit_dsb", "dtfit.reference"),
+        ("find_degree", "dtfit.reference"),
+        ("Model", "dtfit.models"),
+        ("Stochastic", "dtfit.models"),
+        ("register", "dtfit.models"),
+        ("unregister", "dtfit.models"),
+        ("resolve_model", "dtfit.models"),
+        ("fit_stochastic", "dtfit.stochastic"),
+        ("StochasticModel", "dtfit.stochastic"),
+        ("StochasticFilter", "dtfit.stochastic"),
+        ("FittingProblem", "dtfit.image"),
+        ("fft_frequency_seed", "dtfit.image"),
+        ("coverage", "dtfit.image"),
+        ("enable_logging", "dtfit.log"),
+        ("logger", "dtfit.log"),
+    ],
+)
+def test_the_rest_is_reached_through_its_module(name, module):
+    assert not hasattr(dtfit, name), f"{name} is not a top-level name"
+    assert hasattr(importlib.import_module(module), name)
 
 
 def test_stochastic_surface():
@@ -87,14 +113,11 @@ def test_stochastic_surface():
         assert hasattr(stochastic, name), f"missing public name: {name}"
 
 
-def test_scale_names_left_the_library():
+def test_removed_names_left_the_library():
     for name in ("PartitionedLSI", "PartitionedEAC", "PartitionedBatchLSI",
-                 "fit_lsi_batched"):
+                 "fit_lsi_batched", "project_spectra", "auto_estimate",
+                 "ensemble_fit", "EnsembleResult", "FilterBank",
+                 "FusedChiSquareDetector"):
         assert not hasattr(dtfit, name)
     assert callable(dtfit.fit_many) and dtfit.ImageStream is not None
     assert "dtfit.scale" not in sys.modules
-
-
-def test_filter_bank_names_left_the_library():
-    for name in ("FilterBank", "FusedChiSquareDetector"):
-        assert not hasattr(dtfit, name)

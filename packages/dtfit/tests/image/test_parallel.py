@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from dtfit import FittingProblem, fit_many, fit_eac
+from dtfit import fit_many, fit_eac
+from dtfit.image import FittingProblem
 
 
 def _problems(n=6, method="eac"):

@@ -8,9 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dtfit import (
-    fit_eac, fit_lsi, LSIFilter, EACFilter, fit_stochastic, suggest_models,
-)
+from dtfit import fit_eac, fit_lsi, LSIFilter, EACFilter, suggest_models
+from dtfit.stochastic import fit_stochastic
 
 
 @pytest.mark.parametrize("Filter", [LSIFilter, EACFilter])

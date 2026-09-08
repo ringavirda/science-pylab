@@ -10,5 +10,5 @@ GARCH(1,1), AR(2) pseudo-cycle, trend+cycle) and the evaluation harness
 ``run()`` / ``summary()``, which scores each possibility VIABLE, MARGINAL or
 NOT VIABLE by its parameter-recovery error against the known truth. The
 estimators it exercises live in :mod:`dtfit.stochastic` (``fit_stochastic``,
-``StochasticModel``, ``StochasticFilter``, ``dtfit.Stochastic``).
+``StochasticModel``, ``StochasticFilter``, ``dtfit.models.Stochastic``).
 """
