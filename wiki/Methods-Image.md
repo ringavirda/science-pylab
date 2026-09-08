@@ -196,21 +196,26 @@ coefficients rise before they fall, and neither law describes them (a
 damped cosine gives 0.099 and 0.019, an exponential 0.974 and 0.845).
 
 `test_equal(other)` asks whether two images are of the same signal:
-`d = beta_a - beta_b` against `d^T (s2 (V_a + V_b))^+ d`, chi-square with
-the rank of the pooled covariance. The two images may hold any sample sets
-and any number of samples -- only basis, order and domain must agree.
-Measured false-alarm rate at `alpha = 0.05` over 2000 replicates: 0.046
-under Gaussian noise, 0.052 under Student-t with three degrees of freedom,
-0.048 under Laplace. `test_structure(model, params)` asks the other
-question, whether a model explains everything the basis resolves: the
-leftover projections `d = S - S_f` against `d^T (s2 G)^+ d`, which is the
-drop in residual sum of squares between the model and the best fit in the
-span, in units of the noise variance. `test_structure` takes its noise
-scale from the basis-regression residual `(sumsq - S^T beta) / (n -
-rank(G))`, which exists at any order and in any basis; `test_equal` pools
-both images' residuals instead, `(rss_a + rss_b) / (dof_a + dof_b)` with
-each `dof` the sample count less the rank of that image's Gram. Both
-return a `ChiSquareTest` (`statistic`, `dof`, `pvalue`, `alpha`, `reject`).
+`d = beta_a - beta_b` against `d^T (s2_a V_a + s2_b V_b)^+ d`, chi-square
+with the rank of the combined covariance. The two images may hold any
+sample sets, weights and sample counts -- only basis, order and domain
+must agree. Measured false-alarm rate at `alpha = 0.05` over 2000
+replicates: 0.046 under Gaussian noise, 0.052 under Student-t with three
+degrees of freedom, 0.048 under Laplace, unaffected by mixing a weighted
+and an unweighted image (0.050 over 400 replicates).
+`test_structure(model, params)` asks the other question, whether a model
+explains everything the basis resolves: the leftover projections
+`d = S - S_f` against `d^T (s2 G)^+ d`, which is the drop in residual sum
+of squares between the model and the best fit in the span, in units of
+the noise variance. `test_structure` takes its noise scale from the
+basis-regression residual `(sumsq - S^T beta) / (n - rank(G))`, which
+exists at any order and in any basis; `test_equal` takes each image's own
+such residual instead, `s2_a` and `s2_b`, since the two images may carry
+different weights. Both return a `ChiSquareTest` (`statistic`, `dof`,
+`pvalue`, `alpha`, `reject`). In a test module, reach both as `Image`
+methods or as `analytics.test_equal`/`analytics.test_structure`, not by
+importing the bare names -- pytest collects a module-level `test_equal`
+as a test.
 
 `simulate(n=None, sigma=None, rng=None)` goes the other way: the
 reconstruction plus Gaussian noise, on the image's own grid when `n` is

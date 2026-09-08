@@ -117,18 +117,22 @@ def _effective_order(r: np.ndarray) -> int:
     The scale starts as the median of the upper half of ``r`` rescaled by
     the chi-square median, which no single large coefficient can drag, and
     is then refined up to eight times from the mean of the tail the current
-    answer leaves.
+    answer leaves. The threshold is floored at a tiny fraction of the
+    largest entry, since with no noise at all the tail is floating-point
+    roundoff and both the seed and the refined scale would otherwise latch
+    onto whichever roundoff coefficient happens to be largest.
     """
     k = r.size
     q = max(2, k // 2)
+    floor = 1e-24 * float(r.max()) if r.size else 0.0
     s2 = float(np.median(r[k - q:])) / _CHI2_1_MEDIAN
-    e = _last_above(r, 9.0 * s2)
+    e = _last_above(r, max(9.0 * s2, floor))
     for _ in range(8):
         tail = r[e + 1:]
         if tail.size < 4:
             break
         s2 = float(np.mean(tail))
-        nxt = _last_above(r, 9.0 * s2)
+        nxt = _last_above(r, max(9.0 * s2, floor))
         if nxt == e:
             break
         e = nxt
@@ -137,9 +141,13 @@ def _effective_order(r: np.ndarray) -> int:
 
 def _tail_variance(image: "Image") -> float | None:
     """The noise variance from the orders above the effective order, or
-    ``None`` when the basis is not Legendre or fewer than eight orders are
-    left. Silent: the warning belongs to :func:`noise_sigma`."""
+    ``None`` when the basis is not Legendre, the Gram is rank-deficient
+    (an unidentified coefficient's minimum-norm value over a near-zero
+    ``V_jj`` would corrupt every entry of the tail), or fewer than eight
+    orders are left. Silent: the warning belongs to :func:`noise_sigma`."""
     if image.basis.name != "legendre":
+        return None
+    if _pinv_rank(image.G)[1] < image.n_coef:
         return None
     r = _scaled_squares(image)
     e = _effective_order(r)
@@ -183,6 +191,18 @@ def effective_order(image: "Image") -> int:
     return _effective_order(_scaled_squares(image))
 
 
+def _warn_no_tail(image: "Image", stacklevel: int) -> None:
+    """The ``noise_sigma`` warning, with ``stacklevel`` set by the caller
+    so it points at the user's call site whether that is this module's
+    :func:`noise_sigma` or :meth:`~dtfit.image.Image.noise_sigma`."""
+    warnings.warn(
+        "noise_sigma: fewer than 8 orders stand above the effective "
+        f"order of this image (order {image.order}); no tail is left "
+        "to read the noise from",
+        RuntimeWarning, stacklevel=stacklevel,
+    )
+
+
 def noise_sigma(image: "Image") -> float | None:
     """The noise standard deviation read off the image's tail orders.
 
@@ -216,12 +236,7 @@ def noise_sigma(image: "Image") -> float | None:
     _require_legendre(image, "noise_sigma")
     v = _tail_variance(image)
     if v is None:
-        warnings.warn(
-            "noise_sigma: fewer than 8 orders stand above the effective "
-            f"order of this image (order {image.order}); no tail is left "
-            "to read the noise from",
-            RuntimeWarning, stacklevel=2,
-        )
+        _warn_no_tail(image, stacklevel=3)
         return None
     return float(np.sqrt(v))
 
@@ -285,30 +300,38 @@ def test_equal(
     """Chi-square test that two images are of the same signal.
 
     With ``d = beta_a - beta_b``, the statistic is
-    ``d^T (s2 (V_a + V_b))^+ d``, which is chi-square distributed with as
-    many degrees of freedom as the pooled covariance has rank when both
-    images observe the same signal under noise of variance ``s2``. The two
-    images must cover the same domain: on a block basis, an image whose
-    windows are empty over part of the domain has zero coefficients there,
-    which the test then reads as a difference from an image that has
-    them; the Legendre basis has no such windows. Beyond that, the two
-    images may have any sample sets, weights and sample counts; only the
-    basis, its order and the domain must agree, since the coefficients are
-    compared entry by entry.
+    ``d^T (s2_a V_a + s2_b V_b)^+ d``, which is chi-square distributed with
+    as many degrees of freedom as the covariance has rank when both images
+    observe the same signal under noise. ``s2_a`` and ``s2_b`` are each
+    image's own noise variance, not a single pooled scale, since an image
+    built with ``sigma=`` and an unweighted image carry their residuals in
+    different units; using one image's scale for the other's covariance
+    term is what lets a weighted and an unweighted image be compared
+    without the test going silently blind. The two images must cover the
+    same domain: on a block basis, an image whose windows are empty over
+    part of the domain has zero coefficients there, which the test then
+    reads as a difference from an image that has them; the Legendre basis
+    has no such windows. Beyond that, the two images may have any sample
+    sets, weights and sample counts; only the basis, its order and the
+    domain must agree, since the coefficients are compared entry by entry.
 
     Measured false-alarm rate at ``alpha=0.05``, 2000 replicates of a
     logistic signal at order 12: 0.046 under Gaussian noise, 0.052 under
     Student-t noise with three degrees of freedom, 0.048 under Laplace
-    noise; the heavy tails do not break the test.
+    noise; the heavy tails do not break the test. Measured over 400
+    replicates of the same signal, one image weighted with ``sigma=`` and
+    the other unweighted: 0.050, the same rate as two unweighted images.
 
     Args:
         image: The first image.
         other: The second image; same basis, order and domain.
         alpha: Significance level of the verdict, in ``(0, 1)``.
-        sigma: The noise standard deviation, if known. ``None`` pools it
-            from both images' basis-regression residuals,
-            ``(rss_a + rss_b) / (dof_a + dof_b)``, with each ``dof`` the
-            sample count less the rank of that image's Gram.
+        sigma: The noise standard deviation, if known, shared by both
+            images. ``None`` takes each image's own noise variance from
+            its basis-regression residual,
+            ``(sumsq - S^T beta) / (n - rank(G))``, falling back to the
+            other image's estimate when one image has no residual degree
+            of freedom.
 
     Returns:
         A :class:`ChiSquareTest`; ``reject`` is ``True`` when the images
@@ -318,7 +341,7 @@ def test_equal(
         ValueError: the two images differ in basis, order or domain;
             ``alpha`` outside ``(0, 1)``; ``sigma`` not finite and
             positive; or, with ``sigma=None``, neither image has a residual
-            degree of freedom to pool a noise scale from.
+            degree of freedom to estimate a noise scale from.
     """
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must lie in (0, 1); got {alpha}")
@@ -331,21 +354,19 @@ def test_equal(
     if sigma is not None:
         if not np.isfinite(sigma) or sigma <= 0.0:
             raise ValueError(f"sigma must be finite and positive; got {sigma}")
-        s2 = float(sigma) ** 2
+        s2_a = s2_b = float(sigma) ** 2
     else:
-        rank_a, rank_b = _pinv_rank(image.G)[1], _pinv_rank(other.G)[1]
-        dof = max(image.n - rank_a, 0) + max(other.n - rank_b, 0)
-        if dof <= 0:
+        s2_a, s2_b = _residual_variance(image), _residual_variance(other)
+        if not np.isfinite(s2_a) and not np.isfinite(s2_b):
             raise ValueError(
                 "neither image has a residual degree of freedom to estimate "
                 "the noise from; pass sigma"
             )
-        rss = (max(float(image.sumsq - image.S @ image.beta), 0.0)
-               + max(float(other.sumsq - other.S @ other.beta), 0.0))
-        s2 = rss / dof
+        s2_a = s2_a if np.isfinite(s2_a) else s2_b
+        s2_b = s2_b if np.isfinite(s2_b) else s2_a
     d = image.beta - other.beta
-    cov = s2 * (np.linalg.pinv(image.G, hermitian=True)
-                + np.linalg.pinv(other.G, hermitian=True))
+    cov = (s2_a * np.linalg.pinv(image.G, hermitian=True)
+           + s2_b * np.linalg.pinv(other.G, hermitian=True))
     inv, rank = _pinv_rank(cov)
     if rank < 1:
         raise ValueError(
@@ -369,7 +390,13 @@ def test_structure(
     ``s2 G``: the statistic is ``d^T (s2 G)^+ d``, the drop in residual sum
     of squares between the model and the best fit in the span, in units of
     the noise variance. A large value means the basis still resolves
-    structure the model does not.
+    structure the model does not. The chi-square distribution holds when
+    ``s2``'s own residual degrees of freedom, ``n - rank(G)``, dominate
+    the rank being tested; the statistic is really ``rank * F(rank, n -
+    rank(G))``, and the false-alarm rate at ``alpha=0.05`` drifts above
+    nominal as the residual degrees of freedom shrink relative to the
+    rank (measured on the true model at order 10: 0.050 at 489 residual
+    degrees of freedom, 0.101 at 29, 0.181 at 9).
 
     Args:
         image: The image to test against.

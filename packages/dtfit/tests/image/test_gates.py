@@ -169,3 +169,24 @@ def test_equality_test_false_alarm_rate(noise):
     rate = float(np.mean(flags))
     lo, hi = (0.03, 0.08) if NIGHTLY else (0.02, 0.10)
     assert lo <= rate <= hi, f"{noise}: false-alarm rate {rate:.4f}"
+
+
+def test_structure_test_false_alarm_rate_on_a_weighted_image():
+    """The true model against a sigma=-weighted image, fixed at the true
+    parameters: the weighted residual variance the test reads its noise
+    scale from must calibrate the same as an unweighted one."""
+    x = np.linspace(0.0, 4.0, 500)
+    yc = 2.0 * np.exp(-0.7 * x) + 0.3
+    true_sigma = 0.5 + 0.1 * x
+    flags = []
+    for s in range(FALSE_ALARM_REPS):
+        rng = np.random.default_rng(4242 + s)
+        y = yc + true_sigma * rng.standard_normal(x.size)
+        img = Original(x, y, sigma=true_sigma).image("legendre", 10)
+        t = img.test_structure(
+            "a*exp(-b*t) + c", [2.0, 0.7, 0.3], "t", fitted=False,
+        )
+        flags.append(t.reject)
+    rate = float(np.mean(flags))
+    lo, hi = (0.03, 0.08) if NIGHTLY else (0.02, 0.10)
+    assert lo <= rate <= hi, f"weighted test_structure: rate {rate:.4f}"

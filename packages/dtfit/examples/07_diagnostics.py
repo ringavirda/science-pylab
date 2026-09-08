@@ -40,15 +40,19 @@ def main() -> None:
 
     # The image has its own diagnostics, read from the projections alone: the
     # noise level, how many orders carry signal, and a chi-square test of
-    # whether the model left structure the basis still resolves. Original
-    # .diagnostics runs the residual tests above for a model and parameters,
-    # without a FittingResult.
+    # whether the model left structure the basis still resolves. Both are
+    # read off a handful of tail coefficients, so a single run is a noisy
+    # sample of them, not a settled number; noise_sigma is None when the
+    # image has no tail left to read. Original.diagnostics runs the
+    # residual tests above for a model and parameters, without a
+    # FittingResult.
     from dtfit import Original
 
     orig = Original(x, y)
     img = orig.image("legendre", 40)
+    sigma = img.noise_sigma()
     print("\n== the image's own diagnostics ==")
-    print("  noise_sigma    :", round(img.noise_sigma(), 4))
+    print("  noise_sigma    :", round(sigma, 4) if sigma is not None else None)
     print("  effective_order:", img.effective_order())
     left = img.test_structure("a0 + a1*exp(a2*x)", res.coeffs, "x")
     print("  structure left :", left.reject, "p =", round(left.pvalue, 3))

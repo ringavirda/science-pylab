@@ -254,9 +254,9 @@ G^+ S` are derived, never stored.
   images only; raises `ValueError` below three usable coefficients.
 - **`test_equal(other, alpha=0.05, *, sigma=None) -> ChiSquareTest`** --
   chi-square test that `other` is an image of the same signal,
-  `d^T (s2 (V_a + V_b))^+ d` with `d = beta_a - beta_b`. Any basis; the two
-  images must share basis, order and domain, and may differ in everything
-  else.
+  `d^T (s2_a V_a + s2_b V_b)^+ d` with `d = beta_a - beta_b`. Any basis;
+  the two images must share basis, order and domain, and may differ in
+  everything else, including their weights.
 - **`test_structure(model, params, var=None, *, alpha=0.05,
   param_names=None, sigma=None, fitted=True) -> ChiSquareTest`** --
   chi-square test on `S - S_f` with covariance `s2 G`: whether the model
@@ -265,10 +265,13 @@ G^+ S` are derived, never stored.
 - **`ChiSquareTest`** -- `statistic`, `dof`, `pvalue`, `alpha` and the
   property `reject` (`pvalue < alpha`). Unless `sigma` is given,
   `test_structure` takes its noise scale from the basis-regression residual
-  `(sumsq - S^T beta) / (n - rank(G))`; `test_equal` pools both images'
-  residuals, `(rss_a + rss_b) / (dof_a + dof_b)` with each `dof` the sample
-  count less the rank of that image's Gram. Exported from `dtfit.image`
-  with `Decay` and the five functions of `dtfit.image.analytics`.
+  `(sumsq - S^T beta) / (n - rank(G))`; `test_equal` takes each image's own
+  such residual, `s2_a` and `s2_b`, since a weighted and an unweighted
+  image are not on the same scale. Exported from `dtfit.image`
+  with `Decay` and the five functions of `dtfit.image.analytics`. In a test
+  module, reach `test_equal` and `test_structure` as `Image` methods or as
+  `analytics.test_equal`/`analytics.test_structure`, not by importing the
+  bare names -- pytest collects a module-level `test_equal` as a test.
 - **`of(original, basis="legendre", order=None, *, robust=False) -> Image`**
   (classmethod) -- the image of an `Original`; the robust IRLS uses the Huber
   constant c = 1.345.

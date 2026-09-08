@@ -418,9 +418,14 @@ class Image:
 
         See :func:`~dtfit.image.analytics.noise_sigma` for the formula.
         """
-        from .analytics import noise_sigma
+        from .analytics import _require_legendre, _tail_variance, _warn_no_tail
 
-        return noise_sigma(self)
+        _require_legendre(self, "noise_sigma")
+        v = _tail_variance(self)
+        if v is None:
+            _warn_no_tail(self, stacklevel=3)
+            return None
+        return float(np.sqrt(v))
 
     def effective_order(self) -> int:
         """The highest order whose coefficient stands above the noise.
@@ -462,6 +467,16 @@ class Image:
     ) -> "ChiSquareTest":
         """Chi-square test that ``other`` is an image of the same signal.
 
+        Args:
+            other: The second image; same basis, order and domain.
+            alpha: Significance level of the verdict, in ``(0, 1)``.
+            sigma: The noise standard deviation, if known, shared by both
+                images. ``None`` takes each image's own noise variance
+                from its basis-regression residual,
+                ``(sumsq - S^T beta) / (n - rank(G))``, falling back to
+                the other image's estimate when one image has no
+                residual degree of freedom.
+
         Returns:
             A :class:`~dtfit.image.analytics.ChiSquareTest`; ``reject``
             is ``True`` when the images differ by more than noise.
@@ -470,7 +485,8 @@ class Image:
             ValueError: the two images differ in basis, order or domain;
                 ``alpha`` outside ``(0, 1)``; ``sigma`` not finite and
                 positive; or, with ``sigma=None``, neither image has a
-                residual degree of freedom to pool a noise scale from.
+                residual degree of freedom to estimate a noise scale
+                from.
 
         See :func:`~dtfit.image.analytics.test_equal` for the formula.
         """
@@ -484,6 +500,23 @@ class Image:
         sigma: float | None = None, fitted: bool = True,
     ) -> "ChiSquareTest":
         """Chi-square test that a model explains everything in the span.
+
+        Args:
+            model: A SymPy expression string, a ``sympy.Expr``, or a
+                callable ``f(x, *params)``, as
+                :func:`~dtfit.image.fit` takes.
+            params: Parameter values in canonical order (sorted names for
+                a symbolic model, signature order for a callable).
+            var: The main variable name; required for a symbolic model.
+            alpha: Significance level of the verdict, in ``(0, 1)``.
+            param_names: Parameter names for a callable model; see
+                :func:`~dtfit.methods.resolve_model`.
+            sigma: The noise standard deviation, if known. ``None`` takes
+                it from the image's own basis-regression residual,
+                ``sqrt((sumsq - S^T beta) / (n - rank(G)))``.
+            fitted: ``True`` (default) when ``params`` were estimated
+                from this image, which costs one degree of freedom per
+                parameter; ``False`` for parameters fixed beforehand.
 
         Returns:
             A :class:`~dtfit.image.analytics.ChiSquareTest`; ``reject``

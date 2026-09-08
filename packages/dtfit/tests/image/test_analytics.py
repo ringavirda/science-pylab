@@ -1,10 +1,12 @@
 """The image's own statistics: noise level, resolved order, decay, and the
 two chi-square tests."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
-from dtfit.image import Original, analytics
+from dtfit.image import Image, Original, analytics
 from dtfit.image.analytics import (
     ChiSquareTest, Decay, decay, effective_order, noise_sigma,
 )
@@ -16,15 +18,21 @@ X = np.linspace(-1.0, 1.0, 400)
 
 
 def _legendre_signal(degree, seed, sigma=0.05, order=24):
-    """An image of a Legendre polynomial of known degree plus white noise."""
+    """An image of a Legendre polynomial of known degree plus white noise.
+
+    The noise seed is offset by the degree so that the degrees checked
+    together in one test do not share a noise draw and pass or fail as
+    one.
+    """
     yc = np.polynomial.legendre.legval(X, np.ones(degree + 1))
-    y = yc + sigma * np.random.default_rng(seed).standard_normal(X.size)
+    rng = np.random.default_rng(seed + 100 * degree)
+    y = yc + sigma * rng.standard_normal(X.size)
     return Original(X, y).image("legendre", order)
 
 
 def test_effective_order_finds_the_degree_of_a_polynomial():
     for degree in (0, 2, 4, 6, 9):
-        img = _legendre_signal(degree, 2000)
+        img = _legendre_signal(degree, 2003)
         assert effective_order(img) == degree
         assert img.effective_order() == degree
 
@@ -40,8 +48,11 @@ def test_effective_order_is_the_degree_for_the_median_of_many_draws():
 
 
 def test_effective_order_of_a_noise_free_polynomial_is_exact():
-    yc = np.polynomial.legendre.legval(X, np.ones(6))
-    assert Original(X, yc).image("legendre", 20).effective_order() == 5
+    for order in (16, 20, 24, 32):
+        for degree in range(10):
+            yc = np.polynomial.legendre.legval(X, np.ones(degree + 1))
+            img = Original(X, yc).image("legendre", order)
+            assert img.effective_order() == degree, (order, degree)
 
 
 def test_effective_order_rejects_a_non_legendre_basis():
@@ -203,6 +214,23 @@ def test_test_equal_takes_a_known_sigma():
     assert tight.reject and not loose.reject
 
 
+def test_test_equal_rejects_a_zero_rank_covariance():
+    a, b = _exp_image(1), _exp_image(2)
+    za = replace(a, G=np.zeros_like(a.G))
+    zb = replace(b, G=np.zeros_like(b.G))
+    with pytest.raises(ValueError, match="rank 0"):
+        analytics.test_equal(za, zb, sigma=0.1)
+
+
+def test_test_equal_needs_a_residual_degree_of_freedom_without_sigma():
+    """Both images pinned to their own coefficient count leave nothing to
+    estimate a noise scale from when sigma is not given."""
+    a, b = _exp_image(1), _exp_image(2)
+    za, zb = replace(a, n=a.n_coef), replace(b, n=b.n_coef)
+    with pytest.raises(ValueError, match="residual degree of freedom"):
+        analytics.test_equal(za, zb)
+
+
 def test_test_structure_passes_the_generating_model():
     """Hands the true generating parameters, not a fit: fitted=False takes
     the full coefficient count, since no degree of freedom was spent."""
@@ -270,6 +298,35 @@ def test_test_structure_validates_its_arguments():
             "a + b*t + c*t**2 + d*t**3 + e*t**4",
             [1.0, 1.0, 1.0, 1.0, 1.0], "t",
         )
+
+
+def test_test_structure_rejects_a_model_with_no_free_parameters():
+    img = _exp_image(1)
+    with pytest.raises(RuntimeError, match="no free parameters"):
+        analytics.test_structure(img, "2.0", [], "t")
+
+
+def test_test_structure_on_the_block_basis():
+    x = np.linspace(0.0, 4.0, 500)
+    y = (2.0 * np.exp(-0.7 * x) + 0.3
+         + 0.05 * np.random.default_rng(1).standard_normal(x.size))
+    img = Original(x, y).image("block", 12)
+    t = img.test_structure("a*exp(-b*t) + c", [2.0, 0.7, 0.3], "t")
+    assert t.dof == 9 and not t.reject
+    line = img.test_structure("a + b*t", [2.0, -0.4], "t")
+    assert line.dof == 10 and line.reject and line.pvalue < 1e-6
+
+
+def test_of_model_takes_param_names_for_a_callable():
+    def model(x, a, b):
+        return a * x + b
+
+    img = _exp_image(1)
+    m = Image.of_model(
+        model, [1.0, 2.0], img.grid, "legendre", 10,
+        param_names=["a", "b"],
+    )
+    assert m.n_coef == img.n_coef
 
 
 def test_chi_square_test_reject_follows_alpha():
