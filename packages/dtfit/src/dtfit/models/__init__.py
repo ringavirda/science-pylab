@@ -43,7 +43,7 @@ from dtfit._input import (
     resolve_model,
     result_kwargs,
 )
-from ._model import Model
+from ._model import Model, as_fit_data
 from ._stochastic import Stochastic
 from ._suggest import suggest_models, Suggestion
 from ._catalog import (
@@ -87,6 +87,7 @@ from ._catalog import (
 
 __all__ = [
     "Model",
+    "as_fit_data",
     "Stochastic",
     "ModelSpec",
     "resolve_model",

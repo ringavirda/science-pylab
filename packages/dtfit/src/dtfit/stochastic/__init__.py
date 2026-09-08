@@ -29,9 +29,9 @@ Layered API:
   exponentially weighted second-order statistics, with a fused change-point
   detector.
 
-:class:`dtfit.Stochastic` wraps the batch entry point in the ``.fit(x, y)``
-convention of :class:`dtfit.Model`. There is no ``.predict``: a stochastic
-process is forecast, not point-evaluated.
+:class:`dtfit.models.Stochastic` wraps the batch entry point in the
+``.fit(x, y)`` convention of :class:`dtfit.models.Model`. There is no
+``.predict``: a stochastic process is forecast, not point-evaluated.
 """
 
 from .image import SecondOrderImage

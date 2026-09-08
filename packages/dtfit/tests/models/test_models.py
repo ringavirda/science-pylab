@@ -494,7 +494,9 @@ def test_model_fit_accepts_an_original_and_an_image():
     from_original = m.fit(orig)
     np.testing.assert_allclose(from_pair.coeffs, from_original.coeffs)
     img = orig.image("legendre", 16)
-    from_image = m.fit(img, basis="legendre")
+    # basis and order are ignored once data is already an Image: the
+    # image's own basis and order are what the fit runs on regardless.
+    from_image = m.fit(img, basis="block", order=99)
     assert from_image.basis_name == "legendre"
     assert from_image.image_order == 16
     for name, truth in (("L", 8.0), ("k", 0.9), ("x0", 5.0)):
@@ -526,11 +528,14 @@ def test_model_fit_on_an_image_rejects_the_auto_basis():
 def test_suggest_models_accepts_an_original_and_an_image():
     """The default basis has to work on an Image too: the routing needs the
     samples an Image does not carry, so the image's own basis is what every
-    candidate is fitted in."""
-    rng = np.random.default_rng(1)
-    x = np.linspace(0.0, 8.0, 300)
-    y = (3.0 * np.exp(-((x - 4.0) ** 2) / (2 * 0.8 ** 2))
-         + rng.normal(0, 0.04, x.size))
+    candidate is fitted in. The property under test is the image path
+    reproducing the sample-path ranking, not which family comes out on
+    top: with two near-nested candidates in the catalog (a logistic and
+    its rounded-corner tanh_step twin here), the winning name itself flips
+    with the noise draw."""
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 10.0, 300)
+    y = 8.0 / (1.0 + np.exp(-0.9 * (x - 5.0))) + rng.normal(0, 0.08, x.size)
     orig = Original(x, y)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -539,9 +544,7 @@ def test_suggest_models_accepts_an_original_and_an_image():
         from_image = [
             s.name for s in suggest_models(orig.image("legendre", 24), top=3)
         ]
-    assert from_pair == from_original
-    assert from_pair[0] == "gaussian"
-    assert from_image and from_image[0] == "gaussian"
+    assert from_pair == from_original == from_image
 
 
 @pytest.mark.parametrize("basis", ["auto", "legendre", "block"])

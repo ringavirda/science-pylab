@@ -282,12 +282,16 @@ class Model:
             y: The sample values, when ``data`` is a bare positions array.
                 Must be ``None`` for an Original or an Image, which carry
                 their own values.
-            basis: Forwarded to :func:`dtfit.fit`. ``"auto"`` (default) fits
-                the candidate bases and keeps the one with the lowest sample
-                residual sum of squares; ``"legendre"`` and ``"block"`` fix
-                it. ``"auto"`` needs the samples and so raises on an Image.
+            basis: Forwarded to :func:`dtfit.fit` when ``data`` is imaged
+                there (an Original or a bare array). ``"auto"`` (default)
+                fits the candidate bases and keeps the one with the lowest
+                sample residual sum of squares; ``"legendre"`` and
+                ``"block"`` fix it. ``"auto"`` needs the samples and so
+                raises on an Image; any other value is silently ignored on
+                an Image, which is fitted in its own basis regardless.
             order: The basis order, ``None`` for the order rule of
-                :func:`dtfit.fit`.
+                :func:`dtfit.fit`. Silently ignored on an Image, which is
+                fitted at its own order regardless.
             p0: Initial guess, overriding the seeder's. A sequence in the
                 canonical parameter order of :attr:`params`, or a
                 ``{name: value}`` mapping.
@@ -302,10 +306,11 @@ class Model:
                 neither of those and ``y`` is missing.
             ValueError: anything :func:`dtfit.fit` raises for this model,
                 ``p0`` or ``bounds``.
+            RuntimeError: every ``basis="auto"`` candidate fails.
 
-        An Image is fitted as it is; its seed comes from an Original
-        reconstructed on 400 points over the image's domain, since the
-        seeders read shapes off samples.
+        An Image is fitted as it is, in its own basis and order; its seed
+        comes from an Original reconstructed on 400 points over the
+        image's domain, since the seeders read shapes off samples.
         """
         target, seed_from = as_fit_data(data, y)
         sp0, sb = self._seed_arrays(seed_from.x, seed_from.y)
