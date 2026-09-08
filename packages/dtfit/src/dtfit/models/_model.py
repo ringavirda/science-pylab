@@ -1,14 +1,14 @@
 """The :class:`Model`: a named, self-seeding, composable model family.
 
-A :class:`Model` bundles the expression, its parameters, a shape tag that
-decides the estimator variant, and a seeder that reads initial values and
-bounds off the data. Fitting routes through :func:`dtfit.auto_estimate`, and
-models compose with ``+`` (trend plus seasonal, a sum of peaks).
+A :class:`Model` bundles the expression, its parameters, a shape tag, and a
+seeder that reads initial values and bounds off the data. Fitting is
+:func:`dtfit.fit` on the model's own seed, with the basis routed by outcome,
+and models compose with ``+`` (trend plus seasonal, a sum of peaks).
 
 The model itself is either a SymPy expression string or a plain Python
 callable ``f(x, *params)``. A callable is resolved through
 :func:`dtfit.models.resolve_model` and keeps its signature parameter order,
-where a symbolic model sorts its names; both fit through the same engines.
+where a symbolic model sorts its names; both fit through the same engine.
 Composition with ``+`` and the seed-detrend evaluator need symbolic operands,
 and a callable raises a clear error there (see :meth:`__add__`).
 """
@@ -22,8 +22,11 @@ import sympy as sp
 
 from dtfit.types import FittingResult
 from dtfit._input import resolve_model
-from dtfit.image.fit import fit_lsi, fit_eac
-from dtfit.auto import auto_estimate
+from dtfit.image import Image, Original, fit
+
+# Positions an Image is reconstructed on to seed a fit from it: enough to
+# recover any shape the seeders read, at a cost below one basis evaluation.
+_SEED_POINTS = 400
 
 # A seeder reads (x, y) and returns ``{param_name: (p0, lo, hi)}``.
 Seeder = Callable[[np.ndarray, np.ndarray], dict[str, tuple[float, float, float]]]
@@ -57,6 +60,44 @@ def _params_of(
     return names
 
 
+def as_fit_data(data: Any, y: Any = None) -> tuple[Original | Image, Original]:
+    """Split a fit input into the fit target and the Original to seed from.
+
+    Args:
+        data: An :class:`~dtfit.Original`, an :class:`~dtfit.Image`, or the
+            sample positions with ``y``.
+        y: The sample values, when ``data`` is a bare positions array;
+            ``None`` otherwise.
+
+    Returns:
+        ``(target, seed_from)``: the object to fit (the Original or the
+        Image as given) and the Original a seeder reads. For an Image that
+        is its reconstruction on 400 evenly spaced positions over its
+        domain, since a seeder reads shapes off samples.
+
+    Raises:
+        TypeError: ``y`` was given with an Original or an Image, or ``data``
+            is a bare array and ``y`` is missing.
+    """
+    if isinstance(data, (Original, Image)):
+        if y is not None:
+            raise TypeError(
+                f"{type(data).__name__} carries its own values; drop the "
+                "second argument"
+            )
+        if isinstance(data, Original):
+            return data, data
+        x = np.linspace(data.domain[0], data.domain[1], _SEED_POINTS)
+        return data, Original(x, data.reconstruct(x))
+    if y is None:
+        raise TypeError(
+            "fitting bare sample positions needs the values too: pass "
+            "(x, y), or an Original or an Image"
+        )
+    original = Original(data, y)
+    return original, original
+
+
 class Model:
     """A model family: expression + parameters + shape + data-driven seeder.
 
@@ -69,11 +110,13 @@ class Model:
         var: The main variable name. For a callable it is a label only,
             defaulting to ``"x"``.
         name: A short human label.
-        shape: Routing tag, one of ``"bulk"``, ``"oscillatory"``,
-            ``"transient"``, ``"peak"``, ``"composite"``. It picks the
-            estimator variant in :meth:`fit` under ``method="auto"``.
+        shape: A label for the family's coarse shape, one of ``"bulk"``,
+            ``"oscillatory"``, ``"transient"``, ``"peak"``, ``"composite"``.
+            Carried for the catalog listing and for
+            :func:`~dtfit.models.suggest_models`; it does not route the fit.
         freq_param: Name of the angular-frequency parameter, if oscillatory.
-            Forwarded to the LSI oscillatory recipe.
+            Forwarded to :func:`dtfit.fit`, which seeds it from the spectral
+            peak of the detrended samples.
         seeder: ``(x, y) -> {name: (p0, lo, hi)}`` producing data-driven
             initial values and bounds. ``None`` falls back to ones and no
             bounds.
@@ -223,22 +266,49 @@ class Model:
 
     def fit(
         self,
-        x: np.ndarray,
-        y: np.ndarray,
+        data: Any,
+        y: Any = None,
         *,
-        method: str = "auto",
-        p0=None,
-        bounds=None,
+        basis: Any = "auto",
+        order: int | None = None,
+        p0: Any = None,
+        bounds: Any = None,
     ) -> FittingResult:
-        """Fit this model to ``(x, y)``.
+        """Fit this model to ``data``, self-seeded.
 
-        ``method="auto"`` (default) routes by :attr:`shape` through
-        :func:`dtfit.auto_estimate`; ``"lsi"`` and ``"eac"`` force a
-        specific engine. Seeds and bounds come from the model's seeder
-        unless overridden. A callable model is passed straight through to the
-        fitters, which resolve it via :func:`dtfit.models.resolve_model`.
+        Args:
+            data: An :class:`~dtfit.Original`, an :class:`~dtfit.Image`, or
+                the sample positions with ``y``.
+            y: The sample values, when ``data`` is a bare positions array.
+                Must be ``None`` for an Original or an Image, which carry
+                their own values.
+            basis: Forwarded to :func:`dtfit.fit`. ``"auto"`` (default) fits
+                the candidate bases and keeps the one with the lowest sample
+                residual sum of squares; ``"legendre"`` and ``"block"`` fix
+                it. ``"auto"`` needs the samples and so raises on an Image.
+            order: The basis order, ``None`` for the order rule of
+                :func:`dtfit.fit`.
+            p0: Initial guess, overriding the seeder's. A sequence in the
+                canonical parameter order of :attr:`params`, or a
+                ``{name: value}`` mapping.
+            bounds: Parameter bounds, overriding the seeder's. See
+                :func:`dtfit.fit`.
+
+        Returns:
+            The :class:`~dtfit.FittingResult` of :func:`dtfit.fit`.
+
+        Raises:
+            TypeError: ``y`` given with an Original or an Image; ``data`` is
+                neither of those and ``y`` is missing.
+            ValueError: anything :func:`dtfit.fit` raises for this model,
+                ``p0`` or ``bounds``.
+
+        An Image is fitted as it is; its seed comes from an Original
+        reconstructed on 400 points over the image's domain, since the
+        seeders read shapes off samples.
         """
-        sp0, sb = self._seed_arrays(x, y)
+        target, seed_from = as_fit_data(data, y)
+        sp0, sb = self._seed_arrays(seed_from.x, seed_from.y)
         p0 = sp0 if p0 is None else p0
         bounds = sb if bounds is None else bounds
         model: ModelExpr = self.expr if self.is_symbolic else self.func  # type: ignore[assignment]
@@ -247,28 +317,12 @@ class Model:
         # return the raw signature names rather than ``self.params``. Passing
         # the names explicitly holds the order this Model committed to. A
         # symbolic model re-parses to the same sorted names and needs nothing.
-        pnames: tuple[str, ...] | None = None if self.is_symbolic else self.params
-        if method == "auto":
-            # A composite such as trend + sine fits as 'bulk' LSI while still
-            # carrying its freq_param. The cycle is pinned by the tight FFT
-            # seed the composed seeder takes off the detrended residual, which
-            # empirically beats the full oscillatory recipe here: its raised
-            # order tends to over-fit a trend-plus-cycle spectrum.
-            shape = self.shape if self.shape != "composite" else "bulk"
-            return auto_estimate(x, y, model, self.var, shape=shape,
-                                 freq_param=self.freq_param, p0=p0, bounds=bounds,
-                                 param_names=pnames)
-        if method == "lsi":
-            return fit_lsi(x, y, model, self.var, p0=p0, bounds=bounds,
-                           freq_param=self.freq_param, param_names=pnames)
-        if method == "eac":
-            # Bounds go as a pair list, fit_eac's canonical form. Converting to
-            # a scipy 2-tuple would be ambiguous for a 2-parameter model and
-            # lossy for partially-infinite bounds.
-            return fit_eac(x, y, model, self.var,
-                           p0=p0, bounds=bounds, param_names=pnames)
-        raise ValueError(
-            f"unknown method {method!r}; expected auto/lsi/eac"
+        pnames: tuple[str, ...] | None = (
+            None if self.is_symbolic else self.params
+        )
+        return fit(
+            model, target, self.var, basis=basis, order=order, p0=p0,
+            bounds=bounds, freq_param=self.freq_param, param_names=pnames,
         )
 
     def __add__(self, other: "Model") -> "Model":

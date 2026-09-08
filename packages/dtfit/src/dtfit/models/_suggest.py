@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from scipy.stats import spearmanr
@@ -16,7 +17,8 @@ from scipy.stats import spearmanr
 from dtfit.types import FittingResult
 from dtfit.diagnostics import fit_report
 from dtfit._signal import dominant_period
-from ._model import Model
+from dtfit.image import Image
+from ._model import Model, as_fit_data
 from ._catalog import CATALOG
 
 
@@ -89,6 +91,34 @@ def _shortlist(x: np.ndarray, y: np.ndarray) -> list[Model]:
     return out
 
 
+def _image_report(res: FittingResult) -> dict[str, Any]:
+    """Goodness-of-fit report for a candidate fitted to an Image.
+
+    The image is the data here: :func:`dtfit.fit` records ``rss`` and
+    ``n_obs`` against the image identity, so the criteria are those of the
+    samples the image was built from rather than of any reconstruction. An
+    image carries no ordered sample residual, so the report has no
+    ``durbin_watson`` key.
+    """
+    n = int(res.n_obs) if res.n_obs else 0
+    rss = float(res.rss) if res.rss is not None else float("nan")
+    r2, aic, bic = res.rsquared, res.aic, res.bic
+    rep: dict[str, Any] = {
+        "n": n,
+        "n_params": int(np.asarray(res.coeffs).size),
+        "rss": rss,
+        "rmse": float(np.sqrt(rss / n)) if n else float("nan"),
+        "r2": float(r2) if r2 is not None else float("nan"),
+        "aic": float(aic) if aic is not None else float("inf"),
+        "bic": float(bic) if bic is not None else float("inf"),
+        "converged": bool(res.converged),
+    }
+    if res.cov is not None:
+        rep["params"] = res.params
+        rep["stderr"] = res.stderr()
+    return rep
+
+
 @dataclass
 class Suggestion:
     """One ranked candidate: family, fit, and goodness-of-fit report."""
@@ -116,25 +146,31 @@ class Suggestion:
 
 
 def suggest_models(
-    x: np.ndarray,
-    y: np.ndarray,
+    data: Any,
+    y: Any = None,
     candidates: list[Model] | None = None,
     *,
-    method: str = "auto",
+    basis: Any = "auto",
     top: int | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
 ) -> list[Suggestion]:
-    """Fit candidate model families to ``(x, y)`` and rank them by AIC.
+    """Fit candidate model families to ``data`` and rank them by AIC.
 
     Args:
-        x, y: Observed samples.
+        data: An :class:`~dtfit.Original`, an :class:`~dtfit.Image`, or the
+            sample positions with ``y``. An Image is shortlisted and scored
+            on its reconstruction over 400 evenly spaced positions, and
+            fitted as itself.
+        y: The sample values, when ``data`` is a bare positions array.
         candidates: Models to try. Defaults to a shape-based shortlist of the
             catalog: oscillatory data skips the peak and monotone families,
             ambiguous data falls back to the whole catalog. Each candidate is
             fit self-seeded via :meth:`Model.fit`.
-        method: Fitting method passed to each model (``"auto"`` routes by
-            shape).
+        basis: Forwarded to :meth:`Model.fit` for every candidate;
+            ``"auto"`` (default) routes each fit by outcome, except on an
+            Image, where the routing has no samples to measure against and
+            the image's own basis is used instead.
         top: If given, return only the best ``top`` suggestions.
         include: Keep only candidates whose name (``"logistic"``) or category
             (``"decay"``, ``"oscillatory"``) is in this list, restricting the
@@ -148,8 +184,25 @@ def suggest_models(
         :class:`Suggestion` list sorted best-first (lowest AIC). A candidate
         whose fit fails is skipped with a :class:`UserWarning` naming it.
         ``[s.name for s in suggest_models(x, y)][:3]`` gives a quick
-        shortlist; ``.report`` holds the full diagnostics.
+        shortlist; ``.report`` holds the full diagnostics. For an Image the
+        report comes from the image identity, so ``rss``, ``n``, ``r2``,
+        ``aic`` and ``bic`` are those of the samples the image was built
+        from and not of the reconstruction the shortlist was read off, and
+        it carries no ``durbin_watson``, an image having no ordered sample
+        residual.
+
+    Raises:
+        TypeError: ``y`` given with an Original or an Image, or ``data`` is
+            a bare array and ``y`` is missing.
     """
+    target, samples = as_fit_data(data, y)
+    x, y = samples.x, samples.y
+    image = target if isinstance(target, Image) else None
+    if image is not None and basis == "auto":
+        # The route measures its candidate bases by their residual over the
+        # samples, which an Image does not carry. It is already in one
+        # basis, so that is the basis every candidate is fitted in.
+        basis = image.basis.name
     models = candidates if candidates is not None else _shortlist(x, y)
     if include is not None:
         inc = set(include)
@@ -160,8 +213,9 @@ def suggest_models(
     out: list[Suggestion] = []
     for m in models:
         try:
-            res = m.fit(x, y, method=method)
-            rep = fit_report(res, x, y)
+            res = m.fit(target, basis=basis)
+            rep = (fit_report(res, x, y) if image is None
+                   else _image_report(res))
         except Exception as exc:
             # Warn rather than skip quietly: a family missing from the
             # ranking because it errored should say as much.

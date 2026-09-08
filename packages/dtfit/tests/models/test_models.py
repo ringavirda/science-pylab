@@ -1,9 +1,12 @@
 """dtfit.models: self-seeding catalog families, composition, and suggest_models."""
 
+import warnings
+
 import numpy as np
 import pytest
 
-from dtfit import models, suggest_models, Model
+from dtfit import Original, models, suggest_models
+from dtfit.models import Model
 
 
 def test_logistic_self_seeds_and_recovers():
@@ -168,14 +171,14 @@ def test_seed_arrays_fully_unbounded_maps_to_none():
 
 def test_partial_bounds_survive_to_solver(monkeypatch):
     # Seeded bounds, partly infinite or not, reach the estimator untouched
-    # through Model.fit's auto route.
+    # through Model.fit's route.
     captured = {}
 
-    def fake_auto(x, y, expr, var, **kwargs):
-        captured.update(kwargs)
+    def fake_fit(model, data, var=None, **kw):
+        captured.update(kw)
         return "sentinel"
 
-    monkeypatch.setattr("dtfit.models._model.auto_estimate", fake_auto)
+    monkeypatch.setattr("dtfit.models._model.fit", fake_fit)
 
     def seed(x, y):
         return {"a": (1.0, -np.inf, np.inf), "s": (0.5, 1e-3, np.inf)}
@@ -196,7 +199,7 @@ def test_partial_bounds_positivity_guard_respected():
     m = Model("a*exp(-b*x)", name="decay", shape="bulk", seeder=seed)
     x = np.linspace(0.0, 3.0, 120)
     y = 2.0 * np.exp(0.5 * x)
-    r = m.fit(x, y, method="lsi")
+    r = m.fit(x, y, basis="legendre")
     assert r.params["b"] >= 0.0
 
 
@@ -246,8 +249,8 @@ def test_callable_model_recovers_params_lsi_and_auto():
     rng = np.random.default_rng(0)
     x = np.linspace(0, 5, 200)
     y = 3.0 * np.exp(-0.8 * x) + 1.0 + rng.normal(0, 0.02, x.size)
-    for method in ("lsi", "auto"):
-        r = m.fit(x, y, method=method)
+    for basis in ("legendre", "auto"):
+        r = m.fit(x, y, basis=basis)
         assert r.params["a"] == pytest.approx(3.0, abs=0.1)
         assert r.params["b"] == pytest.approx(0.8, abs=0.1)
         assert r.params["c"] == pytest.approx(1.0, abs=0.1)
@@ -260,7 +263,7 @@ def test_callable_model_fits_via_eac():
     rng = np.random.default_rng(1)
     x = np.linspace(0, 5, 200)
     y = 3.0 * np.exp(-0.8 * x) + 1.0 + rng.normal(0, 0.02, x.size)
-    r = m.fit(x, y, method="eac", p0=[2.5, 0.6, 0.8])
+    r = m.fit(x, y, basis="block", p0=[2.5, 0.6, 0.8])
     assert r.params["a"] == pytest.approx(3.0, abs=0.2)
     assert r.params["b"] == pytest.approx(0.8, abs=0.15)
     assert r.params["c"] == pytest.approx(1.0, abs=0.2)
@@ -271,18 +274,18 @@ def test_callable_model_self_seeds_through_fit(monkeypatch):
     # callable reaches the fitter for it to resolve.
     captured: dict = {}
 
-    def fake_lsi(x, y, model, var, **kw):
+    def fake_fit(model, data, var=None, **kw):
         captured["model"] = model
         captured.update(kw)
         return "sentinel"
 
-    monkeypatch.setattr("dtfit.models._model.fit_lsi", fake_lsi)
+    monkeypatch.setattr("dtfit.models._model.fit", fake_fit)
 
     def seed(x, y):
         return {"a": (3.0, 0.0, 10.0), "b": (0.5, 0.0, 5.0), "c": (1.0, -5.0, 5.0)}
 
     m = Model.from_callable(_decay, name="cdecay", seeder=seed)
-    out = m.fit(np.linspace(0, 5, 50), np.ones(50), method="lsi")
+    out = m.fit(np.linspace(0, 5, 50), np.ones(50), basis="legendre")
     assert out == "sentinel"
     assert captured["model"] is _decay  # the callable itself, unresolved
     assert captured["p0"] == [3.0, 0.5, 1.0]
@@ -300,7 +303,7 @@ def test_callable_model_self_seed_end_to_end():
     rng = np.random.default_rng(2)
     x = np.linspace(0, 5, 200)
     y = 3.0 * np.exp(-0.8 * x) + 1.0 + rng.normal(0, 0.02, x.size)
-    r = m.fit(x, y, method="lsi")
+    r = m.fit(x, y, basis="legendre")
     assert r.params["b"] == pytest.approx(0.8, abs=0.1)
     assert r.params["a"] == pytest.approx(3.0, abs=0.15)
 
@@ -315,7 +318,7 @@ def test_callable_model_param_names_for_varargs():
     assert m.params == ("a0", "a1", "a2")
     x = np.linspace(-2, 2, 120)
     y = 1.0 + 0.5 * x + 2.0 * x**2
-    r = m.fit(x, y, method="lsi", p0=[0.0, 0.0, 0.0])
+    r = m.fit(x, y, basis="legendre", p0=[0.0, 0.0, 0.0])
     assert r.params["a0"] == pytest.approx(1.0, abs=0.05)
     assert r.params["a1"] == pytest.approx(0.5, abs=0.05)
     assert r.params["a2"] == pytest.approx(2.0, abs=0.05)
@@ -478,3 +481,85 @@ def test_unregister_removes_custom_and_refuses_builtin(clean_catalog):
         models.unregister("linear")
     with pytest.raises(KeyError):
         models.unregister("does_not_exist")
+
+
+# either core type as the fit input
+def test_model_fit_accepts_an_original_and_an_image():
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 10.0, 300)
+    y = 8.0 / (1.0 + np.exp(-0.9 * (x - 5.0))) + rng.normal(0, 0.05, x.size)
+    orig = Original(x, y)
+    m = models.logistic()
+    from_pair = m.fit(x, y)
+    from_original = m.fit(orig)
+    np.testing.assert_allclose(from_pair.coeffs, from_original.coeffs)
+    img = orig.image("legendre", 16)
+    from_image = m.fit(img, basis="legendre")
+    assert from_image.basis_name == "legendre"
+    assert from_image.image_order == 16
+    for name, truth in (("L", 8.0), ("k", 0.9), ("x0", 5.0)):
+        assert from_image.params[name] == pytest.approx(truth, rel=0.05)
+
+
+def test_model_fit_rejects_a_second_argument_with_a_core_type():
+    x = np.linspace(0.0, 5.0, 60)
+    y = np.exp(0.3 * x)
+    orig = Original(x, y)
+    with pytest.raises(TypeError, match="carries its own values"):
+        models.exponential().fit(orig, y)
+    with pytest.raises(TypeError, match="carries its own values"):
+        models.exponential().fit(orig.image("legendre", 8), y)
+
+
+def test_model_fit_needs_values_with_a_bare_array():
+    with pytest.raises(TypeError, match="needs the values"):
+        models.exponential().fit(np.linspace(0.0, 1.0, 20))
+
+
+def test_model_fit_on_an_image_rejects_the_auto_basis():
+    x = np.linspace(0.0, 5.0, 120)
+    img = Original(x, np.exp(0.4 * x)).image("legendre", 10)
+    with pytest.raises(TypeError, match="needs the samples"):
+        models.exponential().fit(img)
+
+
+def test_suggest_models_accepts_an_original_and_an_image():
+    """The default basis has to work on an Image too: the routing needs the
+    samples an Image does not carry, so the image's own basis is what every
+    candidate is fitted in."""
+    rng = np.random.default_rng(1)
+    x = np.linspace(0.0, 8.0, 300)
+    y = (3.0 * np.exp(-((x - 4.0) ** 2) / (2 * 0.8 ** 2))
+         + rng.normal(0, 0.04, x.size))
+    orig = Original(x, y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from_pair = [s.name for s in suggest_models(x, y, top=3)]
+        from_original = [s.name for s in suggest_models(orig, top=3)]
+        from_image = [
+            s.name for s in suggest_models(orig.image("legendre", 24), top=3)
+        ]
+    assert from_pair == from_original
+    assert from_pair[0] == "gaussian"
+    assert from_image and from_image[0] == "gaussian"
+
+
+@pytest.mark.parametrize("basis", ["auto", "legendre", "block"])
+def test_model_fit_forwards_the_seeded_bounds(monkeypatch, basis):
+    import dtfit.models._model as _mod
+    from dtfit.models._catalog import CATALOG
+
+    seen = {}
+    orig = _mod.fit
+
+    def spy(*args, **kwargs):
+        seen.setdefault("bounds", []).append(kwargs.get("bounds"))
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(_mod, "fit", spy)
+    # a logistic self-seeds bounds; every basis must forward them
+    m = CATALOG["logistic"]()
+    x = np.linspace(0.0, 10.0, 160)
+    y = 5.0 / (1.0 + np.exp(-0.8 * (x - 5.0)))
+    m.fit(x, y, basis=basis)
+    assert seen["bounds"][0] is not None, "Model.fit lost the seeded bounds"
