@@ -24,6 +24,7 @@ jobs:
     outputs:
       dtfit: ${{ steps.filter.outputs.dtfit }}
       research: ${{ steps.filter.outputs.research }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -40,6 +41,28 @@ jobs:
               - 'packages/dtfit-experimental/**'
               - 'packages/dtfit-hardware/**'
               - '.github/workflows/ci.yml'
+            docs:
+              # The wiki publishes verbatim on push and has no other filter,
+              # so a wiki-only edit must still run the symbol guard.
+              - 'wiki/**'
+              - 'packages/dtfit/docs/**'
+              - '.github/workflows/ci.yml'
+
+  # The wiki publishes verbatim on push, so guard it (and the docs mirror)
+  # against removed core symbols and the old EAC-robustness claims. This is
+  # the only job a wiki-only edit triggers; the dtfit job also runs the guard
+  # (it lives in tests/), so a code-side change is covered too.
+  docs-guard:
+    needs: changes
+    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.dtfit == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: pytest -q packages/dtfit/tests/test_docs_symbol_guard.py
 
   # The stable, published package -- gated on its own: ruff, the accuracy gate,
   # mypy and the pytest coverage floor, across the full OS/Python matrix.
