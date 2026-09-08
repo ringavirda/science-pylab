@@ -20,7 +20,7 @@ from dtfit import fit_lsi, FittingResult
 
 
 def main() -> None:
-    rng = np.random.default_rng(2)
+    rng = np.random.default_rng(0)
     x = np.linspace(0, 4, 250)
     y = 0.5 + 2.0 * np.exp(0.5 * x) + rng.normal(0, 0.2, x.size)
     res = fit_lsi(x, y, "a0 + a1*exp(a2*x)", "x")
@@ -41,6 +41,26 @@ def main() -> None:
     print("  durbin_watson :", round(rd["durbin_watson"], 3))
     print("  lag1_autocorr :", round(rd["lag1_autocorr"], 3))
     print("  normality_p   :", round(rd["normality_p"], 3))
+
+    # The image has its own diagnostics, read from the projections alone: the
+    # noise level, how many orders carry signal, and a chi-square test of
+    # whether the model left structure the basis still resolves. Original
+    # .diagnostics runs the residual tests above for a model and parameters,
+    # without a FittingResult.
+    from dtfit import Original
+
+    orig = Original(x, y)
+    img = orig.image("legendre", 40)
+    print("\n== the image's own diagnostics ==")
+    print("  noise_sigma    :", round(img.noise_sigma(), 4))
+    print("  effective_order:", img.effective_order())
+    left = img.test_structure("a0 + a1*exp(a2*x)", res.coeffs, "x")
+    print("  structure left :", left.reject, "p =", round(left.pvalue, 3))
+    print("  wrong model    :",
+          img.test_structure("a0 + a1*x", [0.5, 5.0], "x").reject)
+    print("  durbin_watson  :",
+          round(orig.diagnostics("a0 + a1*exp(a2*x)", res.coeffs, "x")
+                ["durbin_watson"], 3))
 
     # Serialize -- everything needed to rebuild the model round-trips through a
     # JSON-friendly dict.
@@ -80,18 +100,25 @@ if __name__ == "__main__":
 ```text
 == fit_report ==
   n             : 250
-  rmse          : 0.2006
-  r2            : 0.9969
-  aic           : -797.2391
-  bic           : -786.6747
-  durbin_watson : 2.1299
+  rmse          : 0.203
+  r2            : 0.9968
+  aic           : -791.3853
+  bic           : -780.8209
+  durbin_watson : 1.9154
   converged     : True
 
 == residual_diagnostics ==
-  durbin_watson : 2.13
-  lag1_autocorr : -0.067
-  normality_p   : 0.834
+  durbin_watson : 1.915
+  lag1_autocorr : 0.04
+  normality_p   : 0.892
+
+== the image's own diagnostics ==
+  noise_sigma    : 0.233
+  effective_order: 3
+  structure left : False p = 0.088
+  wrong model    : True
+  durbin_watson  : 1.915
 
 == to_dict / from_dict round-trip ==
-  params: {'a0': 0.498, 'a1': 2.004, 'a2': 0.499}
+  params: {'a0': 0.534, 'a1': 1.984, 'a2': 0.501}
 ```

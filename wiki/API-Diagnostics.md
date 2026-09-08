@@ -22,6 +22,7 @@ sklearn convention. The `*Display` classes need matplotlib:
 
 - [`fit_report`](#fit_report) -- goodness-of-fit + parsimony (R^2/RMSE/AIC/BIC)
 - [`residual_diagnostics`](#residual_diagnostics) -- is there structure left in the residuals?
+- [`residual_stats`](#residual_stats) -- the same residual tests from a plain residual array
 - [`FitDisplay`](#displays) / [`ResidualsDisplay`](#displays) -- plots
 
 ---
@@ -80,6 +81,35 @@ if abs(d["lag1_autocorr"]) > 0.3:
 Interpretation guide: `durbin_watson` near 2 and `lag1_autocorr` near 0 mean the
 residuals are unstructured (good). A high `normality_p` is consistent with
 Gaussian residuals. See [../guides/choosing-a-method.md Sec.4](Guides-Choosing-a-Method).
+
+---
+
+<a name="residual_stats"></a>
+## `residual_stats`
+
+```python
+residual_stats(resid) -> dict
+```
+
+The residual-structure statistics of
+[`residual_diagnostics`](#residual_diagnostics) from the residuals alone,
+without a `FittingResult`. `resid` is a 1-D float array; the returned dict
+holds `residuals`, `durbin_watson`, `lag1_autocorr`, `normality_p`, `mean`
+and `std`, with `durbin_watson` NaN for a zero residual, `lag1_autocorr`
+NaN for a constant residual or fewer than three samples, and `normality_p`
+NaN outside `3 <= n <= 5000`.
+
+[`Original.diagnostics(model, params, var=None)`](API-Fitting) is the usual
+way in: it evaluates the model on the Original's own samples and hands the
+residuals here, so a model and its parameters can be judged without fitting
+them first.
+
+```python
+from dtfit import Original
+
+orig = Original(x, y)
+print(orig.diagnostics("a0 + a1*exp(a2*x)", [0.5, 2.0, 0.5], "x")["durbin_watson"])
+```
 
 ---
 

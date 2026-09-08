@@ -18,6 +18,20 @@ and the [guide](../guide/choosing-a-method.md) for the decision tree.
 
 ::: dtfit.image.coverage
 
+::: dtfit.image.analytics.noise_sigma
+
+::: dtfit.image.analytics.effective_order
+
+::: dtfit.image.analytics.decay
+
+::: dtfit.image.analytics.Decay
+
+::: dtfit.image.analytics.test_equal
+
+::: dtfit.image.analytics.test_structure
+
+::: dtfit.image.analytics.ChiSquareTest
+
 ::: dtfit.fit_lsi
 
 ::: dtfit.fit_eac

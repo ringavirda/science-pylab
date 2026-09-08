@@ -152,6 +152,11 @@ FitDisplay.from_estimator(reg, x, y)  # data + fitted curve (needs the viz extra
 - **ImageFilter** - recursive/online tracker on the window image, with NIS
   drift detection; **LSIFilter** and **EACFilter** fix its basis to Legendre
   and block for real-time tracking.
+- **Image analytics** - an `Image` reports its own noise level
+  (`noise_sigma`), how many orders carry signal (`effective_order`), how its
+  coefficients decay (`decay`), whether it matches another image
+  (`test_equal`) or a model (`test_structure`), and draws synthetic records
+  from itself (`simulate`).
 - **DSB** (`method="dsb"`) - symbolic differential spectra balance; kept as the
   analytical reference (requires a polynomial fit first in the pipeline).
 

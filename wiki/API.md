@@ -36,7 +36,7 @@ signatures, arguments, return types, and behavior.
 
 | Area | Names | Page |
 |---|---|---|
-| **Batch fitting** | `fit`, `Original`, `Image`, `order_for`, `fit_lsi`, `fit_eac`, `ensemble_fit`, `EnsembleResult`, `fit_dsb`, `find_degree`, `fft_frequency_seed` | [fitting.md](API-Fitting) |
+| **Batch fitting** | `fit`, `Original`, `Image`, `order_for`, `fit_lsi`, `fit_eac`, `ensemble_fit`, `EnsembleResult`, `fit_dsb`, `find_degree`, `fft_frequency_seed`, the `Image` analytics `noise_sigma` / `effective_order` / `decay` / `test_equal` / `test_structure` (also in `dtfit.image`) | [fitting.md](API-Fitting) |
 | **Result type** | `FittingResult` | [types.md](API-Types) |
 | **sklearn estimator** | `NonlineRegressor` | [estimator.md](API-Estimator) |
 | **One-call entry points** | `auto_estimate`, `auto_forecast` | [auto.md](API-Auto) |
@@ -44,7 +44,7 @@ signatures, arguments, return types, and behavior.
 | **Stochastic series** | `fit_stochastic`, `StochasticModel`, `StochasticFilter`, `Stochastic`, `stochastic` (estimators) | [stochastic.md](API-Stochastic) |
 | **Streaming / online** | `ImageFilter`, `LSIFilter`, `EACFilter` (`DriftDetector` in `dtfit.streaming`) | [streaming.md](API-Streaming) |
 | **Streams and scale** | `ImageStream`, `fit_many`, `FittingProblem` (`coverage`, `assemble`, `legendre_transfer`, `block_transfer` in `dtfit.image`) | [scaling.md](API-Scaling) |
-| **Diagnostics** | `fit_report`, `residual_diagnostics`, `FitDisplay`, `ResidualsDisplay` | [diagnostics.md](API-Diagnostics) |
+| **Diagnostics** | `fit_report`, `residual_diagnostics`, `residual_stats`, `FitDisplay`, `ResidualsDisplay` | [diagnostics.md](API-Diagnostics) |
 | **Logging** | `enable_logging`, `logger` | [below](#logging) |
 
 ## Import map

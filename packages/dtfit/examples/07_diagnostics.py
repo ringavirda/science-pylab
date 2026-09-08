@@ -16,7 +16,7 @@ from dtfit import fit_lsi, FittingResult
 
 
 def main() -> None:
-    rng = np.random.default_rng(2)
+    rng = np.random.default_rng(0)
     x = np.linspace(0, 4, 250)
     y = 0.5 + 2.0 * np.exp(0.5 * x) + rng.normal(0, 0.2, x.size)
     res = fit_lsi(x, y, "a0 + a1*exp(a2*x)", "x")
@@ -37,6 +37,26 @@ def main() -> None:
     print("  durbin_watson :", round(rd["durbin_watson"], 3))
     print("  lag1_autocorr :", round(rd["lag1_autocorr"], 3))
     print("  normality_p   :", round(rd["normality_p"], 3))
+
+    # The image has its own diagnostics, read from the projections alone: the
+    # noise level, how many orders carry signal, and a chi-square test of
+    # whether the model left structure the basis still resolves. Original
+    # .diagnostics runs the residual tests above for a model and parameters,
+    # without a FittingResult.
+    from dtfit import Original
+
+    orig = Original(x, y)
+    img = orig.image("legendre", 40)
+    print("\n== the image's own diagnostics ==")
+    print("  noise_sigma    :", round(img.noise_sigma(), 4))
+    print("  effective_order:", img.effective_order())
+    left = img.test_structure("a0 + a1*exp(a2*x)", res.coeffs, "x")
+    print("  structure left :", left.reject, "p =", round(left.pvalue, 3))
+    print("  wrong model    :",
+          img.test_structure("a0 + a1*x", [0.5, 5.0], "x").reject)
+    print("  durbin_watson  :",
+          round(orig.diagnostics("a0 + a1*exp(a2*x)", res.coeffs, "x")
+                ["durbin_watson"], 3))
 
     # Serialize -- everything needed to rebuild the model round-trips through a
     # JSON-friendly dict.

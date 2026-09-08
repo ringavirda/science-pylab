@@ -7,7 +7,8 @@
 > [`image/image.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/image.py),
 > [`image/bases.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/bases.py),
 > [`image/fit.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/fit.py),
-> [`image/transfer.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/transfer.py).
+> [`image/transfer.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/transfer.py),
+> [`image/analytics.py`](https://github.com/ringavirda/science-nonline/blob/main/packages/dtfit/src/dtfit/image/analytics.py).
 > Invoke via `Original(x, y)`, `.image(basis, order)`, `fit(model, data)`.
 > API: [../api/fitting.md](../api/batch-fitting.md).
 
@@ -164,6 +165,96 @@ aggregation, exact whenever each coarse window is a union of fine windows.
 order)` transfers every image onto one coarse domain and sums them --
 [the streams page](https://github.com/ringavirda/science-nonline/wiki/Methods-Scaling) builds streams and block map-reduce on
 top of exactly this.
+
+## What an image says about itself
+
+An image carries enough to answer questions about the signal without going
+back to the samples. Every read-out below is a method on `Image` and a
+function in `dtfit.image.analytics`; they read only `beta = G^+ S` and the
+coefficient covariance per unit noise variance `V = G^+`.
+
+`effective_order()` is the largest `j` whose coefficient stands three sigma
+above the noise, `|beta_j| > 3 sqrt(s2 V_jj)`. The noise scale `s2` is
+estimated from the orders above the answer itself: it starts as the median
+of `beta_j^2 / V_jj` over the upper half of the orders, rescaled by the
+chi-square median so no single large coefficient drags it, and is refined
+from the mean of the tail the current answer leaves. On a Legendre
+polynomial of known degree plus noise at order 24 the answer is the degree
+in 79 to 88 percent of draws and never below it.
+
+`noise_sigma()` reads the noise off those tail orders,
+`sqrt(mean_j(beta_j^2 / V_jj))` for `j` above the effective order, and
+returns `None` (with a `RuntimeWarning`) when fewer than eight orders are
+left, since a short tail estimates nothing. It is an upper bound when the
+image order sits close to the signal's own: on a damped oscillation it reads
+1.76 times the true sigma at order 24, 1.10 at order 32 and 1.04 at order
+40.
+
+`decay()` fits both a geometric law `|beta_j| ~ a r^j` and an algebraic law
+`|beta_j| ~ c j^-p` to the coefficients between order 2 and the effective
+order, and reports both rates with both `r2` values and the name of the
+better fit. The `r2` is the part to read: an oscillatory signal's Legendre
+coefficients rise before they fall, and neither law describes them (a
+damped cosine gives 0.099 and 0.019, an exponential 0.974 and 0.845).
+
+`test_equal(other)` asks whether two images are of the same signal:
+`d = beta_a - beta_b` against `d^T (s2 (V_a + V_b))^+ d`, chi-square with
+the rank of the pooled covariance. The two images may hold any sample sets
+and any number of samples -- only basis, order and domain must agree.
+Measured false-alarm rate at `alpha = 0.05` over 2000 replicates: 0.046
+under Gaussian noise, 0.052 under Student-t with three degrees of freedom,
+0.048 under Laplace. `test_structure(model, params)` asks the other
+question, whether a model explains everything the basis resolves: the
+leftover projections `d = S - S_f` against `d^T (s2 G)^+ d`, which is the
+drop in residual sum of squares between the model and the best fit in the
+span, in units of the noise variance. Both take their noise scale from the
+basis-regression residual `(sumsq - S^T beta) / (n - rank(G))`, which exists
+at any order and in any basis, and both return a `ChiSquareTest`
+(`statistic`, `dof`, `pvalue`, `alpha`, `reject`).
+
+`simulate(n=None, sigma=None, rng=None)` goes the other way: the
+reconstruction plus Gaussian noise, on the image's own grid when `n` is
+`None` and on `n` evenly spaced positions otherwise, with `sigma` defaulting
+to `noise_sigma()`.
+
+```python
+rng = np.random.default_rng(0)
+x = np.linspace(0.0, 10.0, 500)
+clean = np.exp(0.9 * x)
+y = clean + rng.normal(0, 0.05, x.size)
+img = Original(x, y).image("legendre", 40)
+
+print(round(img.noise_sigma(), 4), img.effective_order())
+
+d = img.decay()
+print(d.kind, round(d.ratio, 3), round(d.geometric_r2, 3), round(d.algebraic_r2, 3))
+
+same = Original(x, clean + rng.normal(0, 0.05, x.size)).image("legendre", 40)
+warm = Original(x, 1.02 * clean + rng.normal(0, 0.05, x.size)).image("legendre", 40)
+print(round(img.test_equal(same).pvalue, 3), img.test_equal(warm).reject)
+
+res = fit("a*exp(b*t)", img, "t", p0=[1.0, 1.0])
+left = img.test_structure("a*exp(b*t)", res.coeffs, "t")
+print(round(left.statistic, 2), left.dof, round(left.pvalue, 3), left.reject)
+print(img.test_structure("a + b*t", [0.0, 1000.0], "t").reject)
+
+xs, ys = img.simulate(200, rng=np.random.default_rng(1))
+print(xs.shape, round(float(np.std(ys - img.reconstruct(xs))), 4))
+
+resid = Original(x, y).diagnostics("a*exp(b*t)", res.coeffs, "t")
+print(round(resid["durbin_watson"], 3), round(resid["lag1_autocorr"], 3))
+```
+
+The noise level comes back as `0.048` against the 0.05 that was added, and
+twelve orders carry signal; the coefficients fall geometrically by `0.321`
+per order, a law that explains 0.974 of their spread against the algebraic
+law's 0.845. The two clean records are not distinguished (`p = 0.895`), the
+two-percent-warmer one is. The exponential the data came from leaves nothing
+in the span (`34.63` on 39 degrees of freedom, `p = 0.669`); a straight line
+is rejected. `simulate(200, rng=...)` draws a record on a fresh grid with
+the noise the image measured (`0.0443`), and `Original.diagnostics`
+confirms the residuals are white (Durbin-Watson `2.043`, lag-1
+autocorrelation `-0.022`).
 
 ## Worked example
 

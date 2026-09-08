@@ -243,7 +243,7 @@ dtfit (stable, public)
 |                          cycle_period . decompose_trend_cycle . ar_order . fit_ar . fractional_difference
 +-- scaling backends       fit_many . ImageStream
 |                          (accumulator . block streams . channels; merge/checkpoint/resume)
-+-- diagnostics            fit_report . residual_diagnostics . FitDisplay . ResidualsDisplay
++-- diagnostics            fit_report . residual_diagnostics . residual_stats . FitDisplay . ResidualsDisplay
 
 dtfit-experimental (separate; promotes into dtfit when validated)
 +-- adaptations in trial   fit_lsi_basis(#2) . fit_joint(#4) . boosted_fit(#5)

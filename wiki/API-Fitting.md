@@ -157,6 +157,11 @@ or `"omit"`; omission drops a pair when `x`, `y` or its weight is non-finite.
   `Original`; forwards to [`fit`](#fit).
 - **`residuals(model, params, var=None) -> ndarray`** -- `y - f(x; params)`
   for a model as in [`fit`](#fit).
+- **`diagnostics(model, params, var=None) -> dict`** -- residual-structure
+  tests for a model on these samples: `residuals`, `durbin_watson`,
+  `lag1_autocorr`, `normality_p` (Shapiro-Wilk), `mean` and `std`. The
+  statistics [`residual_diagnostics`](API-Diagnostics) reports for a
+  `FittingResult`, without needing one.
 - **`window(i0, i1) -> Original`** -- the samples `i0:i1` as an `Original` on
   their own span; re-validates through the constructor, so `i1 - i0` must
   leave at least two samples.
@@ -231,14 +236,43 @@ G^+ S` are derived, never stored.
   n_coef)`, weights not applied.
 - **`reconstruct(x) -> ndarray`** -- the least-squares reconstruction of the
   signal at `x`.
-- **`simulate(sigma, rng=None) -> (x, y)`** -- the reconstruction on the
-  image's grid plus Gaussian noise of std `sigma`.
+- **`simulate(n=None, sigma=None, rng=None) -> (x, y)`** -- the
+  reconstruction plus Gaussian noise, on the image's own grid when `n` is
+  `None` and on `n` evenly spaced positions over the domain otherwise.
+  `sigma` defaults to `noise_sigma()` and raises `ValueError` when that is
+  unavailable; a non-integer `n` raises `TypeError`.
+- **`noise_sigma() -> float | None`** -- the noise standard deviation from
+  the tail orders, `sqrt(mean_j(beta_j^2 / V_jj))` for `j` above
+  `effective_order()`; `None` with a `RuntimeWarning` when fewer than eight
+  orders are left. Legendre images only.
+- **`effective_order() -> int`** -- the largest `j` with
+  `|beta_j| > 3 sqrt(s2 V_jj)`; `0` when nothing beyond the constant stands
+  out. Legendre images only.
+- **`decay() -> Decay`** -- geometric ratio and algebraic exponent fitted to
+  `log |beta_j|` over orders 2 to `effective_order()`, as a frozen
+  `Decay(ratio, exponent, geometric_r2, algebraic_r2, kind)`. Legendre
+  images only; raises `ValueError` below three usable coefficients.
+- **`test_equal(other, alpha=0.05, *, sigma=None) -> ChiSquareTest`** --
+  chi-square test that `other` is an image of the same signal,
+  `d^T (s2 (V_a + V_b))^+ d` with `d = beta_a - beta_b`. Any basis; the two
+  images must share basis, order and domain, and may differ in everything
+  else.
+- **`test_structure(model, params, var=None, *, alpha=0.05,
+  param_names=None, sigma=None, fitted=True) -> ChiSquareTest`** --
+  chi-square test on `S - S_f` with covariance `s2 G`: whether the model
+  leaves structure the basis still resolves. `fitted=True` spends one degree
+  of freedom per parameter.
+- **`ChiSquareTest`** -- `statistic`, `dof`, `pvalue`, `alpha` and the
+  property `reject` (`pvalue < alpha`). Both tests take their noise scale
+  from the basis-regression residual `(sumsq - S^T beta) / (n - rank(G))`
+  unless `sigma` is given. Exported from `dtfit.image` with `Decay` and the
+  five functions of `dtfit.image.analytics`.
 - **`of(original, basis="legendre", order=None, *, robust=False) -> Image`**
   (classmethod) -- the image of an `Original`; the robust IRLS uses the Huber
   constant c = 1.345.
 - **`of_model(model, params, grid, basis="legendre", order=None, *,
-  var=None, domain=None, w=None) -> Image`** (classmethod) -- the image the
-  model `f(x; params)` would have on `grid`.
+  var=None, domain=None, w=None, param_names=None) -> Image`** (classmethod)
+  -- the image the model `f(x; params)` would have on `grid`.
 - Two images compare equal (`==`) when their basis, domain, grid, sample
   count, robustness, sums and weights all match.
 

@@ -16,7 +16,7 @@ python packages/dtfit/examples/01_quickstart.py
 | `04_sklearn_estimator.py` | `NonlineRegressor` with `fit` / `predict` / `score`, `GridSearchCV`, `cross_val_score` |
 | `05_streaming.py` | `EACFilter` (+ `.tracking()` / `.robust()` presets), `LSIFilter`, `ImageFilter.result()` on the window, pooled `nis_` fault detection |
 | `06_scaling.py` | `fit_many` (+ `FittingProblem`), `ImageStream` one-pass accumulation and map-reduce `merge` |
-| `07_diagnostics.py` | `fit_report`, `residual_diagnostics`, `to_dict` / `from_dict`, opt-in logging, and (with `--plot`) the `*Display` plots |
+| `07_diagnostics.py` | `fit_report`, `residual_diagnostics`, the image analytics, `to_dict` / `from_dict`, opt-in logging, and (with `--plot`) the `*Display` plots |
 | `08_stochastic.py` | `fit_stochastic` / `StochasticModel` (regime, forecast bands, `simulate` round-trip), `StochasticFilter` online tracking, the `Stochastic` model wrapper |
 
 The only example with an optional dependency is `07_diagnostics.py --plot`, which

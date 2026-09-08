@@ -2,7 +2,7 @@
 
 All notable changes to `dtfit` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[SemVer](https://semver.org/) with the usual 0.x caveat — minor releases may
+[SemVer](https://semver.org/) with the usual 0.x caveat - minor releases may
 carry breaking changes, and each one is listed explicitly under **Changed**.
 
 ## [Unreleased]
@@ -27,6 +27,21 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   expose the last whitened innovation and its normalized magnitude; a
   `stream` hook (an `ImageStream`) can be fed alongside the filter;
   `noise_var` sets the measurement variance directly.
+- `dtfit.image.analytics`: what an image says about itself -- `noise_sigma`
+  (the noise level from the tail orders), `effective_order`, `decay`
+  (geometric ratio and algebraic exponent, with the goodness of fit of
+  each), `test_equal` (chi-square test that two images are of the same
+  signal) and `test_structure` (chi-square test that a model explains
+  everything in the basis's span), each also an `Image` method; the result
+  types `Decay` and `ChiSquareTest`.
+- `Original.diagnostics(model, params)`: Durbin-Watson, residual
+  autocorrelation and normality for a model on the samples, without a fit
+  result; `dtfit.diagnostics.residual_stats` computes them from a residual
+  array.
+- Gates on the noise estimate (within 15 percent of the true sigma on six
+  smooth families) and on the equality test's false-alarm rate (within
+  `[0.03, 0.08]` under Gaussian, Student-t and Laplace noise) in
+  `tests/image/test_gates.py`.
 
 ### Changed
 
@@ -49,6 +64,11 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   whitened by its Gram matrix; the adaptive window is the default;
   `drift_reset` defaults to `"inflate"`; `order` is the block basis's
   window count (was `n_sub`).
+- `Image.simulate` takes `(n=None, sigma=None, rng=None)`: `n` positions
+  over the domain instead of the image's own grid, and a `sigma` that
+  defaults to `noise_sigma()`. A non-integer `n` raises `TypeError`.
+- `Image.of_model` accepts `param_names` for a callable model whose
+  signature cannot be introspected.
 
 ### Removed
 
@@ -69,10 +89,10 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
 - `FilterBank` and `FusedChiSquareDetector`, moved to
   `dtfit_experimental.streaming`.
 
-## [0.4.0] — 2026-07-09
+## [0.4.0] - 2026-07-09
 
 The "adoption" release: first-class (optional) pandas support, a public model
-registry, a generated docs site, and a split CI. Every addition is opt-in — with
+registry, a generated docs site, and a split CI. Every addition is opt-in - with
 ndarray/list inputs every path stays numerically identical to v0.3 (the golden
 accuracy corpus is unchanged). pandas is an **optional** dependency; dtfit
 imports and all core tests pass without it.
@@ -83,7 +103,7 @@ imports and all core tests pass without it.
   `fit_stochastic`, `Model.fit`, and `NonlineRegressor` accept a pandas `Series`
   or a single-column `DataFrame` for their data (a multi-column `DataFrame`
   raises a clear `ValueError`). The pandas handling lives in a new guarded
-  `dtfit._pandas` module — pandas is never hard-imported, so it stays an
+  `dtfit._pandas` module - pandas is never hard-imported, so it stays an
   optional install.
 - **pandas out where it's natural.** `FittingResult.predict(x)` and
   `NonlineRegressor.predict(X)` return a pandas `Series` aligned to the input's
@@ -91,7 +111,7 @@ imports and all core tests pass without it.
   `(Series, Series)` pair with `return_std=True`); ndarray input still returns
   ndarray, with identical values.
 - **Date-indexed forecasts.** `ForecastResult` gained `.index` (the length-horizon
-  *future* index continuing the input — a `DatetimeIndex` is extended by its
+  *future* index continuing the input - a `DatetimeIndex` is extended by its
   inferred frequency, an integer/`RangeIndex` by its step) and `.to_series()`
   (the pandas view). `StochasticModel.forecast` returns an index-aligned `Series`
   (and three aligned `Series` for a confidence interval) when the model was fit
@@ -108,9 +128,9 @@ imports and all core tests pass without it.
   policy** (a `DeprecationWarning` for at least one minor release before removal).
 - An explicit **1-D scope boundary**: multivariate `X` (a 2-D array with more
   than one column, or a multi-column `DataFrame`) now raises a clear, early
-  error at every fitting entry point — stating that dtfit's integral criteria
+  error at every fitting entry point - stating that dtfit's integral criteria
   are one-dimensional and pointing to same-axis `+` composition for a
-  sum-of-components signal — instead of a shape error or a silent flatten. A new
+  sum-of-components signal - instead of a shape error or a silent flatten. A new
   "Multivariate data" docs page covers the composition and backfitting patterns.
 
 ### Changed
@@ -132,11 +152,11 @@ imports and all core tests pass without it.
   `fc[:3].to_series()` gives a clear error instead of a length crash. Scalar
   provenance (`.model_name`, `.result`) still carries forward.
 
-## [0.3.0] — 2026-07-09
+## [0.3.0] - 2026-07-09
 
 The "capability" release: models can be plain Python callables, fits take
 per-point measurement uncertainties, and results carry their own fit-quality
-diagnostics. Every addition is opt-in — with the new arguments left at their
+diagnostics. Every addition is opt-in - with the new arguments left at their
 defaults, all fits are numerically identical to v0.2 (the golden accuracy
 corpus is unchanged).
 
@@ -160,7 +180,7 @@ corpus is unchanged).
 - **`sample_weight` on `NonlineRegressor.fit`** (sklearn convention),
   translated to `sigma = 1/sqrt(weight)` and forwarded to the LSI/EAC routes.
 - **Fit-quality diagnostics on `FittingResult`:** `n_obs`, `rss`, `tss`, `nfev`,
-  `cost`, plus `.rsquared`, `.aic`, `.bic` properties and `.residuals(x, y)` —
+  `cost`, plus `.rsquared`, `.aic`, `.bic` properties and `.residuals(x, y)` -
   reachable from the sklearn route via `result_`, and round-tripped by
   `to_dict`/`from_dict`.
 - **Solver-option passthrough.** `fit_lsi`/`fit_eac` accept
@@ -168,7 +188,7 @@ corpus is unchanged).
   scipy solvers; the optimizer's `nfev` is recorded on the result.
 - **Structured `ForecastResult`** (exported top-level) from `auto_forecast`: an
   `np.ndarray` subclass (so every existing caller keeps working) that also
-  carries `.model_name` (with fallback provenance — e.g.
+  carries `.model_name` (with fallback provenance - e.g.
   `"linear (poly diverged)"`), `.result` (the underlying `FittingResult`), and
   `.std_band` (a delta-method 1-sigma prediction band when available).
 - Callable-model uncertainty: `FittingResult` gained an optional `param_model`
@@ -181,7 +201,7 @@ corpus is unchanged).
   `str | sympy.Expr | Callable`, and `var` became optional (a label only for a
   callable; defaults to `"x"`). Existing positional calls are unaffected.
 - A callable-only `FittingResult` has `expr=None`: `predict`/`.model` work, but
-  `to_dict()` raises (there is no expression to serialize) — as for any
+  `to_dict()` raises (there is no expression to serialize) - as for any
   expression-less result.
 - `Model.__add__` (composition) and the seed-detrend evaluator require symbolic
   operands and raise a clear `TypeError`/error for a callable model.
@@ -198,15 +218,15 @@ corpus is unchanged).
   so a full-length `sigma` (as `NonlineRegressor` forwards from `sample_weight`)
   fit on EAC but raised on LSI under `nan_policy="omit"`.
 - `ForecastResult`'s uncertainty band is `.std_band`, not `.std`, so it no
-  longer shadows `numpy.ndarray.std` — `fc.std()` and `np.std(fc)` work.
+  longer shadows `numpy.ndarray.std` - `fc.std()` and `np.std(fc)` work.
 - `Model.fit(method="auto")` (the default) now forwards a callable model's
   committed `param_names` through `auto_estimate`, so an `f(x, *params)` model
   no longer crashes on re-introspection and a renamed callable keeps its names.
 
-## [0.2.0] — 2026-07-09
+## [0.2.0] - 2026-07-09
 
 The "trust" release: fitters no longer silently modify data, drop samples,
-swallow errors, or overstate convergence — and parameters can finally be
+swallow errors, or overstate convergence - and parameters can finally be
 addressed by name.
 
 ### Added
@@ -214,12 +234,12 @@ addressed by name.
 - **Name-keyed `p0`/`bounds`.** `fit_lsi`, `fit_eac`, `auto_estimate`,
   `Model.fit`, and `NonlineRegressor` accept `p0={"a": 1.0, ...}` (must cover
   all parameters; a `ValueError` names anything missing or unknown) and
-  `bounds={"a": (0, 10)}` (partial — unnamed parameters stay unbounded). The
+  `bounds={"a": (0, 10)}` (partial - unnamed parameters stay unbounded). The
   normalizers are public: `dtfit.methods.normalize_p0` / `normalize_bounds`.
 - **One bounds convention.** Both fitters accept the per-parameter pair list
   (canonical), the partial dict, or the scipy-style `(lo, hi)` 2-tuple;
   `lo < hi` is validated (strictly) per parameter with the parameter named in
-  the error — to pin a parameter to a constant, substitute the value into the
+  the error - to pin a parameter to a constant, substitute the value into the
   model expression.
 - `EnsembleResult.n_failed` and `.last_error`: per-window fit failures are
   counted and surfaced (plus a `UserWarning`) instead of silently swallowed;
@@ -242,21 +262,21 @@ addressed by name.
 
 ### Changed
 
-- **BREAKING — `fit_lsi(filter_data=...)` now defaults to `False`** (was
+- **BREAKING - `fit_lsi(filter_data=...)` now defaults to `False`** (was
   `True`): the Savitzky-Golay pre-filter is opt-in; a fitter must not silently
   smooth your data. Recommended for very noisy telemetry.
-- **BREAKING — `fit_eac(active_ratio=...)` now defaults to `1.0`** (was `0.8`):
+- **BREAKING - `fit_eac(active_ratio=...)` now defaults to `1.0`** (was `0.8`):
   all samples are used; the fitter no longer silently discards the trailing
   20%. `auto_estimate`'s EAC routes explicitly pin the study-tuned
   `active_ratio=0.8` recipe, so the auto pipeline's validated behavior is
   unchanged.
-- **BREAKING — 2-parameter bounds disambiguation:** a bounds 2-tuple of two
+- **BREAKING - 2-parameter bounds disambiguation:** a bounds 2-tuple of two
   2-sequences (e.g. `([0, 0], [10, 10])`) is now read as per-parameter
   `(lo, hi)` pairs, not the scipy `(lo_array, hi_array)` form. Pass a dict, a
   pair list, or scalars to disambiguate. All other scipy-tuple inputs keep
   working.
 - `NonlineRegressor` defaults aligned with the fitters: `alpha=0.0` (was a
-  divergent `0.2`), `filter_data=False`, `active_ratio=1.0` — the estimator and
+  divergent `0.2`), `filter_data=False`, `active_ratio=1.0` - the estimator and
   the bare fitter now give the same answer for the same data.
 - Honest convergence reporting: the robust-IRLS paths of `fit_lsi`/`fit_eac`
   propagate the last inner solver's actual status (message
@@ -279,7 +299,7 @@ addressed by name.
   resumes on the next good sample.
 - **Partial bounds were dropped wholesale:** if a model seeder left any
   parameter unbounded, *all* bounds were discarded (a `sigma > 0` guard
-  vanished silently). Mixed bounds now reach the solver — the
+  vanished silently). Mixed bounds now reach the solver - the
   differential-evolution global stage runs only on fully-finite boxes, and the
   local trust-region solve is always constrained.
 - `solve_weighted_nlls` tolerates infinite/mixed bounds (previously they were
@@ -293,7 +313,7 @@ addressed by name.
   component, wrongly rejecting models whose true parameter is 0; only
   degenerate all-zero, complex, or incomplete roots are dropped now.
 - `fit_eac` clips the (default all-ones) initial guess into the bounds box
-  before solving, matching `fit_lsi` — a named bracket excluding 1.0 no longer
+  before solving, matching `fit_lsi` - a named bracket excluding 1.0 no longer
   crashes with scipy's "Initial guess is outside of provided bounds".
 - Degenerate `lo == hi` bounds are rejected up front with the parameter named;
   previously they succeeded or crashed with an opaque scipy error depending on
@@ -310,7 +330,7 @@ addressed by name.
   correctly; with `nan_policy="omit"` the fitter is allowed to drop non-finite
   pairs instead of being blocked by pre-validation.
 
-## [0.1.0] — 2026-06
+## [0.1.0] - 2026-06
 
 Initial development release: LSI/EAC/DSB batch fitters, `FittingResult`,
 model catalog with self-seeding and `suggest_models`, streaming
