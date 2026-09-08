@@ -91,6 +91,10 @@ class SecondOrderStream:
         list is empty. In block mode the samples fill the current block; each
         block that fills is imaged, retained and returned.
 
+        Args:
+            y: the next 1-D array of finite sample values, at unit spacing
+                continuing the stream, of any length.
+
         Raises:
             ValueError: an empty chunk, a chunk that is not 1-D, or
                 non-finite values.
@@ -168,7 +172,14 @@ class SecondOrderStream:
 
     def blocks(self, t0: float, t1: float) -> list[SecondOrderImage]:
         """The stored block images whose whole span lies inside the positions
-        ``[t0, t1]``, coarse blocks first, each list in time order."""
+        ``[t0, t1]``, coarse blocks first, each list in time order.
+
+        Args:
+            t0: start of the span, in ``x`` position units (``x0 + dx *
+                index``), not a sample index; with a non-unit ``dx`` a
+                caller passing sample indices silently gets an empty list.
+            t1: end of the span, in the same units as ``t0``.
+        """
         tol = 1e-9 * max(abs(t1 - t0), 1.0)
         return [
             b for b in [*self.coarse_, *self.fine_]
@@ -177,6 +188,11 @@ class SecondOrderStream:
 
     def assemble(self, t0: float, t1: float) -> SecondOrderImage:
         """The image of the whole blocks inside ``[t0, t1]``, merged.
+
+        Args:
+            t0: start of the span, in ``x`` position units (``x0 + dx *
+                index``), not a sample index.
+            t1: end of the span, in the same units as ``t0``.
 
         Raises:
             ValueError: no whole block inside the range, or blocks that are
@@ -207,6 +223,12 @@ class SecondOrderStream:
     def resume(self, state: dict[str, Any]) -> "SecondOrderStream":
         """Load a checkpoint into this stream and return it, discarding
         whatever it already held.
+
+        Args:
+            state: a checkpoint from :meth:`checkpoint`, produced by a
+                stream built with the same ``block``, ``lag``, ``nfreq``,
+                ``scales``, ``x0``, ``dx`` and ``keep_fine``/``fold``
+                arguments as this one.
 
         Raises:
             ValueError: an unknown version or a different configuration.

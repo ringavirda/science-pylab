@@ -69,7 +69,9 @@ def image_and_block_stream(rng) -> None:
           bool(np.max(np.abs(whole.acov() - merged.acov())) < 1e-9))
     g = merged.acov()
     print("AR(1) phi from the image:", round(float(g[1] / g[0]), 3))
-    print("regime from the image   :", fit_stochastic(merged).regime)
+    # a bare image has no series to backtest a forecaster on, so name one
+    print("regime from the image   :",
+          fit_stochastic(merged, forecaster="mean-reversion").regime)
 
 
 def online_tracking(rng) -> None:

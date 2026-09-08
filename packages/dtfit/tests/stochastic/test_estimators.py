@@ -104,8 +104,8 @@ def test_hurst_spectral_recovers_long_memory():
 
 
 def test_blackman_tukey_hurst_is_unbiased_at_the_default_lag_budget():
-    """The windowed spectrum at the default lag budget carries the bias the
-    raw periodogram regression does not remove; a short budget does not."""
+    """The windowed spectrum at the default lag budget (256) is unbiased; a
+    lag budget below 128 is biased low."""
     long_lag, short_lag = [], []
     for s in range(10):
         x = gen_arfima(4096, 0.3, np.random.default_rng(100 + s))

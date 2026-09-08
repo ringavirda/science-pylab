@@ -627,25 +627,27 @@ class SecondOrderImage:
         """
         n, k = self.n, np.arange(self.lag + 1)
         sl, ic = self._trend_index()
-        t0 = self.t0
+        ic = ic + sl * self.t0    # local intercept: y ~ ic + sl*u, u = t - t0
         hy = np.concatenate([[0.0], np.cumsum(self.head)])
         ty = np.concatenate([[0.0], np.cumsum(self.tail[::-1])])
-        ht = np.concatenate(
-            [[0.0], np.cumsum(self.head * (t0 + np.arange(self.head.size)))]
+        hu = np.concatenate(
+            [[0.0], np.cumsum(self.head * np.arange(self.head.size))]
         )
-        tpos = t0 + n - 1 - np.arange(self.tail.size)
-        tt = np.concatenate([[0.0], np.cumsum(self.tail[::-1] * tpos)])
+        upos = n - 1 - np.arange(self.tail.size)
+        tu = np.concatenate([[0.0], np.cumsum(self.tail[::-1] * upos)])
         kh = np.minimum(k, self.head.size)
         kt = np.minimum(k, self.tail.size)
-        a = self.sum_y - hy[kh]                 # sum_{t>=k} y_t
-        b = self.sum_y - ty[kt]                 # sum_{t<=n-1-k} y_t
-        c = self.sum_ty - ht[kh]                # sum_{t>=k} t y_t
-        d = self.sum_ty - tt[kt]                # sum_{t<=n-1-k} t y_t
+        sum_uy = self.sum_ty - self.t0 * self.sum_y   # sum u y_u, u = t - t0
+        a = self.sum_y - hy[kh]                 # sum_{u>=k} y_u
+        b = self.sum_y - ty[kt]                 # sum_{u<=n-1-k} y_u
+        c = sum_uy - hu[kh]                     # sum_{u>=k} u y_u
+        d = sum_uy - tu[kt]                     # sum_{u<=n-1-k} u y_u
         cnt = np.maximum(n - k, 0)
-        # sum over the overlap of (ic + sl t)(ic + sl (t - k)); the index
-        # moments stay in float64, never an int64 product that can wrap
-        lo = (t0 + k).astype(float)
-        hi = float(t0 + n - 1)
+        # sum over the overlap of (ic + sl u)(ic + sl (u - k)); u = t - t0
+        # keeps the index moments O(n^3) regardless of how far t0 sits
+        # down the stream, so no cancellation occurs at large t0
+        lo = k.astype(float)
+        hi = float(n - 1)
         s1 = np.where(cnt > 0, (lo + hi) * cnt / 2.0, 0.0)
         s2 = np.where(
             cnt > 0,
@@ -899,13 +901,17 @@ class SecondOrderImage:
                 and trend are centered out of the autocovariances, not
                 counted) over ``0..maxlag`` with ``maxlag =
                 min(12 (n/100)^0.25, 12, n // 3, lag - 2)``. A value given
-                fixes the lag instead, clamped into ``[1, lag - 2]``.
+                fixes the lag instead, clamped into ``[0, lag - 2]``.
             return_lag: also return the lag count the regression used.
 
         Returns:
             The ``tau`` statistic, or ``(tau, p)`` when ``return_lag`` is
             set; ``tau`` is ``nan`` (``p`` the requested or largest
-            candidate lag) when the normal equations are singular.
+            candidate lag) when the normal equations are singular. The
+            standard error divides the residual variance by ``n`` rather
+            than the regression's usable sample ``n - p - 2``, so ``tau``
+            reads about ``sqrt(n / (n - p - 2))`` too large in magnitude --
+            22 percent at ``n = 40, p = 12``, the unit-root gate's floor.
 
         Raises:
             ValueError: the image holds no samples.
@@ -939,7 +945,7 @@ class SecondOrderImage:
             return coef, resid_var, inv00
 
         if lags is not None:
-            p = max(1, min(int(lags), lag - 2))
+            p = max(0, min(int(lags), lag - 2))
             best = solve(p)
         else:
             maxlag = max(

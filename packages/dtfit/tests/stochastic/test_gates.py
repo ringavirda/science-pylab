@@ -73,10 +73,11 @@ def test_trend_cycle_is_detected_and_forecasts():
 
 
 def test_regime_identification_over_the_process_families():
-    """The gate: the image pipeline labels the eight families it is built
-    for. Over twenty seeds the seven the per-sample pipeline also covers give
-    95 percent against its 96; the off-grid cycle, which the fixed frequency
-    grid alone reads at 0 of 20, gives 20 of 20."""
+    """The gate: the image pipeline labels the process families spec 13.4
+    names, at its 20 seeds. The seven families the per-sample pipeline also
+    covers must hit at least 132 of 140; the off-grid cycle, resolved only
+    through the leakage-corrected amplitude rather than a raw grid bin, must
+    hit all 20."""
     cases = [
         ("white noise",
          lambda s: np.random.default_rng(s).standard_normal(1500),
@@ -99,21 +100,25 @@ def test_regime_identification_over_the_process_families():
          lambda s: gen_trend_cycle(600, 0.02, 50.0, 3.0, 1.0,
                                    np.random.default_rng(s))[1],
          lambda m: "trend+" in m.regime),
-        # period 50 at n = 4000 falls between the bins of a fixed 512-bin
-        # grid, where the leakage-corrected amplitude is what finds it
-        ("off-grid cycle",
-         lambda s: gen_trend_cycle(4000, 0.02, 50.0, 3.0, 1.0,
-                                   np.random.default_rng(s))[1],
-         lambda m: "trend+" in m.regime),
     ]
     hits = total = 0
     per = []
     for name, gen, ok in cases:
-        h = sum(bool(ok(fit_stochastic(gen(700 + s)))) for s in range(5))
-        per.append(f"{name}: {h}/5")
+        h = sum(bool(ok(fit_stochastic(gen(700 + s)))) for s in range(20))
+        per.append(f"{name}: {h}/20")
         hits += h
-        total += 5
-    assert hits >= total - 3, "; ".join(per)
+        total += 20
+    assert hits >= total - 8, "; ".join(per)
+
+    # period 50 at n = 4000 falls between the bins of a fixed 512-bin
+    # grid, where the leakage-corrected amplitude is what finds it
+    off_grid = sum(
+        bool("trend+" in fit_stochastic(
+            gen_trend_cycle(4000, 0.02, 50.0, 3.0, 1.0,
+                            np.random.default_rng(700 + s))[1]).regime)
+        for s in range(20)
+    )
+    assert off_grid == 20, f"off-grid cycle: {off_grid}/20"
 
 
 def test_a_block_with_a_nonzero_origin_forecasts_the_record_phase():

@@ -141,8 +141,8 @@ def select_forecaster(
     one whose mean RMSE is within ``margin`` of the random walk's.
 
     ``y`` is the training series; ``None`` (a fit given an image alone) has no
-    sub-series to backtest on, so the first non-random-walk candidate is taken
-    with a :class:`UserWarning` and its name suffixed ``" (no backtest)"``. A
+    sub-series to backtest on, so the last candidate is taken with a
+    :class:`UserWarning` and its name suffixed ``" (no backtest)"``. A
     series too short to backtest (``n <= 50``) falls back to the first
     candidate with the suffix ``" (short-series fallback)"``. A candidate that
     raises during a fold is warned about and scored infinite for it.
@@ -173,7 +173,7 @@ def select_forecaster(
     if len(candidates) == 1:
         return candidates[0]
     if y is None:
-        name, fn = candidates[-1] if len(candidates) > 1 else candidates[0]
+        name, fn = candidates[-1]
         warnings.warn(
             "a fit from a SecondOrderImage cannot backtest-select a "
             f"forecaster; taking {name}", UserWarning, stacklevel=2)

@@ -271,9 +271,12 @@ the second-order theory dictates, each behind a **significance gate**:
 
 1. **unit-root gate** -- the augmented Dickey-Fuller `tau` statistic, read
    off the image's autocovariances (`SecondOrderImage.dickey_fuller`) with
-   the augmentation lag chosen by AIC over `0..min(12 (n/100)^0.25, 12)`,
-   and its MacKinnon p-value. An I(1) level (random walk) is *differenced*
-   and reported as such, not given a spurious trend / cycle / long memory.
+   the augmentation lag chosen by AIC over
+   `0..min(12 (n/100)^0.25, 12, n // 3, lag - 2)`, and its MacKinnon
+   p-value. Below `n = 40` the gate reports "not nonstationary"
+   unconditionally rather than trust a verdict from that few samples. An
+   I(1) level (random walk) is *differenced* and reported as such, not
+   given a spurious trend / cycle / long memory.
 2. **deterministic mean** -- the image's least-squares trend (kept only if
    its Newey-West `|t|` exceeds `trend_t` *and* it explains real variance)
    and the image's fixed-grid-DFT seasonal read-out, a multi-harmonic Fourier
@@ -361,8 +364,9 @@ and a generator.
 
 - `forecast(h, *, return_conf_int=False, alpha=0.05)` -- forecast `h` steps with
   the selected forecaster. With `return_conf_int` returns `(point, lower, upper)`
-  whose band growth matches the forecaster (bounded for mean reversion, `~h^(2H)`
-  for long memory, `~sqrt(h)` for a random walk / drift).
+  whose band growth matches the forecaster (bounded for mean reversion, `~sqrt(h)`
+  for a random walk / drift, widened to `~h^(2H)` when the chosen random walk /
+  drift forecaster sits on a model that also carries long memory).
 - `simulate(n=None, *, seed=None, rng=None, dist="normal", df=7.0) -> ndarray` --
   draw a **fresh realization** from the detected components: the deterministic mean
   plus a residual matched to the regime (AR(1) / ARFIMA long memory / GARCH /
@@ -478,8 +482,8 @@ for x in np.random.default_rng(0).standard_normal(50):
         print("regime change at sample", f.last_flag_, "->", f.snapshot()["regime"])
 ```
 
-Measured on a tracked AR(1) coefficient: block images and the filter both
-reach RMSE 0.033.
+Measured on a tracked AR(1) coefficient: the filter reaches RMSE 0.032 and
+block images 0.028.
 
 ---
 

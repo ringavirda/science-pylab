@@ -68,19 +68,22 @@ claims only the structure that is really there:
  (0) unit-root gate (ADF, ct, AIC lags, from the autocovariances)  --I(1)-->
    |                                          difference; report random walk [+ drift]
    | stationary / trend-stationary
- (1) deterministic mean: the image's LSI trend (|t|>trend_t, R^2 gate)
+ (1) deterministic mean: the image's least-squares trend (|t|>trend_t, R^2 gate)
                          + multi-harmonic Fourier seasonal/cycle off the
                            fixed-grid DFT (spectral-peak gate)
    | residual
- (2) whiten with an AR(1) off the residual autocovariance
-   |
- (3) long memory on the INNOVATIONS (spectral Hurst > lm_hurst)
- (4) mean reversion (AR(1) phi)   (5) volatility clustering (excess squared ACF)
+ (2) long memory: spectral Hurst off the residual spectrum (H > lm_hurst);
+     if it fires, a veto whitens with a Yule-Walker AR(p<=3) off the
+     residual autocorrelation and rechecks a stricter Hurst on the
+     whitened spectrum (only above 128 samples, and only with order >= 1)
+ (3) mean reversion (AR(1) phi)   (4) volatility clustering (excess squared ACF)
 ```
 
-Two disambiguations matter. Long memory is tested on the **whitened innovations**,
-so a near-unit-root AR(1) (whose innovations are white) is not mislabelled as long
-memory. Volatility clustering is tested on the **excess autocorrelation**
+Two disambiguations matter. Long memory is reported off the **un-whitened**
+residual spectrum; only the veto, which fires when the reported Hurst already
+clears `lm_hurst`, rechecks a stricter threshold on the whitened one, so a
+near-unit-root AR(1) is not mislabelled long memory once its serial correlation
+is whitened out. Volatility clustering is tested on the **excess autocorrelation**
 `rho_2 - rho^2` of the squared level (`image.acov_squares()`) over the residual's
 own autocorrelation `rho` -- a Gaussian linear process with autocorrelation `rho`
 has squared-series autocorrelation `rho^2` on its own, so subtracting it isolates
@@ -94,7 +97,9 @@ computed from the image's autocovariances in Toeplitz form (AIC lag selection),
 agreeing with `statsmodels.adfuller`'s verdict in 139 of 140 measured series, with
 a strict cyclical exemption so a genuine interior spectral peak (a real cycle,
 near the unit circle but at `f > 0`) is kept for the stationary branch instead of
-being differenced.
+being differenced. Below `n = 40` the gate reports "not nonstationary"
+unconditionally, since the false-positive rate climbs fast under that many
+samples.
 
 ---
 
@@ -117,8 +122,9 @@ name carries `" (no backtest)"`.
 The confidence band is keyed off the **selected** forecaster rather than the
 detected flags, so its growth matches the point forecast: **bounded** for mean
 reversion, `~sqrt(h)` for a random walk, and the long-memory **`h^(2H)`** band
-(`2H > 1`) when the long-memory forecaster is chosen -- a wider envelope than the
-plain `sigma^2 * h` random-walk band, which would under-cover a long-memory path.
+(`2H > 1`) when the random walk or the drift forecaster is chosen on a model
+that also carries long memory -- a wider envelope than the plain `sigma^2 * h`
+random-walk band, which would under-cover a long-memory path.
 
 ---
 
@@ -154,7 +160,7 @@ in closed form using dtfit's own principles in streaming form:
 Its batch counterpart is `SecondOrderStream`'s block form: block images resolve a
 change at block granularity and merge exactly, where the filter's exponentially
 weighted statistics resolve it within about a half-life instead. Measured on a
-tracked AR(1) coefficient, block images and the filter both reach RMSE 0.033.
+tracked AR(1) coefficient, the filter reaches RMSE 0.032 and block images 0.028.
 
 A two-timescale **fused statistic** (a fast/slow EWMA of the persistence and log
 volatility, normalized by a frozen in-control gap variance) flags a structural break

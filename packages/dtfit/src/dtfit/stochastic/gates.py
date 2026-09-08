@@ -239,7 +239,8 @@ class StochasticModel:
 
     n: int
     level: float
-    trend_slope: float                  # in t units (dt-scaled), not samples
+    trend_slope: float                  # t units on the stationary branch,
+                                         # per sample on the unit-root branch
     has_trend: bool
     cycle_period: float                 # in samples of the sample index
     cycle_amp: float
@@ -480,7 +481,10 @@ def fit_stochastic(
         trend_t: minimum ``|t|`` of the trend-slope Newey-West statistic to
             call a deterministic trend, above 0.
         cycle_strength: minimum fundamental energy share (0-1) of the
-            spectrum to call a periodic cycle.
+            spectrum to call a periodic cycle. The unit-root gate's own
+            cyclical exemption (a spectral peak strong enough to route to
+            the stationary branch instead of a random walk) uses a fixed
+            0.12 threshold, not this argument.
         min_cycles: minimum number of cycles the record must span,
             ``n / period >= min_cycles``, above 0.
         lm_hurst: minimum Hurst exponent (0.5-1) to call long memory.
@@ -613,8 +617,6 @@ def fit_stochastic(
     phi = float(np.clip(rho[1], 1e-6, 0.999999))
     acf1 = float(rho[1])
     has_mr = (mr_phi < phi < 0.99) and (abs(acf1) > band)
-    sigma = float(np.sqrt(max(g_e[0] * (1.0 - phi * phi), 0.0))) if has_mr \
-        else float(np.sqrt(max(g_e[0], 0.0)))
 
     # long memory on the residual spectrum, vetoed by a finite-order AR
     hurst = float("nan")
@@ -637,8 +639,14 @@ def fit_stochastic(
         warnings.warn(f"stochastic stage Hurst/long-memory failed: {exc}",
                       UserWarning, stacklevel=2)
 
-    # volatility clustering: the squared series with the level's own
-    # contribution removed
+    # sigma reads has_mr as the long-memory veto may have just set it
+    sigma = float(np.sqrt(max(g_e[0] * (1.0 - phi * phi), 0.0))) if has_mr \
+        else float(np.sqrt(max(g_e[0], 0.0)))
+
+    # volatility clustering: excess autocorrelation of the raw level's own
+    # square (acov_squares, never detrended) over rho, the residual's own
+    # autocorrelation -- the mismatch is why a persistent trend or cycle
+    # can itself read as spurious clustering
     vol = float("nan")
     has_vol = False
     try:

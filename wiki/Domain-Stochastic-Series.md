@@ -45,7 +45,7 @@ against the established toolkit -- reported honestly.
 
 | claim | result |
 |---|---|
-| **parameter recovery works** | E1-E6 all VIABLE at full sample size; the ACF-fit routes (mean reversion, cycle) beat their trivial baselines; the spectral Hurst is competitive with R/S and DFA |
+| **parameter recovery works** | E1-E6 all VIABLE at full sample size; the ACF-fit cycle route beats its trivial (FFT periodogram) baseline; mean reversion's `acf1` baseline is the same read-out as `ar1_reversion`'s own `yw` default, not a foreign method, and the default now beats it; the spectral Hurst is competitive with R/S and DFA |
 | **regime identification works** | the router lands on the correct regime ~95% of the time; reports "no structure" on white noise (no hallucinated components) |
 | **forecasting is honest** | beats the random walk where structure extrapolates -- **CO2 (trend+seasonal) ~0.15x, GDP (drift) ~0.41x, sunspots (cyclical) ~0.72x** -- and ties it on a near-martingale (FX level, T-bill rate); never loses badly (a rolling-origin holdout guard falls back to persistence) |
 | **reproduces the literature** | Nelson-Plosser's random-walk-with-drift US GDP, the ~11-year sunspot cycle, Mauna Loa CO2 as trend+season, Hurst's Nile at `H ~ 0.9` (agreeing with R/S and DFA), near-unit-root interest rates, FX as a random walk with volatility clustering (long memory in `\|returns\|`) |

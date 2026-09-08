@@ -231,12 +231,13 @@ def test_exactness_holds_over_random_chunkings_and_budgets():
             assert np.max(np.abs(vw - vm)) < 1e-11 * float(np.max(vw))
 
 
-def test_global_indices_stay_exact_two_million_samples_into_a_stream():
+def test_global_indices_stay_exact_forty_million_samples_into_a_stream():
     """The index moments are closed forms in Python integers, so a block far
     down a stream reads the trend and the residual autocovariance the same
-    samples read at index zero."""
-    y = ar1(5000, 0.7, 31)
-    t0 = 2_000_000
+    samples read at index zero. The series carries a trend, since a
+    trendless one multiplies the vulnerable term out of existence."""
+    y = ar1(5000, 0.7, 31) + 0.01 * np.arange(5000)
+    t0 = 40_000_000
     near = SecondOrderImage(64, 128, 8).update(y)
     far = SecondOrderImage(64, 128, 8, t0=t0).update(y)
     assert far.sum_t == sum(range(t0, t0 + y.size))
@@ -260,6 +261,20 @@ def test_state_round_trips_through_json():
     assert np.array_equal(back.acov(), img.acov())
     assert np.array_equal(back.dft(), img.dft())
     assert back.trend() == img.trend()
+
+
+def test_restore_rejects_an_unknown_version_or_different_budgets():
+    img = SecondOrderImage(32, 64, 5).update(ar1(600, 0.5, 4))
+    with pytest.raises(ValueError, match="unknown"):
+        SecondOrderImage(32, 64, 5).restore({**img.state(), "version": 99})
+    with pytest.raises(ValueError, match="budgets"):
+        SecondOrderImage(16, 64, 5).restore(img.state())
+
+
+def test_spectrum_default_n_freq_is_half_the_record_capped_at_4096():
+    img = SecondOrderImage.of(ar1(500, 0.5, 5), lag=32, nfreq=64)
+    f, s = img.spectrum()
+    assert f.size == s.size == min(img.n // 2, 4096)
 
 
 def test_merge_rejects_mismatched_or_non_consecutive_images():
@@ -304,6 +319,12 @@ def test_constructor_rejects_impossible_budgets():
         SecondOrderImage(8, 8, 2).update(np.array([1.0, np.nan]))
     with pytest.raises(ValueError, match="no samples"):
         SecondOrderImage(8, 8, 2).mean()
+    with pytest.raises(ValueError, match="no samples"):
+        SecondOrderImage(8, 8, 2).first()
+    with pytest.raises(ValueError, match="no samples"):
+        SecondOrderImage(8, 8, 2).last()
+    with pytest.raises(ValueError, match="no samples"):
+        SecondOrderImage(8, 8, 2).acov_increments()
 
 
 def test_position_axis_carries_into_the_trend_and_the_domain():

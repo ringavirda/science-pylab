@@ -18,6 +18,7 @@ Source: [`packages/dtfit/examples/08_stochastic.py`](https://github.com/ringavir
 import numpy as np
 
 from dtfit import fit_stochastic, StochasticFilter, Stochastic
+from dtfit.stochastic import SecondOrderImage, SecondOrderStream
 
 
 def characterize_and_forecast(rng) -> None:
@@ -46,6 +47,35 @@ def detect_trend_and_cycle(rng) -> None:
     print("\n== fit_stochastic: trend + cycle ==")
     print("regime     :", model.regime)
     print(model.summary())
+
+
+def image_and_block_stream(rng) -> None:
+    # The tier's own image is the additive statistic every gate reads: build
+    # it once over a whole record, or block by block off a stream and merge.
+    # Both give the same numbers, so a record too large to hold can still be
+    # characterized.
+    n = 4000
+    x = np.zeros(n)
+    for t in range(1, n):
+        x[t] = 0.8 * x[t - 1] + rng.normal(0, 1.0)
+    whole = SecondOrderImage.of(x)
+    stream = SecondOrderStream(500, lag=whole.lag, nfreq=whole.nfreq,
+                               scales=whole.scales)
+    for start in range(0, n, 137):
+        stream.update(x[start:start + 137])
+    stream.close()
+    merged = stream.assemble(0.0, float(n))
+    print("\n== SecondOrderImage: one additive statistic ==")
+    print("image fields    :", whole.acov().size, "lags,",
+          whole.dft().size, "frequency bins,",
+          whole.aggregated_variance()[0].size, "scales")
+    print("blocked == whole:",
+          bool(np.max(np.abs(whole.acov() - merged.acov())) < 1e-9))
+    g = merged.acov()
+    print("AR(1) phi from the image:", round(float(g[1] / g[0]), 3))
+    # a bare image has no series to backtest a forecaster on, so name one
+    print("regime from the image   :",
+          fit_stochastic(merged, forecaster="mean-reversion").regime)
 
 
 def online_tracking(rng) -> None:
@@ -78,6 +108,7 @@ def main() -> None:
     rng = np.random.default_rng(0)
     characterize_and_forecast(rng)
     detect_trend_and_cycle(rng)
+    image_and_block_stream(rng)
     online_tracking(rng)
     model_wrapper(rng)
 
@@ -106,8 +137,14 @@ StochasticModel  regime='trend+seasonal'  n=600
   innovation sigma = 1.035
   forecaster: trend+seasonal
 
+== SecondOrderImage: one additive statistic ==
+image fields    : 257 lags, 2048 frequency bins, 9 scales
+blocked == whole: True
+AR(1) phi from the image: 0.791
+regime from the image   : mean-reverting
+
 == StochasticFilter: online second-order tracking ==
-final ar1_phi  : 0.863  (tracked up from 0.4 as persistence rose)
+final ar1_phi  : 0.956  (tracked up from 0.4 as persistence rose)
 regime label   : mean-reverting
 
 == dtfit.Stochastic model wrapper ==
