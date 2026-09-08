@@ -39,6 +39,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 import dtfit as dt
+from dtfit.reference import find_degree, fit_dsb
 from dtfit.streaming import EACFilter
 from dtfit_experimental.scale import PartitionedLSI, fit_lsi_batched
 
@@ -162,6 +163,13 @@ def table_model_exponential() -> str:
     return title + "\n\n" + md_table(headers, rows)
 
 
+def _dsb_from_data(x, y, expr, var, n_params):
+    """DSB from samples: the polynomial pre-fit its balance reads, at the
+    BIC degree but never below ``n_params - 1``, then the balance."""
+    deg = max(find_degree(x, y, method="bic"), n_params - 1, 1)
+    return fit_dsb(np.polyfit(x, y, deg)[::-1], expr, var)
+
+
 def table_dsb_additive() -> str:
     rng = np.random.default_rng(0)
     x = np.linspace(0, 3, 150)
@@ -170,8 +178,8 @@ def table_dsb_additive() -> str:
     expr, var = "a0 + a1*x + a2*exp(a3*x)", "x"
 
     rows = []
-    reg, ms = timed(lambda: dt.NonlineRegressor(expr, var, method="dsb").fit(x, y))
-    m = metrics(clean, reg.predict(x))
+    res, ms = timed(lambda: _dsb_from_data(x, y, expr, var, 4))
+    m = metrics(clean, np.asarray(res.model(x)))
     rows.append(["DSB (symbolic ref.)", f"{m['R2']:.4f}", f"{m['RMSE']:.4g}",
                  f"{m['MAPE']:.2f}", f"{ms:.1f}"])
     res, ms = timed(lambda: dt.fit_lsi(x, y, expr, var))
@@ -381,9 +389,9 @@ def fig_dsb() -> None:
     x = np.linspace(0, 3, 150)
     clean = 0.5 + 0.2 * x + 0.3 * np.exp(0.4 * x)
     y = clean + rng.normal(0, 0.05, x.size)
-    reg = dt.NonlineRegressor("a0 + a1*x + a2*exp(a3*x)", "x", method="dsb").fit(x, y)
-    yhat = reg.predict(x)
-    r2 = reg.score(x, y)
+    res = _dsb_from_data(x, y, "a0 + a1*x + a2*exp(a3*x)", "x", 4)
+    yhat = np.asarray(res.model(x))
+    r2 = 1.0 - float(np.sum((y - yhat) ** 2)) / float(np.sum((y - y.mean()) ** 2))
 
     fig, ax = plt.subplots(1, 2, figsize=(10, 3.8))
     ax[0].scatter(x, y, s=10, c="0.6", label="noisy samples")

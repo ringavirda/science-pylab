@@ -10,9 +10,8 @@ it choose.
 
 Batch fitters:
     fit on an Original or an Image; fit_lsi and fit_eac are its Legendre and
-    block presets; fit_dsb is the symbolic reference. ensemble_fit is the
-    overlapping-window ensemble for densely contaminated data, and
-    find_degree selects the polynomial degree for DSB.
+    block presets. ensemble_fit is the overlapping-window ensemble for
+    densely contaminated data.
 
 Estimator:
     NonlineRegressor, an sklearn-compatible fit/predict/score over LSI, EAC
@@ -59,10 +58,8 @@ from dtfit.methods import (
     fit_lsi,
     fft_frequency_seed,
     fit_eac,
-    fit_dsb,
     ensemble_fit,
     EnsembleResult,
-    find_degree,
 )
 from dtfit.image import Original, Image, ImageStream, fit, order_for
 from dtfit.estimators import NonlineRegressor
@@ -104,10 +101,8 @@ __all__ = [
     "fit_lsi",
     "fft_frequency_seed",
     "fit_eac",
-    "fit_dsb",
     "ensemble_fit",
     "EnsembleResult",
-    "find_degree",
     "fit_many",
     "FittingProblem",
     "FittingResult",

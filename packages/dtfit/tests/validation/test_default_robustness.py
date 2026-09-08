@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 import dtfit as dt
+from dtfit.reference import find_degree, fit_dsb
 from accuracy.scenarios import SCENARIOS
 from accuracy.harness import ordered_params, r2, param_err, predict
 
@@ -85,17 +86,19 @@ def test_oscillatory_needs_recipe_path():
     assert good_r2 > bare_r2, "oscillatory recipe must beat the bare regressor"
 
 
-def test_dsb_regressor_additive():
-    """DSB through the estimator on its intended additive form, defaults only."""
+def test_dsb_reference_additive():
+    """DSB on its intended additive form, from the polynomial pre-fit its
+    docstring prescribes."""
     rng = np.random.default_rng(0)
     x = np.linspace(0, 3, 150)
     clean = 0.5 + 0.2 * x + 0.3 * np.exp(0.4 * x)
     y = clean + rng.normal(0, 0.03, x.size)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        reg = dt.NonlineRegressor("a0 + a1*x + a2*exp(a3*x)", "x",
-                                  method="dsb").fit(x, y)
-    pred = reg.predict(x)
+        degree = max(find_degree(x, y, method="bic"), 3)
+        coeffs_poly = np.polyfit(x, y, degree)[::-1]
+        res = fit_dsb(coeffs_poly, "a0 + a1*x + a2*exp(a3*x)", "x")
+    pred = predict(res, x)
     assert np.all(np.isfinite(pred))
     # under noise DSB matches the data's noisy high-order polynomial spectrum,
     # behaving as a curve fit rather than an exact point estimator (see

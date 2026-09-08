@@ -16,13 +16,20 @@ def test_top_level_api():
         "EACFilter",
         "fit_lsi",
         "fit_eac",
-        "fit_dsb",
         "models",
         "suggest_models",
         "auto_estimate",
         "enable_logging",
     ]:
         assert hasattr(dtfit, name), f"missing public name: {name}"
+
+
+def test_the_reference_method_has_its_own_module():
+    from dtfit.reference import find_degree, fit_dsb
+
+    assert callable(fit_dsb) and callable(find_degree)
+    for name in ("fit_dsb", "find_degree"):
+        assert not hasattr(dtfit, name)
 
 
 def test_all_submodules_import():

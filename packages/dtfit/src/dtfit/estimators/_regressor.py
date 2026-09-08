@@ -23,7 +23,8 @@ import sympy as sp
 
 from dtfit._input import normalize_p0
 from dtfit._symbolic import model_params
-from dtfit.methods import fit_lsi, fit_eac, fit_dsb, find_degree
+from dtfit.methods import fit_lsi, fit_eac
+from dtfit.reference import fit_dsb, find_degree
 from dtfit._pandas import as_series, capture_index, is_dataframe, is_series
 from dtfit.types import FittingResult
 

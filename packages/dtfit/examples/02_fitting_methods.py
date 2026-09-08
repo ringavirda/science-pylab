@@ -14,7 +14,9 @@ Run headless:   python examples/02_fitting_methods.py
 
 import numpy as np
 
-from dtfit import fit_lsi, fit_eac, fit_dsb, find_degree, fft_frequency_seed
+from dtfit import fit_lsi, fit_eac
+from dtfit.image import fft_frequency_seed
+from dtfit.reference import find_degree, fit_dsb
 
 
 def lsi_basic(rng) -> None:

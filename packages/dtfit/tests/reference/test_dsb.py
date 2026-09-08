@@ -5,19 +5,28 @@ from typing import cast
 import numpy as np
 import pytest
 
-from dtfit import NonlineRegressor, fit_dsb
+from dtfit.reference import find_degree, fit_dsb
 from dtfit._symbolic import taylor_coeffs
 import sympy as sp
 
 
-def test_dsb_regressor_fits(lint_exp_data):
-    # The regressor runs the required polynomial pre-fit internally.
+def _balance(x, y, expr, var, n_params, degree=None):
+    """Fit ``expr`` by DSB from data: pick the polynomial degree by BIC but
+    never below ``n_params - 1``, where the balance would be underdefined,
+    fit that polynomial, then balance its Maclaurin spectrum."""
+    deg = max(find_degree(x, y, method="bic"), n_params - 1, 1)
+    deg = deg if degree is None else degree
+    return fit_dsb(np.polyfit(x, y, deg)[::-1], expr, var)
+
+
+def test_dsb_fits_an_additive_exponential(lint_exp_data):
     x, y = lint_exp_data
-    reg = NonlineRegressor(
-        "a0 + a1*x + a2*exp(a3*x)", "x", method="dsb"
-    ).fit(x, y)
-    assert len(reg.coef_) == 4
-    assert reg.score(x, y) > 0.8
+    res = _balance(x, y, "a0 + a1*x + a2*exp(a3*x)", "x", 4)
+    assert len(res.coeffs) == 4
+    pred = np.asarray(res.model(x), float)
+    ss_res = float(np.sum((y - pred) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    assert 1.0 - ss_res / ss_tot > 0.8
 
 
 def test_taylor_coeffs_match_known_series():
@@ -35,10 +44,11 @@ def test_dsb_fits_models_without_handwritten_discretes():
     # generic Taylor balance covers them anyway.
     x = np.linspace(0.0, 1.2, 300)
     y = 0.2 + 1.5 * np.log(1 + 0.9 * x)
-    reg = NonlineRegressor(
-        "a0 + a1*log(1 + a2*x)", "x", method="dsb", poly_degree=6
-    ).fit(x, y)
-    assert reg.score(x, y) > 0.95
+    res = _balance(x, y, "a0 + a1*log(1 + a2*x)", "x", 3, degree=6)
+    pred = np.asarray(res.model(x), float)
+    ss_res = float(np.sum((y - pred) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    assert 1.0 - ss_res / ss_tot > 0.95
 
 
 def test_dsb_underdetermined_balance_raises():
