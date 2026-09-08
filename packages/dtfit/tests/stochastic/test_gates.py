@@ -220,13 +220,19 @@ def test_unit_root_gate_verdicts():
     assert not is_nonstationary(rng.standard_normal(8))    # too short to test
 
 
-def test_unit_root_gate_does_not_trust_short_series():
-    # below n=200 the image's tau statistic loses power and false-flags
-    # a stationary series as a unit root at a rate far above alpha
+def test_unit_root_gate_measured_rates_at_n_100():
+    # the AIC-selected augmentation lag keeps the false-positive rate near
+    # alpha and the power against a random walk near the retired procedure's
+    trials = 30
     hits = sum(
         is_nonstationary(np.random.default_rng(s).standard_normal(100))
-        for s in range(30))
-    assert hits == 0
+        for s in range(trials))
+    assert hits / trials < 0.10
+    power = sum(
+        is_nonstationary(
+            np.cumsum(np.random.default_rng(s).standard_normal(100)))
+        for s in range(trials))
+    assert power / trials >= 0.80
 
 
 def _boom(*args, **kwargs):

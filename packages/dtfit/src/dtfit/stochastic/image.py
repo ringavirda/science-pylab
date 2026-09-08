@@ -5,7 +5,7 @@ tier takes its numbers from."""
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import Any, Literal, overload
 
 import numpy as np
 
@@ -869,33 +869,47 @@ class SecondOrderImage:
             "strength": float(strength),
         }
 
-    def dickey_fuller(self, lags: int | None = None) -> float:
+    @overload
+    def dickey_fuller(
+        self, lags: int | None = None, *, return_lag: Literal[False] = False
+    ) -> float: ...
+
+    @overload
+    def dickey_fuller(
+        self, lags: int | None = None, *, return_lag: Literal[True]
+    ) -> tuple[float, int]: ...
+
+    def dickey_fuller(
+        self, lags: int | None = None, *, return_lag: bool = False
+    ) -> float | tuple[float, int]:
         """The augmented Dickey-Fuller ``tau`` statistic of the constant plus
         trend regression, computed from the autocovariances.
 
         The normal equations of the regression ``dy_t = rho y_{t-1} +
         sum_j d_j dy_{t-j} + c + b t`` are written in Toeplitz form, so the
         statistic reads off the image; the deterministic columns enter as the
-        centring of the autocovariances.
+        centring of the autocovariances. Every candidate lag count reads the
+        same autocovariance sequence, so all of them see the same effective
+        sample; there is no separate windowing to redo per candidate.
 
         Args:
-            lags: difference lags in the regression; ``None`` takes the
-                Schwert rule ``min(12 (n/100)^0.25, 12, lag - 2)``. Any value
-                is clamped into ``[1, lag - 2]``.
+            lags: difference lags in the regression; ``None`` selects the
+                lag count by AIC (``n * log(rss / n) + 2 * k``, ``k`` the
+                regressor count) over ``0..maxlag`` with ``maxlag =
+                min(12 (n/100)^0.25, 12, n // 3, lag - 2)``. A value given
+                fixes the lag instead, clamped into ``[1, lag - 2]``.
+            return_lag: also return the lag count the regression used.
 
         Returns:
-            The ``tau`` statistic; ``nan`` when the normal equations are
-            singular.
+            The ``tau`` statistic, or ``(tau, p)`` when ``return_lag`` is
+            set; ``tau`` is ``nan`` (``p`` the requested or largest
+            candidate lag) when the normal equations are singular.
 
         Raises:
             ValueError: the image holds no samples.
         """
         g = self.detrended_acov()
         n, lag = self.n, self.lag
-        p = int(lags) if lags is not None else int(
-            min(12.0 * (n / 100.0) ** 0.25, 12, lag - 2)
-        )
-        p = max(1, min(p, lag - 2))
 
         def gd(k: int) -> float:
             k = abs(k)
@@ -903,24 +917,49 @@ class SecondOrderImage:
                 return 0.0
             return float(2 * g[k] - g[abs(k - 1)] - g[k + 1])
 
-        dim = 1 + p
-        a = np.zeros((dim, dim))
-        b = np.zeros(dim)
-        a[0, 0] = g[0]
-        b[0] = g[1] - g[0]
-        for j in range(1, p + 1):
-            a[0, j] = a[j, 0] = g[j - 1] - g[j] if j <= lag else 0.0
-            b[j] = gd(j)
-            for i in range(1, p + 1):
-                a[i, j] = gd(i - j)
-        try:
-            coef = np.linalg.solve(a, b)
-            inv00 = float(np.linalg.inv(a)[0, 0])
-        except np.linalg.LinAlgError:
-            return float("nan")
-        resid_var = gd(0) - float(coef @ b)
-        se = np.sqrt(max(resid_var, 1e-12) / n * max(inv00, 1e-30))
-        return float(coef[0] / se) if se > 0 else float("nan")
+        def solve(p: int) -> tuple[np.ndarray, float, float] | None:
+            dim = 1 + p
+            a = np.zeros((dim, dim))
+            b = np.zeros(dim)
+            a[0, 0] = g[0]
+            b[0] = g[1] - g[0]
+            for j in range(1, p + 1):
+                a[0, j] = a[j, 0] = g[j - 1] - g[j] if j <= lag else 0.0
+                b[j] = gd(j)
+                for i in range(1, p + 1):
+                    a[i, j] = gd(i - j)
+            try:
+                coef = np.linalg.solve(a, b)
+                inv00 = float(np.linalg.inv(a)[0, 0])
+            except np.linalg.LinAlgError:
+                return None
+            resid_var = gd(0) - float(coef @ b)
+            return coef, resid_var, inv00
+
+        if lags is not None:
+            p = max(1, min(int(lags), lag - 2))
+            best = solve(p)
+        else:
+            maxlag = max(
+                0, int(min(12.0 * (n / 100.0) ** 0.25, 12, lag - 2, n // 3))
+            )
+            p, best, best_ic = maxlag, None, float("inf")
+            for cand in range(0, maxlag + 1):
+                got = solve(cand)
+                if got is None:
+                    continue
+                ic = n * np.log(max(got[1], 1e-300)) + 2 * (1 + cand)
+                if ic < best_ic:
+                    p, best, best_ic = cand, got, ic
+
+        if best is None:
+            result = (float("nan"), p)
+        else:
+            coef, resid_var, inv00 = best
+            se = np.sqrt(max(resid_var, 1e-12) / n * max(inv00, 1e-30))
+            tau = float(coef[0] / se) if se > 0 else float("nan")
+            result = (tau, p)
+        return result if return_lag else result[0]
 
     # ------------------------------------------------------------ state
     def state(self) -> dict[str, Any]:

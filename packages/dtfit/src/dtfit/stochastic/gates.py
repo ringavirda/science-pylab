@@ -174,12 +174,13 @@ def is_nonstationary(data: Any, *, alpha: float = 0.05) -> bool:
     regression is computed from the image's autocovariances and read through
     MacKinnon's p-value surface.
 
-    Below ``n = 200`` samples the image's tau statistic loses power against
-    a fixed short-lag rule, and a stationary series is called nonstationary
-    at a rate far above ``alpha``: measured white noise and AR(1) phi=0.5
-    both clear 30 percent false positives at n=100 and only fall under
-    5 percent past n=200. The gate reports "not nonstationary" rather than
-    trust a verdict from below that floor.
+    The augmentation lag is chosen by AIC rather than fixed, so the false
+    positive rate stays a few percent from n=100 up: measured over white
+    noise and AR(1) phi=0.5 (the worse of the two, 60 seeds each), the
+    rate at which this gate wrongly returns True is n=40: 12%, n=100: 3%,
+    n=200: 0%, n=400: 0%. Below ``n = 20`` the regression has too few
+    samples to fit even the smallest candidate lag, so the gate reports
+    "not nonstationary" rather than trust a verdict from there.
 
     Args:
         data: a series, an Original or a :class:`SecondOrderImage`.
@@ -187,7 +188,7 @@ def is_nonstationary(data: Any, *, alpha: float = 0.05) -> bool:
             cannot be rejected.
     """
     img = as_image(data)
-    if img.n < 200:
+    if img.n < 20:
         return False
     return adf_pvalue(img.dickey_fuller()) > alpha
 

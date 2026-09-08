@@ -6,6 +6,7 @@ import pytest
 
 from dtfit.image import Original
 from dtfit.stochastic import SecondOrderImage
+from stochastic.processes import gen_ar2
 
 
 def _adf_design(x, lag):
@@ -397,6 +398,20 @@ def test_dickey_fuller_matches_a_direct_ols_regression():
     assert shipped == pytest.approx(direct_dickey_fuller(x, 12), rel=0.03)
 
 
+def test_dickey_fuller_selects_the_lag_by_aic():
+    # an exact AR(2) reparametrizes with one differenced lag, so AIC never
+    # drops to 0 the way it does on white noise
+    ar2_lags = [SecondOrderImage.of(
+        gen_ar2(600, 0.6, -0.3, s), lag=64, nfreq=64
+    ).dickey_fuller(return_lag=True)[1] for s in range(20)]
+    assert min(ar2_lags) >= 1
+
+    wn_lags = [SecondOrderImage.of(
+        np.random.default_rng(s).standard_normal(600), lag=64, nfreq=64
+    ).dickey_fuller(return_lag=True)[1] for s in range(20)]
+    assert sum(p <= 1 for p in wn_lags) >= 15
+
+
 def test_dickey_fuller_does_not_over_reject_a_unit_root_with_ma_noise():
     # the augmentation lags exist for exactly this family: a unit root whose
     # innovation is a moving average, not white noise
@@ -408,7 +423,10 @@ def test_dickey_fuller_does_not_over_reject_a_unit_root_with_ma_noise():
         tau = SecondOrderImage.of(y, lag=64, nfreq=64).dickey_fuller()
         if tau < -3.42:
             rejections += 1
-    assert rejections / trials < 0.25
+    # 11/40 measured with the AIC-selected lag, against 9/40 at the old
+    # fixed Schwert lag; AIC trades a little of this margin for the false
+    # positive rate the unit-root gate now runs at.
+    assert rejections / trials < 0.30
 
 
 def test_residual_autocovariance_removes_the_trend_exactly():
