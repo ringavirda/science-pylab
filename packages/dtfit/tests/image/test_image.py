@@ -250,27 +250,53 @@ def test_roundtrip_equality_and_hash():
 
 def test_gram_whitener_factors_a_gram_singular_to_rounding():
     # samples on the last percent of the domain at order 100 leave the
-    # Legendre Gram singular past what a single 1e-14 jitter can factor
-    # (a plain Cholesky on G + 1e-14 * trace(G)/k * I still raises), so
-    # only the escalation ladder returns a factor at all.
-    from scipy.linalg import LinAlgError, cholesky
-
+    # Legendre Gram singular past double precision. Whether the first
+    # jitter rung already factors it is decided by the LAPACK build's
+    # rounding, so the test asks only for a factor within the largest rung.
     x = np.linspace(0.99, 1.0, 1000)
     img = Image.of(Original(x, np.cos(3.0 * x), domain=(0.0, 1.0)),
                    "legendre", 100)
     s = np.linalg.svd(img.G, compute_uv=False)
-    assert s[0] / max(s[-1], 1e-300) > 1e16
-    k = img.G.shape[0]
-    trace_scale = np.trace(img.G) / k
-    with pytest.raises(LinAlgError):
-        cholesky(img.G + 1e-14 * trace_scale * np.eye(k), lower=True)
+    assert s[0] / max(s[-1], 1e-300) > 1e15
+    trace_scale = np.trace(img.G) / img.G.shape[0]
     L = gram_whitener(img.G)
-    resid = np.abs(L @ L.T - img.G).max()
-    assert np.tril(L).shape == img.G.shape
-    # the returned factor is looser than the 1e-14 jitter could ever be,
-    # which pins the rung actually used to one above it.
-    assert resid > 1e-14 * trace_scale
-    assert resid <= 1e-8 * trace_scale * 1.01
+    assert L.shape == img.G.shape
+    assert np.all(np.isfinite(L))
+    assert np.array_equal(np.tril(L), L)
+    assert np.abs(L @ L.T - img.G).max() <= 1e-8 * trace_scale * 1.01
+
+
+def _gram_with_a_negative_eigenvalue(rel):
+    # symmetric, eigenvalues in [0.5, 2] except one at -rel times their
+    # mean: far below rounding either way, so the same jitter rungs fail
+    # on every LAPACK build
+    rng = np.random.default_rng(0)
+    q, _ = np.linalg.qr(rng.standard_normal((40, 40)))
+    d = rng.uniform(0.5, 2.0, 40)
+    d[-1] = -rel * d.mean()
+    G = (q * d) @ q.T
+    return (G + G.T) / 2
+
+
+def test_gram_whitener_escalates_the_jitter_past_the_rungs_that_fail():
+    from scipy.linalg import LinAlgError, cholesky
+
+    G = _gram_with_a_negative_eigenvalue(5e-12)
+    k = G.shape[0]
+    trace_scale = np.trace(G) / k
+    with pytest.raises(LinAlgError):
+        cholesky(G + 1e-12 * trace_scale * np.eye(k), lower=True)
+    L = gram_whitener(G)
+    # the residual is the jitter itself, which pins the rung used
+    resid = np.abs(L @ L.T - G).max()
+    assert 0.99e-10 * trace_scale < resid < 1.01e-10 * trace_scale
+
+
+def test_gram_whitener_raises_past_the_largest_jitter():
+    from scipy.linalg import LinAlgError
+
+    with pytest.raises(LinAlgError):
+        gram_whitener(_gram_with_a_negative_eigenvalue(1e-6))
 
 
 def test_fit_from_a_numerically_singular_image_returns():
