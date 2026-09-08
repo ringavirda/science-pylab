@@ -1,0 +1,9 @@
+{
+  "bytes_sent": 16382863,
+  "images_per_second": 23.377,
+  "latency_ms_median": 41.9985,
+  "latency_ms_p90": 42.6392,
+  "n_acks": 2000,
+  "n_images": 2000,
+  "seconds": 85.5525
+}

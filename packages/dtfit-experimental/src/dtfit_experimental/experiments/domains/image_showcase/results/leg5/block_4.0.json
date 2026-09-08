@@ -1,0 +1,1211 @@
+{
+  "bytes_header": 5354167,
+  "bytes_payload": 331968,
+  "clock_delta_s": 0.0009,
+  "groups": {
+    "00NA/east": {
+      "bytes_header": 59147,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "7bce3cbcfc5489831d624f8b0d79918b307665e65ad0971b6444ca044a17aa9f",
+      "domain": [
+        0.0,
+        10.496900000000096
+      ],
+      "n": 3185,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.8320432426387345,
+        "v": 0.03652715746627765
+      },
+      "rss": 0.02064498045712044,
+      "samples": 3185
+    },
+    "00NA/north": {
+      "bytes_header": 59162,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "cef3a8685938dcde67364b66d8939b712e4b0d27d3ef63c5eb3b23f8ee7d109f",
+      "domain": [
+        0.0,
+        10.496900000000096
+      ],
+      "n": 3185,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.2856338918206992,
+        "v": 0.059440644745147396
+      },
+      "rss": 0.05190030101970114,
+      "samples": 3185
+    },
+    "00NA/up": {
+      "bytes_header": 59151,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "ff1df78203d6c7d0a87b0e9178cb944d3a312beea7951126c82696fec187641c",
+      "domain": [
+        0.0,
+        10.496900000000096
+      ],
+      "n": 3185,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.8531924783357325,
+        "v": -0.0008366831189988285
+      },
+      "rss": 0.17633213532486294,
+      "samples": 3185
+    },
+    "01NA/east": {
+      "bytes_header": 44745,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "677764874ffdca7cce92b095b1a1cdbf0b7cacf42fbd4395d1d9c2715f6f9881",
+      "domain": [
+        0.0,
+        11.474300000000085
+      ],
+      "n": 2360,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.7216150458386229,
+        "v": 0.0353530855082515
+      },
+      "rss": 0.015724670262560858,
+      "samples": 2360
+    },
+    "01NA/north": {
+      "bytes_header": 44758,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "955134cab6144dfc1ab3a0ed81d79429cde392fd1dec38da94102bb57daea46e",
+      "domain": [
+        0.0,
+        11.474300000000085
+      ],
+      "n": 2360,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.7624949603992812,
+        "v": 0.05905215038756382
+      },
+      "rss": 0.014025046682129626,
+      "samples": 2360
+    },
+    "01NA/up": {
+      "bytes_header": 44735,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "328d8f17355d27cdf95f477071a310ebca51087e3eeac391d3c9f4578aa63cb1",
+      "domain": [
+        0.0,
+        11.474300000000085
+      ],
+      "n": 2360,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.3985794740788681,
+        "v": -0.0034926933542402797
+      },
+      "rss": 0.1541375788693342,
+      "samples": 2360
+    },
+    "02NA/east": {
+      "bytes_header": 36618,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "42b82442113d065f96b188e68d78742f2d2fe8895b41d2dd834722346ac2cdae",
+      "domain": [
+        0.0,
+        8.273799999999937
+      ],
+      "n": 1913,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.22384940584660407,
+        "v": 0.03621196751604646
+      },
+      "rss": 0.0053424763755492285,
+      "samples": 1913
+    },
+    "02NA/north": {
+      "bytes_header": 36646,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "c5b421aa1d84d910c759f98983ec8c6eec4574b9d4b42f62ee492ecf90a65538",
+      "domain": [
+        0.0,
+        8.273799999999937
+      ],
+      "n": 1913,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.14127952325837867,
+        "v": 0.059285900620611884
+      },
+      "rss": 0.008717719363687673,
+      "samples": 1913
+    },
+    "02NA/up": {
+      "bytes_header": 36615,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "46a01557cab75ea03362266111727a2cd6097b6513d2dcda90dcfe90b7531af1",
+      "domain": [
+        0.0,
+        8.273799999999937
+      ],
+      "n": 1913,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6581382145796704,
+        "v": -0.0012800333304349956
+      },
+      "rss": 0.1020440390727099,
+      "samples": 1913
+    },
+    "0ABI/east": {
+      "bytes_header": 113828,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "f3ebf6195bc6887d923687cc269ada798b534d7c0fdb2510320d22027880c68f",
+      "domain": [
+        0.0,
+        17.196500000000015
+      ],
+      "n": 6078,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.04965102296790099,
+        "v": 0.015211504803206216
+      },
+      "rss": 0.04070924225601261,
+      "samples": 6078
+    },
+    "0ABI/north": {
+      "bytes_header": 113853,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "3f5200837b044ffe22a335aed688da83fb90343402824ec9bcbee9c0dafc887e",
+      "domain": [
+        0.0,
+        17.196500000000015
+      ],
+      "n": 6078,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.3756499806290815,
+        "v": 0.014933633252606476
+      },
+      "rss": 0.030115871516189573,
+      "samples": 6078
+    },
+    "0ABI/up": {
+      "bytes_header": 113822,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "f7c0f3dc67f80f08400183a59bb18156199b7534d6ab25747bc0879c355ce1d1",
+      "domain": [
+        0.0,
+        17.196500000000015
+      ],
+      "n": 6078,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.32372328848344273,
+        "v": 0.0054744922964949086
+      },
+      "rss": 0.41210812590247614,
+      "samples": 6078
+    },
+    "0ABN/east": {
+      "bytes_header": 23059,
+      "bytes_payload": 1456,
+      "converged": true,
+      "digest": "da41655e67f9b1f76daa14fdb7892a84a24d25b0489c89b1cb6b3ac0d771bae1",
+      "domain": [
+        0.0,
+        3.38130000000001
+      ],
+      "n": 1206,
+      "n_blocks": 1,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.3201942313581183,
+        "v": 0.015356538569123277
+      },
+      "rss": 0.006473922637191965,
+      "samples": 1206
+    },
+    "0ABN/north": {
+      "bytes_header": 23060,
+      "bytes_payload": 1456,
+      "converged": true,
+      "digest": "5f44a9aa9f4e9142d1432b07d131e5d09fbcca88a7bb1da7944ab49b44de0986",
+      "domain": [
+        0.0,
+        3.38130000000001
+      ],
+      "n": 1206,
+      "n_blocks": 1,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.3671303211546127,
+        "v": 0.016497707089829044
+      },
+      "rss": 0.0037199346666336305,
+      "samples": 1206
+    },
+    "0ABN/up": {
+      "bytes_header": 23057,
+      "bytes_payload": 1456,
+      "converged": true,
+      "digest": "6ded41c12cbb0ac034e35709d4cdcad0dceb883980c2b225e490d88a79b8cf2d",
+      "domain": [
+        0.0,
+        3.38130000000001
+      ],
+      "n": 1206,
+      "n_blocks": 1,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.7619832935606689,
+        "v": 0.007840553420593005
+      },
+      "rss": 0.06770017738655651,
+      "samples": 1206
+    },
+    "0ABY/east": {
+      "bytes_header": 76422,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "717c68b73e52fea50e0a8179ad038720582b17922e3f5c69c46bee3689d01a8c",
+      "domain": [
+        0.0,
+        11.367600000000039
+      ],
+      "n": 4114,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.6563157148259505,
+        "v": 0.01863082924399064
+      },
+      "rss": 0.030503569560503936,
+      "samples": 4114
+    },
+    "0ABY/north": {
+      "bytes_header": 76401,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "106cb84f1f81ca3f5f0369eb5a396ac2e0c91756ed62a4edea53c518875d169a",
+      "domain": [
+        0.0,
+        11.367600000000039
+      ],
+      "n": 4114,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.03211415877323639,
+        "v": 0.013795782743881506
+      },
+      "rss": 0.007170964675831572,
+      "samples": 4114
+    },
+    "0ABY/up": {
+      "bytes_header": 76396,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "10f553813d65c66cf20c94747a3bfdac72cb0f0569253f16e0e880fb4b7b366b",
+      "domain": [
+        0.0,
+        11.367600000000039
+      ],
+      "n": 4114,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.5069816887360781,
+        "v": 0.005199919072145799
+      },
+      "rss": 0.21566443429829615,
+      "samples": 4114
+    },
+    "0AKE/east": {
+      "bytes_header": 108456,
+      "bytes_payload": 5824,
+      "converged": true,
+      "digest": "58dcac03d08adeee71ca8831f0101e9165eeedbc76e55c3ecfd6df48ab603f8e",
+      "domain": [
+        0.0,
+        15.991800000000012
+      ],
+      "n": 5807,
+      "n_blocks": 4,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.4245337713798395,
+        "v": 0.01879964554371644
+      },
+      "rss": 0.018059340815244917,
+      "samples": 5807
+    },
+    "0AKE/north": {
+      "bytes_header": 108466,
+      "bytes_payload": 5824,
+      "converged": true,
+      "digest": "4c2c48c9fbf6f3e9614197ee0a1ea418d49a237872bd9956bcd9aa77dd2d5b8c",
+      "domain": [
+        0.0,
+        15.991800000000012
+      ],
+      "n": 5807,
+      "n_blocks": 4,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.9940640204154052,
+        "v": 0.01421246015913537
+      },
+      "rss": 0.01834587332288013,
+      "samples": 5807
+    },
+    "0AKE/up": {
+      "bytes_header": 108455,
+      "bytes_payload": 5824,
+      "converged": true,
+      "digest": "a65dff06fc1f1b85fe49ba8e9f7fe396e41deaeace32428ba0cd0cd8883fcce8",
+      "domain": [
+        0.0,
+        15.991800000000012
+      ],
+      "n": 5807,
+      "n_blocks": 4,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.07313509932575364,
+        "v": 0.005216297831871982
+      },
+      "rss": 0.3546555620641093,
+      "samples": 5807
+    },
+    "0ALE/east": {
+      "bytes_header": 71652,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "369168b98699d48db2927299c200c93c7876667b3c4710aefb0388ca66b91693",
+      "domain": [
+        0.0,
+        10.688599999999951
+      ],
+      "n": 3857,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.4960797059266371,
+        "v": 0.016941200070357987
+      },
+      "rss": 0.03140689835683058,
+      "samples": 3857
+    },
+    "0ALE/north": {
+      "bytes_header": 71648,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "bdff327264022ad55f8f22e3bce6a184e46c24cf40e07c97666390a11d29c8bc",
+      "domain": [
+        0.0,
+        10.688599999999951
+      ],
+      "n": 3857,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.0753795021747138,
+        "v": 0.014726810386447218
+      },
+      "rss": 0.014167305270495575,
+      "samples": 3857
+    },
+    "0ALE/up": {
+      "bytes_header": 71659,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "0dcc3212b991d4af712ab940fdf8b2fc2970bb9e8a05ef44e5d4109cc17e8c9c",
+      "domain": [
+        0.0,
+        10.688599999999951
+      ],
+      "n": 3857,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.39590881423435903,
+        "v": 0.009295282731428415
+      },
+      "rss": 0.27018162633296344,
+      "samples": 3857
+    },
+    "0ALF/east": {
+      "bytes_header": 141361,
+      "bytes_payload": 8736,
+      "converged": true,
+      "digest": "5e77fea1d75a6a1d2575e715515f8c31bc8382abefaa8c38f65d8f8c425f5eb6",
+      "domain": [
+        0.0,
+        20.75019999999995
+      ],
+      "n": 7541,
+      "n_blocks": 6,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.8381173845487426,
+        "v": 0.016668382473622036
+      },
+      "rss": 0.104835468997799,
+      "samples": 7541
+    },
+    "0ALF/north": {
+      "bytes_header": 141367,
+      "bytes_payload": 8736,
+      "converged": true,
+      "digest": "813be0f6632a1bd220bdb6045d2540d5a627f93707fe7ccb902585293345de8e",
+      "domain": [
+        0.0,
+        20.75019999999995
+      ],
+      "n": 7541,
+      "n_blocks": 6,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6782674960686208,
+        "v": 0.01484687035742255
+      },
+      "rss": 0.04570738667587217,
+      "samples": 7541
+    },
+    "0ALF/up": {
+      "bytes_header": 141330,
+      "bytes_payload": 8736,
+      "converged": true,
+      "digest": "c3cfaf2cd29e0c56f24b6bb2c8768b5651fcaec78c87d346f36dba0dc9aeb07e",
+      "domain": [
+        0.0,
+        20.75019999999995
+      ],
+      "n": 7541,
+      "n_blocks": 6,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6052127602223856,
+        "v": 0.008301966715382466
+      },
+      "rss": 0.5029196274205415,
+      "samples": 7541
+    },
+    "0ALI/east": {
+      "bytes_header": 105162,
+      "bytes_payload": 5824,
+      "converged": true,
+      "digest": "9c78aa97a87c0957258e2b95955fe9d1d1f9815943b36287e8e19493fdfc70c9",
+      "domain": [
+        0.0,
+        15.529099999999971
+      ],
+      "n": 5632,
+      "n_blocks": 4,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.9423162525595067,
+        "v": 0.017439377586338522
+      },
+      "rss": 0.04050889528151717,
+      "samples": 5632
+    },
+    "0ALI/north": {
+      "bytes_header": 105140,
+      "bytes_payload": 5824,
+      "converged": true,
+      "digest": "86195f3eadf3b14679b667155644a48cc25b513d2b56bf37147bcc18b78ce7ba",
+      "domain": [
+        0.0,
+        15.529099999999971
+      ],
+      "n": 5632,
+      "n_blocks": 4,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.4800974754901785,
+        "v": 0.014535752811314152
+      },
+      "rss": 0.010969819148751874,
+      "samples": 5632
+    },
+    "0ALI/up": {
+      "bytes_header": 105147,
+      "bytes_payload": 5824,
+      "converged": true,
+      "digest": "92496f319f952909c23ea22fae400f85cec0de6d10e480b9d11b86740d7524e6",
+      "domain": [
+        0.0,
+        15.529099999999971
+      ],
+      "n": 5632,
+      "n_blocks": 4,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6891020439488396,
+        "v": 0.00354111568954264
+      },
+      "rss": 0.28951723939819585,
+      "samples": 5632
+    },
+    "0ALM/east": {
+      "bytes_header": 165355,
+      "bytes_payload": 10192,
+      "converged": true,
+      "digest": "f5220b673b16d7cb018512802ae108e7f59af1bbe42d37533dc17da4bf85c630",
+      "domain": [
+        0.0,
+        24.339500000000044
+      ],
+      "n": 8827,
+      "n_blocks": 7,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.18845473171275873,
+        "v": 0.018430767433293697
+      },
+      "rss": 0.05336738738667018,
+      "samples": 8827
+    },
+    "0ALM/north": {
+      "bytes_header": 165375,
+      "bytes_payload": 10192,
+      "converged": true,
+      "digest": "39cf6e6a3a615af1eda3b0a32ef7d4f2f894382badb1266d1824f34903b640d2",
+      "domain": [
+        0.0,
+        24.339500000000044
+      ],
+      "n": 8827,
+      "n_blocks": 7,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6800297153401192,
+        "v": 0.013765605610575944
+      },
+      "rss": 0.0257600094055957,
+      "samples": 8827
+    },
+    "0ALM/up": {
+      "bytes_header": 165332,
+      "bytes_payload": 10192,
+      "converged": true,
+      "digest": "15d883ee208afedbb53ac2a375442b3e2ea0cff0e8b56dbcfa88279ee73cb7b7",
+      "domain": [
+        0.0,
+        24.339500000000044
+      ],
+      "n": 8827,
+      "n_blocks": 7,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.5941668822448894,
+        "v": 0.006407778569812501
+      },
+      "rss": 0.5389439836237561,
+      "samples": 8827
+    },
+    "0ALN/east": {
+      "bytes_header": 22899,
+      "bytes_payload": 1456,
+      "converged": true,
+      "digest": "13c03fb5d6782867feb0b1ad916c5b785b93d265257fdbbb15984ad5cf87aa42",
+      "domain": [
+        0.0,
+        3.38130000000001
+      ],
+      "n": 1197,
+      "n_blocks": 1,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.929095105310624,
+        "v": 0.016676458108707208
+      },
+      "rss": 0.0068547735946761215,
+      "samples": 1197
+    },
+    "0ALN/north": {
+      "bytes_header": 22891,
+      "bytes_payload": 1456,
+      "converged": true,
+      "digest": "3bcb794c0214b5ced921758afd3b3f7ae5dc20c4a29ead23b7d9031d16621fa6",
+      "domain": [
+        0.0,
+        3.38130000000001
+      ],
+      "n": 1197,
+      "n_blocks": 1,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.47312661735800715,
+        "v": 0.013297694947680641
+      },
+      "rss": 0.006905629511990287,
+      "samples": 1197
+    },
+    "0ALN/up": {
+      "bytes_header": 22896,
+      "bytes_payload": 1456,
+      "converged": true,
+      "digest": "3cee08bb4fbb19c939888f92a7b940a10459e896676d36b1a23f0fa3d16b5e7b",
+      "domain": [
+        0.0,
+        3.38130000000001
+      ],
+      "n": 1197,
+      "n_blocks": 1,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6477794266886878,
+        "v": 0.009646085314037798
+      },
+      "rss": 0.07785489078645269,
+      "samples": 1197
+    },
+    "0ALS/east": {
+      "bytes_header": 52809,
+      "bytes_payload": 2912,
+      "converged": true,
+      "digest": "b977f7aa1b97929701d060eff16941f6ff5e55ebe9ca5f61cb145ad0f927481b",
+      "domain": [
+        0.0,
+        7.841200000000072
+      ],
+      "n": 2833,
+      "n_blocks": 2,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.20473139886252756,
+        "v": 0.018713954581945767
+      },
+      "rss": 0.011781351668827189,
+      "samples": 2833
+    },
+    "0ALS/north": {
+      "bytes_header": 52816,
+      "bytes_payload": 2912,
+      "converged": true,
+      "digest": "c971aab0a1f34a0e53a996d6dafbe5d7691bb529d36b855a5fa35c6820cff7c3",
+      "domain": [
+        0.0,
+        7.841200000000072
+      ],
+      "n": 2833,
+      "n_blocks": 2,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.06743074835731235,
+        "v": 0.01429275195579629
+      },
+      "rss": 0.00509036716292343,
+      "samples": 2833
+    },
+    "0ALS/up": {
+      "bytes_header": 52810,
+      "bytes_payload": 2912,
+      "converged": true,
+      "digest": "17530f1a6d16857c7a977800d2283122146fe1f75ec30f323f11276cc2b8b47c",
+      "domain": [
+        0.0,
+        7.841200000000072
+      ],
+      "n": 2833,
+      "n_blocks": 2,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.19054121415156644,
+        "v": 0.0026581079958487262
+      },
+      "rss": 0.15646473652115503,
+      "samples": 2833
+    },
+    "0ALV/east": {
+      "bytes_header": 125526,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "fadebe019a813da10c1c23f919f9f41d36ea19bde80544dd97a32faaa1e82fb1",
+      "domain": [
+        0.0,
+        18.40379999999982
+      ],
+      "n": 6707,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.2467475607425226,
+        "v": 0.016170379226410733
+      },
+      "rss": 0.07923653893437921,
+      "samples": 6707
+    },
+    "0ALV/north": {
+      "bytes_header": 125533,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "bf064db07207a26934e7293ac4dffcee30588ee7476b955d2375c47bee3675ae",
+      "domain": [
+        0.0,
+        18.40379999999982
+      ],
+      "n": 6707,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.2301950029258399,
+        "v": 0.015154121501767176
+      },
+      "rss": 0.04283088618781837,
+      "samples": 6707
+    },
+    "0ALV/up": {
+      "bytes_header": 125525,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "6516a47fb8579e419c0f2a1b5fd5644e29fde4d873029455ff1130939984bd6c",
+      "domain": [
+        0.0,
+        18.40379999999982
+      ],
+      "n": 6707,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.9247301255341938,
+        "v": 0.007348461622718074
+      },
+      "rss": 0.5148219943045864,
+      "samples": 6707
+    },
+    "0AMB/east": {
+      "bytes_header": 75966,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "268acac9c51f088e2059fa2a902f8cc6a4824eae4a50e9d863373c8bd8a4a904",
+      "domain": [
+        0.0,
+        11.28819999999996
+      ],
+      "n": 4090,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.09907054725259755,
+        "v": 0.016802317933259266
+      },
+      "rss": 0.031192902818725193,
+      "samples": 4090
+    },
+    "0AMB/north": {
+      "bytes_header": 75968,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "fc0587213c64567a270ca4df0289fa92278ea8d7f4c8ba7a30e4c97cd5d5e94f",
+      "domain": [
+        0.0,
+        11.28819999999996
+      ],
+      "n": 4090,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.697829493728798,
+        "v": 0.014926611135684477
+      },
+      "rss": 0.04749291487033813,
+      "samples": 4090
+    },
+    "0AMB/up": {
+      "bytes_header": 75963,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "489306f5a14224f16c13b8cb32999583c417e9886280648353e51b44eef5c7b9",
+      "domain": [
+        0.0,
+        11.28819999999996
+      ],
+      "n": 4090,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.04402835124716098,
+        "v": 0.007331902547584348
+      },
+      "rss": 0.25399839110505584,
+      "samples": 4090
+    },
+    "0AME/east": {
+      "bytes_header": 115817,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "79cd18b4f44a9c15b71b8993a5595a8708a0125facd67fb19311a269937eb58e",
+      "domain": [
+        0.0,
+        17.100599999999986
+      ],
+      "n": 6179,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6570315676130704,
+        "v": 0.018066452834878732
+      },
+      "rss": 0.032527283707663564,
+      "samples": 6179
+    },
+    "0AME/north": {
+      "bytes_header": 115814,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "bd84a18c2247e39d773f97ed1271c80bc736c6333a6dec52556b37a10662c81a",
+      "domain": [
+        0.0,
+        17.100599999999986
+      ],
+      "n": 6179,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.08344174525251023,
+        "v": 0.014387879755276865
+      },
+      "rss": 0.011742312520171648,
+      "samples": 6179
+    },
+    "0AME/up": {
+      "bytes_header": 115807,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "d6996c1951b4f7ccd3345928e63af2eb99a3e381c2cc0c422d5f2d86b514b124",
+      "domain": [
+        0.0,
+        17.100599999999986
+      ],
+      "n": 6179,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.36342886435130217,
+        "v": 0.005247952739129431
+      },
+      "rss": 0.3719116830793977,
+      "samples": 6179
+    },
+    "0AMM/east": {
+      "bytes_header": 125073,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "8a08c6ac7338a4a0f06f0c794cb79daa1697f41e9af30776e33778d3f8fd90ab",
+      "domain": [
+        0.0,
+        18.557199999999966
+      ],
+      "n": 6683,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.954505481333293,
+        "v": 0.015191532466591886
+      },
+      "rss": 0.056889464713415466,
+      "samples": 6683
+    },
+    "0AMM/north": {
+      "bytes_header": 125101,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "8ad74aaf1f7b5fd5f1307840aac75cbfd6cf9c11601a08157fc2f707e785afd2",
+      "domain": [
+        0.0,
+        18.557199999999966
+      ],
+      "n": 6683,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6970848483441682,
+        "v": 0.015039189591486143
+      },
+      "rss": 0.034245502346333,
+      "samples": 6683
+    },
+    "0AMM/up": {
+      "bytes_header": 125061,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "2c593ef97d9a0485161030ba7220d5aa6bdd7a2291c3147200579c9ac5ac950e",
+      "domain": [
+        0.0,
+        18.557199999999966
+      ],
+      "n": 6683,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.20919660928234723,
+        "v": 0.0075197912693080755
+      },
+      "rss": 0.4852142392258535,
+      "samples": 6683
+    },
+    "0AMS/east": {
+      "bytes_header": 68919,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "d4bffe96fb103fa261601c47a4dec387bd3939252429f0ecbb9eb52bace24c53",
+      "domain": [
+        0.0,
+        10.2971
+      ],
+      "n": 3714,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.0420859055916655,
+        "v": 0.01694347790030641
+      },
+      "rss": 0.030600014601085284,
+      "samples": 3714
+    },
+    "0AMS/north": {
+      "bytes_header": 68933,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "2990ca51e69f24a09332e988dc04a3b6ff51c3817005afe3c9d24a54d09fb819",
+      "domain": [
+        0.0,
+        10.2971
+      ],
+      "n": 3714,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.9354604076286361,
+        "v": 0.014225556610462226
+      },
+      "rss": 0.007973621712928633,
+      "samples": 3714
+    },
+    "0AMS/up": {
+      "bytes_header": 68918,
+      "bytes_payload": 4368,
+      "converged": true,
+      "digest": "2271775cddd139be9bfa96b06a26660c0e6923fcdb1143899fa0a3d81fba1321",
+      "domain": [
+        0.0,
+        10.2971
+      ],
+      "n": 3714,
+      "n_blocks": 3,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.8084306956110302,
+        "v": 0.010211055718957395
+      },
+      "rss": 0.24179891690093797,
+      "samples": 3714
+    },
+    "0ANA/east": {
+      "bytes_header": 128192,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "aea059400a749d0452542b7f8fa33bbb7853709c980c3db2bced85aab922de6f",
+      "domain": [
+        0.0,
+        18.959600000000137
+      ],
+      "n": 6849,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.3556576773198233,
+        "v": 0.01597446402795232
+      },
+      "rss": 0.042145231838777095,
+      "samples": 6849
+    },
+    "0ANA/north": {
+      "bytes_header": 128200,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "429fa8d8575f6b11cc26ba2747b935965511b90993201e24b9ba917c4e48b01c",
+      "domain": [
+        0.0,
+        18.959600000000137
+      ],
+      "n": 6849,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.5025239288281068,
+        "v": 0.015475369053543627
+      },
+      "rss": 0.023079527015764816,
+      "samples": 6849
+    },
+    "0ANA/up": {
+      "bytes_header": 128181,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "34b0977bcba305e236c6dc424e4b30d70e61bafbb814af909ecafc997e33c3f4",
+      "domain": [
+        0.0,
+        18.959600000000137
+      ],
+      "n": 6849,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.6374227182234885,
+        "v": 0.008099567008966796
+      },
+      "rss": 0.48426667593752465,
+      "samples": 6849
+    },
+    "0ANG/east": {
+      "bytes_header": 123725,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "ddf1bacf4faadd89973667d87d52e4d584258df56b316ee31e73a0b75bc3fe8c",
+      "domain": [
+        0.0,
+        18.20939999999996
+      ],
+      "n": 6616,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": -0.9001268342918697,
+        "v": 0.01641771215308577
+      },
+      "rss": 0.03248681660277906,
+      "samples": 6616
+    },
+    "0ANG/north": {
+      "bytes_header": 123729,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "c7773b0a1717cce63c6028c37e0d9f9da2ab82dcf653c8ee5d7b9c628352ae15",
+      "domain": [
+        0.0,
+        18.20939999999996
+      ],
+      "n": 6616,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.8871414035664867,
+        "v": 0.014663375208289128
+      },
+      "rss": 0.026868913303075337,
+      "samples": 6616
+    },
+    "0ANG/up": {
+      "bytes_header": 123715,
+      "bytes_payload": 7280,
+      "converged": true,
+      "digest": "a014c3fde247078988cd25d09b9495298dabda1d16a7cb24b6b2c33e73c546fc",
+      "domain": [
+        0.0,
+        18.20939999999996
+      ],
+      "n": 6616,
+      "n_blocks": 5,
+      "n_flags": 0,
+      "order": 12,
+      "params": {
+        "c": 0.7876236163417207,
+        "v": 0.00909658065984501
+      },
+      "rss": 0.4796207630411754,
+      "samples": 6616
+    }
+  },
+  "images_per_second": 22.594,
+  "n_images": 228,
+  "n_other": 0,
+  "seconds": 10.091
+}
