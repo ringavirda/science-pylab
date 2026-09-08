@@ -702,6 +702,8 @@ def track(
     field: str = "",
     port_file: Any = None,
     timeout: float = 60.0,
+    reset: Callable[[str, np.ndarray, np.ndarray], tuple[Any, Any]]
+    | None = None,
 ) -> dict[str, Any]:
     """Accept one connection and feed every ``samples`` frame into a
     filter, sending block images back over the same socket.
@@ -713,6 +715,17 @@ def track(
     mode; each block it finishes is sent back as an ``image`` frame when
     ``back``, including the blocks its ``close()`` yields after the peer
     has shut down its write side.
+
+    A single connection can carry several stations' samples, each frame
+    naming its own station in the header. ``reset``, when given, is
+    called with ``(station, t, y)`` of the first frame of a new station
+    (``station`` compared against the previous frame's, so the very
+    first frame always triggers it) and returns the ``(filt,
+    block_stream)`` pair to track that station with; the outgoing
+    ``filt``/``block_stream`` arguments are then only the placeholders
+    used before the first frame arrives. Any blocks pending in the old
+    ``block_stream`` are closed and shipped before the switch, so one
+    station's partial block never merges into the next's.
 
     ``n_dropped`` counts a gap between ``seq`` values this end actually
     received, an interior-drop check against the sender's own count. A
@@ -740,6 +753,7 @@ def track(
     update_seconds = 0.0
     flags: list[float] = []
     expected = 0
+    current_station: str | None = None
     started = time.perf_counter()
 
     def ship(images: list[Any]) -> int:
@@ -775,6 +789,16 @@ def track(
                 t, y = samples_from_frame(header, payload)
                 n_frames += 1
                 n_samples += int(t.size)
+                incoming_station = str(header.get("station", ""))
+                if reset is not None and incoming_station != current_station:
+                    if block_stream is not None:
+                        last = block_stream.close()
+                        if last:
+                            n_blocks += len(last)
+                            if back:
+                                bytes_back += ship(last)
+                    filt, block_stream = reset(incoming_station, t, y)
+                    current_station = incoming_station
                 at = time.perf_counter()
                 for k in range(t.size):
                     filt.partial_fit(float(t[k]), float(y[k]))

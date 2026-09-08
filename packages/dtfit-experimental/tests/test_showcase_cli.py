@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from dtfit_experimental.experiments.domains.image_showcase import (
-    cli, ngl_reduce, paths, stream,
+    cli, filters, ngl, ngl_reduce, paths, stream,
 )
 
 HEADER = (
@@ -106,9 +106,15 @@ def test_cli_rank_can_leave_the_station_files_untouched(tmp_path,
     monkeypatch.setenv("SHOWCASE_DATA", str(root))
     monkeypatch.setattr(paths, "results_dir", lambda: tmp_path / "results")
     assert cli.main(["ngl-reduce", "--images", str(images)]) == 0
-    assert cli.main([
-        "ngl-rank", "--images", str(images), "--no-raw",
-    ]) == 0
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("--no-raw must not open a station file")
+
+    with monkeypatch.context() as m:
+        m.setattr(ngl, "read_tenv3", boom)
+        assert cli.main([
+            "ngl-rank", "--images", str(images), "--no-raw",
+        ]) == 0
     rows = read_csv(tmp_path / "results" / "ngl_rank.csv")
     assert rows and all(r["bic_raw"] == "" for r in rows)
     assert all(r["rank_image"] != "" for r in rows)
@@ -163,7 +169,7 @@ def test_cli_throughput_writes_a_row(tmp_path, monkeypatch):
     assert cpu["peak_mib"] and cpu["gram_bytes"]
 
 
-def test_cli_stream_serve_and_replay_move_a_station_over_localhost(
+def test_cli_stream_serve_moves_a_station_over_localhost(
     tmp_path, monkeypatch
 ):
     root = make_dataset(tmp_path / "data", n_stations=1)
@@ -201,3 +207,61 @@ def test_cli_stream_serve_and_replay_move_a_station_over_localhost(
     rows = read_csv(tmp_path / "results" / "leg5_serve.csv")
     assert rows and all(r["p_v"] for r in rows)
     assert all(r["digest"] for r in rows)
+
+
+def test_cli_stream_track_resets_per_station_to_match_the_local_filter(
+    tmp_path, monkeypatch
+):
+    """Two stations replayed over one connection must raise the same
+    flags a fresh local filter per station does, which only holds if
+    the tracker rebases each station's own clock and starts a fresh
+    filter and block stream for it (rulings behind the leg-5 gate)."""
+    root = make_dataset(tmp_path / "data", n_stations=2)
+    monkeypatch.setenv("SHOWCASE_DATA", str(root))
+    monkeypatch.setattr(paths, "results_dir", lambda: tmp_path / "results")
+
+    config = {"detection": filters.NGL_CONFIGS["detection"]}
+    local_flags = 0
+    for name in ("ST00", "ST01"):
+        summary, _steps = filters.ngl_filter_station(
+            root / "ngl" / "tenv3" / f"{name}.tenv3", [], configs=config,
+        )
+        local_flags += sum(
+            r["n_flags"] for r in summary if r["component"] == "east"
+        )
+
+    port_file = tmp_path / "track_port"
+    result = {}
+
+    def track():
+        result["code"] = cli.main([
+            "stream-track", "--host", "127.0.0.1", "--port", "0",
+            "--port-file", str(port_file), "--config", "detection",
+            "--field", "east", "--order", "12", "--block", "1.0",
+            "--span", "40.0", "--station", "replay", "--timeout", "20",
+            "--suffix", "_test",
+        ])
+
+    thread = threading.Thread(target=track)
+    thread.start()
+    try:
+        deadline = time.time() + 20.0
+        while not port_file.exists() and time.time() < deadline:
+            time.sleep(0.02)
+        assert port_file.exists()
+        port = int(port_file.read_text().strip())
+        assert cli.main([
+            "stream-replay", "--host", "127.0.0.1", "--port", str(port),
+            "--field", "east", "--stations", "ST00,ST01",
+            "--chunk", "100", "--timeout", "20", "--suffix", "_test",
+        ]) == 0
+    finally:
+        thread.join(timeout=30.0)
+    assert result["code"] == 0
+    rows = read_csv(tmp_path / "results" / "leg5_track_test.csv")
+    row = rows[0]
+    over_wire = [x for x in row["flag_times"].split() if x]
+    assert len(over_wire) == local_flags
+    # one time-reset-per-chunk bug pins every sample in block 0; two
+    # full stations of yearly data must clear several blocks each.
+    assert int(row["n_blocks"]) > 2

@@ -540,8 +540,11 @@ def cmd_stream_replay(args: argparse.Namespace) -> int:
 
     def chunks():
         for path in files:
+            first_t = None
             for c in ngl.read_tenv3(path, args.chunk):
-                yield path.stem, args.field, c.t - c.t[0], getattr(
+                if first_t is None:
+                    first_t = c.t[0]
+                yield path.stem, args.field, c.t - first_t, getattr(
                     c, args.field
                 )
 
@@ -562,27 +565,41 @@ def cmd_stream_replay(args: argparse.Namespace) -> int:
 def cmd_stream_track(args: argparse.Namespace) -> int:
     """The leg-5 tracker: run an ``LSIFilter`` over the replayed samples
     and send block images back. The filter is built here, so
-    ``stream.py`` needs no import from ``filters.py``."""
+    ``stream.py`` needs no import from ``filters.py``.
+
+    One connection carries every replayed station in turn; a fresh
+    filter and block stream are built for each one (matching
+    ``filters.run_filter``'s ``p0`` and ``q_diag``) so that a station's
+    state never leaks into the next.
+    """
     config = filters.NGL_CONFIGS.get(args.config) or (
         filters.ISD_CONFIG if args.config == "isd-diurnal" else None
     )
     if config is None:
         raise SystemExit(f"unknown filter config {args.config!r}")
-    filt = LSIFilter(
-        config.expr, "t", order=config.order,
-        window_size=config.window, adaptive_window=config.adaptive,
-        p0=[0.0] * len(config.names),
-    )
-    blocks = ImageStream(
-        "legendre", args.order, domain=(0.0, args.span),
-        block=args.block, detect="previous", grid="explicit",
-        keep_fine=int(args.span / args.block) + 2,
-        fold=int(args.span / args.block) + 2,
-    )
+
+    def reset(_station: str, _t: np.ndarray, y: np.ndarray) -> Any:
+        p0 = [float(y[0]) if n == "c" else 0.0 for n in config.names]
+        kwargs: dict[str, Any] = {
+            "order": config.order, "window_size": config.window,
+            "adaptive_window": config.adaptive, "p0": p0,
+        }
+        if config.q_diag is not None:
+            kwargs["q_diag"] = list(config.q_diag)
+        filt = LSIFilter(config.expr, "t", **kwargs)
+        blocks = ImageStream(
+            "legendre", args.order, domain=(0.0, args.span),
+            block=args.block, detect="previous", grid="explicit",
+            keep_fine=int(args.span / args.block) + 2,
+            fold=int(args.span / args.block) + 2,
+        )
+        return filt, blocks
+
     out = stream.track(
-        args.host, args.port, filt, block_stream=blocks,
+        args.host, args.port, None, block_stream=None,
         station=args.station, field=args.field,
         port_file=args.port_file, timeout=args.timeout,
+        reset=reset,
     )
     if args.out:
         Path(args.out).write_text(
