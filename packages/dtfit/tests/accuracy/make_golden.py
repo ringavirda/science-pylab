@@ -1,7 +1,8 @@
 """Regenerate the golden accuracy baseline.
 
 Snapshots the recovery metrics of ``Model.fit`` for every scenario x noise
-level into ``golden_baseline.json``. Run it only after an accuracy change you
+level into ``golden_baseline.json``, each medianed over the five noise draws
+of :data:`accuracy.harness.SEEDS`. Run it only after an accuracy change you
 meant to make, then read the diff::
 
     python -m accuracy.make_golden        # from packages/dtfit/tests
@@ -25,7 +26,7 @@ def build() -> dict:
     data: dict[str, dict] = {}
     for scn in SCENARIOS:
         for noise in NOISE_LEVELS:
-            data[f"{scn.name}@{noise:g}"] = metrics_for(scn, noise, seed=0)
+            data[f"{scn.name}@{noise:g}"] = metrics_for(scn, noise)
     return data
 
 

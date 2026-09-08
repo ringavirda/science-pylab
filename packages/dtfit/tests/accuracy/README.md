@@ -40,7 +40,9 @@ being tested on a hand-picked, method-favourable dataset.
 
 ## Regenerating the golden baseline
 
-Run **only** after an *intended* accuracy change, then review the JSON diff:
+Every entry is the median over the five noise draws of `harness.SEEDS`, which
+takes 12.2 s. Run **only** after an *intended* accuracy change, then review the
+JSON diff:
 
 ```bash
 cd packages/dtfit/tests

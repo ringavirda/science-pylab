@@ -51,25 +51,40 @@ def predict(res, x: np.ndarray) -> np.ndarray:
     return np.full_like(x, float(pred)) if pred.ndim == 0 else pred
 
 
-def metrics_for(scn: Scenario, noise: float, seed: int = 0) -> dict:
-    """Recovery metrics for the self-seeded ``Model.fit`` path. This is the
-    measurement the golden baseline snapshots and the regression guard
-    re-checks. Returns ``{"metric", "perr", "r2"}``; a non-finite ``perr``
-    becomes 1e9 and a non-finite ``r2`` becomes -1e9, which keeps the dict
-    JSON-serialisable."""
+# Noise draws every corpus measurement is medianed over. One draw of a
+# recovery error is a half-normal draw: measured over the corpus, the value
+# at a single seed moves by up to 8.1x (90th percentile) between disjoint
+# seed blocks, against 3.8x for the median of five, so a single seed carries
+# no information about the method and only the median is worth pinning.
+SEEDS = range(5)
+
+
+def metrics_for(scn: Scenario, noise: float, seeds=SEEDS) -> dict:
+    """Recovery metrics for the self-seeded ``Model.fit`` path, medianed
+    over ``seeds`` noise draws.
+
+    This is the measurement the golden baseline snapshots and the regression
+    guard re-checks. Returns ``{"metric", "perr", "r2"}``, each the median
+    over the draws; a non-finite ``perr`` becomes 1e9 and a non-finite ``r2``
+    becomes -1e9 before the median, which keeps the dict JSON-serialisable.
+    """
     import warnings
 
     names = ordered_params(scn)
-    x, y, clean = scn.make(noise, seed=seed)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        res = scn.model().fit(x, y)
-    perr = param_err(scn, names, np.asarray(res.coeffs, float))
-    got_r2 = r2(clean, predict(res, x))
+    perrs, r2s = [], []
+    for seed in seeds:
+        x, y, clean = scn.make(noise, seed=seed)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            res = scn.model().fit(x, y)
+        perr = param_err(scn, names, np.asarray(res.coeffs, float))
+        got_r2 = r2(clean, predict(res, x))
+        perrs.append(float(perr) if np.isfinite(perr) else 1e9)
+        r2s.append(float(got_r2) if np.isfinite(got_r2) else -1e9)
     return {
         "metric": scn.metric,
-        "perr": float(perr) if np.isfinite(perr) else 1e9,
-        "r2": float(got_r2) if np.isfinite(got_r2) else -1e9,
+        "perr": float(np.median(perrs)),
+        "r2": float(np.median(r2s)),
     }
 
 

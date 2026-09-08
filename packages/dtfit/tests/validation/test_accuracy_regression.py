@@ -4,6 +4,10 @@ Pins the recovery accuracy of every scenario to a checked-in snapshot,
 ``accuracy/golden_baseline.json``. A change that quietly degrades any catalogue
 family fails here. An intended improvement is adopted by regenerating the
 snapshot with ``python -m accuracy.make_golden`` and reviewing the diff.
+
+Every entry is the median over the five noise draws of
+``accuracy.harness.SEEDS``, so a routing change moves the number in
+proportion to what it did rather than flipping on one lucky draw.
 """
 
 from __future__ import annotations
@@ -44,7 +48,7 @@ def test_golden_covers_every_case():
 def test_no_accuracy_regression(scn, noise):
     key = f"{scn.name}@{noise:g}"
     base = _GOLDEN[key]
-    now = metrics_for(scn, noise, seed=0)
+    now = metrics_for(scn, noise)
     if base["metric"] == "params":
         limit = max(base["perr"] * _PERR_REL, base["perr"] + _PERR_ABS)
         assert now["perr"] <= limit, (
