@@ -1152,3 +1152,23 @@ def test_stream_hook_accumulates_every_sample():
         flt.partial_fit(10.0, float("nan"))
     # a skipped sample never reaches the stream
     same(attached.image(), direct.image())
+
+
+def test_partial_fit_damps_a_nonfinite_trial_eval(monkeypatch):
+    # A finite trial step can still evaluate to a non-finite model (an
+    # exponent that overflows). The damped update must reject it and
+    # continue, not feed inf into the triangular solve and raise.
+    flt = LSIFilter("A*sin(w*t)", "t", p0=[1.0, 1.0], window_size=10)
+    for k in range(12):
+        flt.partial_fit(k * 0.2, float(np.sin(k * 0.2)))
+    base = flt.p.copy()
+    real_eval = flt.model.eval
+
+    def overflow_on_trial(t, reg, p):
+        out = np.asarray(real_eval(t, reg, p), dtype=float).copy()
+        if not np.array_equal(np.asarray(p, dtype=float), base):
+            out[0] = np.inf   # only the trial steps, never the base fit
+        return out
+
+    monkeypatch.setattr(flt.model, "eval", overflow_on_trial)
+    assert flt.partial_fit(2.5, 0.5) is flt   # must not raise

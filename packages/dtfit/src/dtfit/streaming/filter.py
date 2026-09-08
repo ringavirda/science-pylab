@@ -456,11 +456,16 @@ class ImageFilter:
         for _ in range(9):
             if np.all(np.isfinite(p_new)):
                 f_new = self.model.eval(t_arr, reg_cols, p_new)
-                e_new = solve_triangular(L, S - Phi.T @ f_new, lower=True)
-                if (np.all(np.isfinite(e_new))
-                        and float(e_new @ e_new) <= misfit):
-                    accepted = True
-                    break
+                # A finite step can still evaluate to a non-finite model
+                # (an exponent that overflows), which would make the solve
+                # below raise; treat it as a rejected step and damp on.
+                if np.all(np.isfinite(f_new)):
+                    e_new = solve_triangular(
+                        L, S - Phi.T @ f_new, lower=True)
+                    if (np.all(np.isfinite(e_new))
+                            and float(e_new @ e_new) <= misfit):
+                        accepted = True
+                        break
             alpha *= 0.5
             p_new = self.p + alpha * step
         if not accepted:
