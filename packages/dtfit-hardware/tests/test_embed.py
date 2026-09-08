@@ -101,3 +101,33 @@ def test_shared_headers_are_in_sync_across_sketch_dirs() -> None:
         assert len(set(texts.values())) == 1, (
             f"{fname} differs across sketch dirs: {sorted(texts)}"
         )
+
+
+def test_no_block_image_firmware_is_shipped() -> None:
+    # Ruling: the embedded tier ships the window (LSI) image only; the block
+    # (EAC) image stays host-side (EACFilter / ImageStream over logged
+    # fixes). This guards the scope from silently half-drifting into a
+    # block firmware path with no board to validate it.
+    fw = embed_lsi.FIRMWARE
+    for pat in ("*block*", "*eac*", "block_tables.h", "dtfit_block.h"):
+        assert not list(fw.rglob(pat)), f"unexpected block firmware: {pat}"
+
+
+def test_embed_names_no_retired_symbol() -> None:
+    # The hardware tier rides the current image core; none of the
+    # removed-surface names may reappear in the host glue.
+    import dtfit_hardware.compare_real as CR
+    import dtfit_hardware.backend as BK
+    from pathlib import Path
+
+    retired = (
+        "PartitionedLSI", "PartitionedEAC", "project_spectra",
+        "fit_lsi_batched", "ensemble_fit", "auto_estimate", "FilterBank",
+        "FusedChiSquareDetector", "fit_eac_adaptive", "window_mode",
+        "active_ratio", "f_scale", "adapt_r", "adapt_noise",
+        "param_cov_", "stderr_",
+    )
+    for mod in (CR, BK, embed_lsi):
+        text = Path(mod.__file__).read_text(encoding="utf-8")
+        hits = [s for s in retired if s in text]
+        assert not hits, f"{mod.__name__} names retired symbols: {hits}"

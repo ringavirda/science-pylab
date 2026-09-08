@@ -28,6 +28,12 @@ float32 even at large absolute ``t``: the float64 golden degrades right
 alongside the float32 firmware there (measured ``cond(H) ~ 3e6`` at
 ``t0 = 3600 s``, window span 14 s), so the loss is representable range, not
 precision.
+
+The embedded tier carries the window (LSI) image only: the on-MCU filter is
+the recursive Legendre-window tracker. The block (EAC) image is a batch
+accumulator whose assembly is host-side (``EACFilter`` and ``ImageStream``
+block mode over the logged fixes), so it is not ported to firmware; spec 6's
+per-block on-MCU emit is a future telemetry option, not built here.
 """
 
 from __future__ import annotations

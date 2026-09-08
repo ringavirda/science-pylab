@@ -12,7 +12,8 @@ Nano 33 BLE Sense (onboard IMU and BLE) reading a NEO-M8N GPS.
 * ``firmware/`` holds the Arduino sketches. ``nano_lsi_log`` is the one the
   rig actually runs.
 * ``tools/`` holds the host tools; ``embed_lsi.py`` bakes the LSI tables
-  into C.
+  into C. The firmware carries the window (LSI) image only; the block (EAC)
+  image is assembled host-side.
 * ``mobile/`` is a React Native app reading the ``dtfit-gps`` BLE telemetry
   live (built with yarn; see ``mobile/dtfit-monitor/README.md``).
 
