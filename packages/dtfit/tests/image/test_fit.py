@@ -402,3 +402,56 @@ def test_frequency_seed_on_a_non_uniform_grid():
         + 0.05 * np.random.default_rng(3).standard_normal(x.size)
     )
     assert abs(fft_frequency_seed(x, y) - 1.5) < 0.3
+
+
+def test_frequency_seed_sees_a_cycle_under_a_trend():
+    """The straight line is removed before the FFT; without that its leakage
+    owns the lowest non-zero bin and the peak lands there."""
+    x = np.linspace(0.0, 20.0, 400)
+    y = 1.0 + 0.5 * x + 2.0 * np.sin(1.3 * x + 0.4)
+    assert fft_frequency_seed(x, y) == pytest.approx(1.3, abs=0.06)
+    assert fft_frequency_seed(x, y - np.polyval(np.polyfit(x, y, 1), x)) == (
+        pytest.approx(fft_frequency_seed(x, y))
+    )
+
+
+def test_auto_recovers_a_cycle_riding_on_a_trend():
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 20.0, 400)
+    y = (1.0 + 0.5 * x + 2.0 * np.sin(1.3 * x + 0.4)
+         + rng.normal(0.0, 0.1, x.size))
+    r = fit(
+        "a0 + a1*x + A*sin(w*x + p)", Original(x, y), "x", basis="auto",
+        p0={"a0": 1.0, "a1": 0.5, "A": 2.0, "w": 1.0, "p": 0.0},
+        freq_param="w",
+    )
+    assert r.params["w"] == pytest.approx(1.3, abs=0.01)
+    assert r.params["A"] == pytest.approx(2.0, abs=0.05)
+
+
+def test_auto_with_a_frequency_parameter_runs_two_candidates(monkeypatch):
+    """``freq_param`` turns the oscillatory recipe on inside every candidate,
+    so a plain Legendre candidate would repeat the oscillatory one."""
+    import sys
+
+    # dtfit.image re-exports the fit function, which shadows the module of
+    # the same name, so the module is reached through sys.modules.
+    module = sys.modules["dtfit.image.fit"]
+    real = module.fit
+    calls = []
+
+    def counting(*args, **kwargs):
+        calls.append(kwargs.get("basis"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, "fit", counting)
+    x = np.linspace(0, 12, 400)
+    y = (1.0 + 2.0 * np.sin(1.5 * x + 0.5)
+         + 0.05 * np.random.default_rng(3).standard_normal(400))
+    o = Original(x, y)
+    p0 = {"c": 0.0, "A": 1.0, "w": 0.3, "p": 0.0}
+    real("c + A*sin(w*x + p)", o, "x", basis="auto", p0=p0, freq_param="w")
+    assert calls == ["legendre", "block"]
+    calls.clear()
+    real("c + A*sin(w*x + p)", o, "x", basis="auto", p0=p0)
+    assert calls == ["legendre", "legendre", "block"]

@@ -144,22 +144,28 @@ def fft_frequency_seed(x: np.ndarray, y: np.ndarray) -> float:
     """Dominant angular frequency of ``y`` on the grid ``x``.
 
     The samples are interpolated onto a uniform grid first (an identity
-    when ``x`` already is one); ``2 pi f`` is then the peak of the
-    mean-removed real FFT of the resampled signal, with the DC bin
-    ignored.
+    when ``x`` already is one) and the least-squares straight line is
+    removed; ``2 pi f`` is then the peak of the real FFT of the residual,
+    with the DC bin ignored. Removing the line is what lets a cycle
+    riding on a trend be seen: the trend's own leakage otherwise owns the
+    lowest non-zero bin and the peak lands there (measured on a
+    trend-plus-cycle series of four cycles, 0.313 against the true
+    1.257 rad per unit).
 
     Args:
-        x: Sample positions, non-decreasing.
+        x: Sample positions, non-decreasing, at least two of them.
         y: Sample values, same length as ``x``.
 
     Returns:
         The angular frequency (radians per unit ``x``) of the strongest
-        spectral peak.
+        spectral peak. Resolution-limited from below: a series spanning
+        fewer than two cycles reads as the first non-zero bin,
+        ``2 pi / (x[-1] - x[0])``.
     """
     x = np.asarray(x, dtype=float)
     xu = np.linspace(x[0], x[-1], x.size)
     yy = np.interp(xu, x, np.asarray(y, dtype=float))
-    yy = yy - float(np.mean(yy))
+    yy = yy - np.polyval(np.polyfit(xu, yy, 1), xu)
     spec = np.abs(np.fft.rfft(yy))
     if spec.size:
         spec[0] = 0.0
@@ -378,10 +384,12 @@ def fit(
             :func:`order_for`; implied by ``freq_param`` and by
             ``basis="auto"`` routing to a cyclic signal.
         freq_param: The name of the frequency parameter to seed from the
-            FFT peak of the data (:func:`fft_frequency_seed`) before the
-            solve; also sets ``oscillatory=True``. Overwrites ``p0`` for
-            that parameter. With an Image the peak is read from
-            :meth:`~dtfit.image.Image.reconstruct` on its own grid.
+            FFT peak of the detrended data (:func:`fft_frequency_seed`)
+            before the solve; also sets ``oscillatory=True``. Overwrites
+            ``p0`` for that parameter. With an Image the peak is read from
+            :meth:`~dtfit.image.Image.reconstruct` on its own grid. Under
+            ``basis="auto"`` it also drops the plain Legendre candidate,
+            which the flag would turn back into the oscillatory one.
         param_names: Parameter names for a callable model, in signature
             order after ``x``; introspected from the signature when
             omitted. Optional and cross-checked for a symbolic model.
@@ -497,7 +505,10 @@ def fit(
             cands: list[tuple[str, bool]] = []
             if oscillatory or strength > 0.3:
                 cands.append(("legendre", True))
-            cands.append(("legendre", False))
+            if freq_param is None:
+                # With freq_param the recursive call turns oscillatory on
+                # again, so this candidate would repeat the one above.
+                cands.append(("legendre", False))
             cands.append(("block", False))
             best: FittingResult | None = None
             best_rss = float("inf")
