@@ -16,9 +16,11 @@ EXACTNESS_TOL = 1e-8
 # dtfit.image.coverage above this says the image's order cannot represent
 # the model's sensitivities; the row is reported UNDERSAMPLED, not failed.
 COVERAGE_TOL = 0.02
-# A fit from an image is determined only to about eps * cond(G)
-# relative; where that exceeds the tolerance the row is reported
-# ILL-CONDITIONED, not failed.
+# A fit from an image agrees with the raw solve only to about
+# cond(design)^2 * (coverage + eps * cond(G)) relative: the least-squares
+# perturbation bound, with the model's truncation in the basis and the
+# Gram's rounding as the perturbation. A miss within that bound is
+# reported ILL-CONDITIONED, not failed.
 EPS = float(np.finfo(float).eps)
 # Denominator floor, as a fraction of the largest reference magnitude:
 # a parameter below one percent of the largest is scored against that
@@ -152,11 +154,31 @@ def gram_condition(image: Image) -> float:
     return float(s[0] / s[-1])
 
 
-def attainable(image: Image) -> float:
-    """The relative precision a fit from ``image`` can reach,
-    ``EPS * gram_condition(image)``: the gate a station can meet however
-    exact its image is."""
-    return EPS * gram_condition(image)
+def attainable(
+    image: Image, *, design_cond: float = 1.0, coverage: float = 0.0
+) -> float:
+    """The relative agreement a fit from ``image`` can reach with the raw
+    solve, ``design_cond**2 * (coverage + EPS * gram_condition(image))``;
+    the gate a station can meet however exact its image is.
+    ``design_cond`` is the condition number of the model's design matrix
+    on the samples (1 or more), ``coverage`` the
+    :func:`dtfit.image.coverage` of the fitted model on the image
+    (0 to 1)."""
+    return float(design_cond) ** 2 * (
+        float(coverage) + EPS * gram_condition(image)
+    )
+
+
+def design_condition(design: np.ndarray) -> float:
+    """The condition number of a design matrix ``(n, p)``; ``inf`` when
+    it is rank deficient or empty."""
+    d = np.asarray(design, dtype=float)
+    if d.size == 0:
+        return float("inf")
+    s = np.linalg.svd(d, compute_uv=False)
+    if s.size == 0 or s[-1] <= 0.0:
+        return float("inf")
+    return float(s[0] / s[-1])
 
 
 def verdict(

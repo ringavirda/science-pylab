@@ -3,6 +3,8 @@ and the BIC ranking, all on a synthetic station."""
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -162,6 +164,60 @@ def test_attainable_precision_follows_the_grid_not_the_sample_count():
     assert compare.attainable(filled) < compare.EXACTNESS_TOL
     assert compare.gram_condition(empty) > 1e10
     assert compare.attainable(empty) > compare.EXACTNESS_TOL
+
+
+def test_attainable_grows_with_the_design_the_coverage_and_the_gram():
+    from dtfit.image import Image, Original
+
+    x = np.linspace(0.0, 1.0, 500)
+    img = Image.of(Original(x, np.sin(x), domain=(0.0, 1.0)), "legendre", 8)
+    base = compare.attainable(img)
+    assert base == compare.EPS * compare.gram_condition(img)
+    assert compare.attainable(img, design_cond=1e3) == pytest.approx(
+        1e6 * base
+    )
+    assert compare.attainable(img, coverage=1e-9) == pytest.approx(
+        base + 1e-9
+    )
+    assert compare.design_condition(np.eye(3)) == 1.0
+    assert compare.design_condition(np.ones((5, 2))) > 1e15
+
+
+def test_exactness_rows_never_fail_an_unidentified_model(tmp_path):
+    # A month of daily epochs: the annual and semiannual terms are a
+    # fraction of a cycle, the design's condition number is huge, and the
+    # raw solve is as fragile as the image's, so a miss is not a failure.
+    rng = np.random.default_rng(29)
+    t = np.round(2008.0 + np.arange(0.0, 0.085, 1.0 / 365.25), 4)
+    tc = t - t[0]
+    cols = {
+        k: (ngl_reduce.ngl_design(tc) @ np.array(v)
+            + 0.002 * rng.standard_normal(tc.size))
+        for k, v in TRUTH.items()
+    }
+    src = write_station(tmp_path / "GGGG.tenv3", t, cols)
+    npz, _ = ngl_reduce.reduce_to_file(src, tmp_path / "short")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        rows = ngl_fits.exactness_rows(src, npz)
+    assert all(r["design_cond"] > 1e4 for r in rows)
+    assert all(r["gate"] != "FAIL" for r in rows)
+
+
+def test_run_fits_and_rankings_report_a_station_that_raises(
+    tmp_path, monkeypatch
+):
+    src, npz, t, cols = station(tmp_path, name="HHHH", span=6.0, seed=31)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("no factor")
+
+    monkeypatch.setattr(ngl_fits, "station_rows", boom)
+    monkeypatch.setattr(ngl_fits, "ranking_rows", boom)
+    rows = ngl_fits.run_fits([npz], {}, workers=1)
+    assert rows == [{"sta": "HHHH", "error": "RuntimeError: no factor"}]
+    rows = ngl_fits.run_rankings([(npz, None)], workers=1)
+    assert rows == [{"sta": "HHHH", "error": "RuntimeError: no factor"}]
 
 
 def test_verdict_explains_a_miss_by_the_conditioning_it_allows():

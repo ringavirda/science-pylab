@@ -4,6 +4,7 @@ test lays out exactly as the real one is laid out."""
 from __future__ import annotations
 
 import csv
+import dataclasses
 import os
 import threading
 import time
@@ -12,7 +13,7 @@ import numpy as np
 import pytest
 
 from dtfit_experimental.experiments.domains.image_showcase import (
-    cli, filters, ngl, ngl_reduce, paths, stream,
+    cli, filters, ngl, ngl_reduce, paths, store, stream,
 )
 
 HEADER = (
@@ -133,18 +134,22 @@ def test_cli_exact_fails_visibly_when_a_station_misses_the_gate(
     monkeypatch.setenv("SHOWCASE_DATA", str(root))
     monkeypatch.setattr(paths, "results_dir", lambda: tmp_path / "results")
     assert cli.main(["ngl-reduce", "--images", str(images)]) == 0
-    # An impossible tolerance turns every station into a failure, which
-    # is how the run reports a real one.
-    code = cli.main([
-        "ngl-exact", "--images", str(images), "--tol", "1e-30",
-    ])
+    # An image one percent off its station file is what a real failure
+    # looks like: a miss far beyond what the conditioning explains.
+    npz = next(images.glob("*.npz"))
+    imgs, info = store.load_images(npz)
+    east = imgs["whole_east"]
+    imgs["whole_east"] = dataclasses.replace(east, S=east.S * 1.01)
+    store.save_images(npz, imgs, info)
+    code = cli.main(["ngl-exact", "--images", str(images)])
     assert code == 1
     rows = read_csv(tmp_path / "results" / "ngl_exact.csv")
-    assert any(r["gate"] == "FAIL" for r in rows)
+    assert [r["gate"] for r in rows if r["component"] == "east"] == ["FAIL"]
+    assert all(r["gate"] == "ok" for r in rows if r["component"] != "east")
     # and a looser tolerance clears it again: --tol moves the verdict in
     # both directions, it does not only tighten
     assert cli.main([
-        "ngl-exact", "--images", str(images), "--tol", "1e-4",
+        "ngl-exact", "--images", str(images), "--tol", "0.1",
     ]) == 0
     rows = read_csv(tmp_path / "results" / "ngl_exact.csv")
     assert all(r["gate"] == "ok" for r in rows)

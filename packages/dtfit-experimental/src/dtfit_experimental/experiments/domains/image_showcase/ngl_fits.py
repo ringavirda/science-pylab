@@ -20,8 +20,9 @@ from dtfit.image import Image, coverage
 
 from . import ngl
 from .compare import (
-    COVERAGE_TOL, attainable, fit_from_image, gram_condition,
-    gram_rebuild_error, param_scores, raw_bic, raw_lstsq, verdict,
+    COVERAGE_TOL, attainable, design_condition, fit_from_image,
+    gram_condition, gram_rebuild_error, param_scores, raw_bic,
+    raw_lstsq, verdict,
 )
 from .ngl_reduce import NGL_EXPR, NGL_NAMES, ngl_design
 from .store import load_images
@@ -91,16 +92,16 @@ FIT_COLUMNS = [
     *NGL_NAMES, *[f"stderr_{n}" for n in NGL_NAMES],
     "rss", "bic", "converged",
     "midas_v", "midas_sigma", "midas_span", "midas_steps",
-    "diff", "diff_over_sigma", "within_sigma",
+    "diff", "diff_over_sigma", "within_sigma", "error",
 ]
 EXACT_COLUMNS = [
     "sta", "component", "n", "span", "order", "score", "coverage",
-    "gram_cond", "gram_rebuild_err", "gate", "worst_param", "v_image",
-    "v_raw",
+    "gram_cond", "design_cond", "gram_rebuild_err", "gate",
+    "worst_param", "v_image", "v_raw",
 ]
 RANK_COLUMNS = [
     "sta", "component", "model", "n_params", "bic_image", "bic_raw",
-    "rss_image", "rss_raw", "rank_image", "rank_raw",
+    "rss_image", "rss_raw", "rank_image", "rank_raw", "error",
 ]
 
 _MIDAS_FIELDS = {
@@ -218,9 +219,10 @@ def exactness_rows(
       (:func:`compare.param_scores`), against :data:`compare.EXACTNESS_TOL`;
     - ``coverage``, :func:`dtfit.image.coverage` of the fitted model on
       this image, against :data:`compare.COVERAGE_TOL`;
-    - ``gram_cond``, :func:`compare.gram_condition` of the image, whose
-      product with :data:`compare.EPS` is the precision a fit from it can
-      reach;
+    - ``gram_cond`` and ``design_cond``, :func:`compare.gram_condition`
+      of the image and :func:`compare.design_condition` of the model on
+      the samples, which with the coverage bound the agreement a fit from
+      the image can reach (:func:`compare.attainable`);
     - ``gram_rebuild_err``, how far ``G`` rebuilt from the grid is from
       the accumulated ``G``, which is what shipping ``S`` and the grid
       alone would cost.
@@ -228,10 +230,11 @@ def exactness_rows(
     ``gate`` is ``"UNDERSAMPLED"`` when the coverage is above tolerance
     (the image's order cannot represent the model on this station's
     sampling), otherwise :func:`compare.verdict` of the score against the
-    tolerance and the attainable precision: a miss within what the gaps'
-    conditioning allows is ``"ILL-CONDITIONED"``. Both are reported and
-    counted, never a failure of the run; ``"FAIL"`` is a miss beyond
-    both.
+    tolerance and the attainable agreement: a miss within what the
+    truncation and the two condition numbers allow (a few weeks of
+    epochs leave the annual terms unidentified, gaps leave the Gram
+    singular) is ``"ILL-CONDITIONED"``. Both are reported and counted,
+    never a failure of the run; ``"FAIL"`` is a miss beyond both.
     """
     images, info = load_images(npz_path)
     parts: dict[str, list[np.ndarray]] = {c: [] for c in ngl.COMPONENTS}
@@ -244,6 +247,7 @@ def exactness_rows(
     t = np.concatenate(times)
     tc = t - t[0]
     design = ngl_design(tc)
+    dcond = design_condition(design)
     out: list[dict[str, Any]] = []
     for comp in ngl.COMPONENTS:
         y = np.concatenate(parts[comp])
@@ -259,13 +263,16 @@ def exactness_rows(
         if cover > COVERAGE_TOL:
             gate = "UNDERSAMPLED"
         else:
-            gate = verdict(score, attainable(image))
+            gate = verdict(score, attainable(
+                image, design_cond=dcond, coverage=cover,
+            ))
         out.append({
             "sta": str(info.get("sta", Path(npz_path).stem)),
             "component": comp, "n": int(image.n),
             "span": round(float(image.domain[1]), 6),
             "order": int(image.order), "score": float(score),
             "coverage": cover, "gram_cond": gram_condition(image),
+            "design_cond": dcond,
             "gram_rebuild_err": gram_rebuild_error(image),
             "gate": gate,
             "worst_param": (
@@ -348,7 +355,11 @@ def ranking_rows(
 def _fits_one(args: tuple[str, Any]) -> list[dict[str, Any]]:
     npz_path, entry = args
     midas = {} if entry is None else {Path(npz_path).stem: entry}
-    return station_rows(npz_path, midas)
+    try:
+        return station_rows(npz_path, midas)
+    except Exception as exc:                     # keep the batch alive
+        return [{"sta": Path(npz_path).stem,
+                 "error": f"{type(exc).__name__}: {exc}"}]
 
 
 def _exact_one(args: tuple[str, str]) -> list[dict[str, Any]]:
@@ -358,14 +369,19 @@ def _exact_one(args: tuple[str, str]) -> list[dict[str, Any]]:
     except Exception as exc:                     # keep the batch alive
         return [{"sta": Path(npz_path).stem, "component": "", "n": 0,
                  "span": 0.0, "order": 0, "score": float("inf"),
-                 "coverage": None, "gram_rebuild_err": None,
+                 "coverage": None, "gram_cond": None, "design_cond": None,
+                 "gram_rebuild_err": None,
                  "gate": f"ERROR: {type(exc).__name__}: {exc}",
                  "worst_param": "", "v_image": None, "v_raw": None}]
 
 
 def _rank_one(args: tuple[str, str | None]) -> list[dict[str, Any]]:
     npz_path, src = args
-    return ranking_rows(npz_path, src)
+    try:
+        return ranking_rows(npz_path, src)
+    except Exception as exc:                     # keep the batch alive
+        return [{"sta": Path(npz_path).stem,
+                 "error": f"{type(exc).__name__}: {exc}"}]
 
 
 def _fan_out(func: Any, jobs: Sequence[Any], workers: int) -> list[Any]:

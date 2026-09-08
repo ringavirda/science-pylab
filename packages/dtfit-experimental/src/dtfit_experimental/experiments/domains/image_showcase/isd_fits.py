@@ -20,8 +20,8 @@ from dtfit.image import coverage
 from . import isd
 from .compare import (
     COVERAGE_TOL, DENSITY_PER_COEF, EXACTNESS_TOL, attainable,
-    fit_from_image, gram_condition, param_score, raw_lstsq, verdict,
-    worst_param,
+    design_condition, fit_from_image, gram_condition, param_score,
+    raw_lstsq, verdict, worst_param,
 )
 from .isd_reduce import (
     ANNUAL_EXPR, ANNUAL_NAMES, ANNUAL_OMEGA, DAY_POSITIONS, DIURNAL_EXPR,
@@ -43,7 +43,7 @@ _LENGTHS = {
 YEAR_COLUMNS = [
     "station", "year", "field", "n", "order", "days",
     *ANNUAL_NAMES, "annual_amp", "annual_phase_day", "semi_amp",
-    "semi_phase_day", "rss", "bic",
+    "semi_phase_day", "rss", "bic", "error",
 ]
 DAY_COLUMNS = [
     "station", "year", "field", "day", "month", "n", "diurnal_amp",
@@ -52,12 +52,12 @@ DAY_COLUMNS = [
 NORMALS_ROW_COLUMNS = [
     "station", "normals_id", "kind", "month", "amp_image", "amp_normals",
     "phase_image_day", "phase_normals_day", "phase_diff_days",
-    "range_image", "range_normals", "n_days",
+    "range_image", "range_normals", "n_days", "error",
 ]
 EXACT_ISD_COLUMNS = [
     "station", "year", "field", "n", "order", "score", "coverage",
-    "gram_cond", "day_score", "n_days_checked", "gate", "worst_param",
-    "amp_image", "amp_raw",
+    "gram_cond", "design_cond", "day_score", "n_days_checked", "gate",
+    "worst_param", "amp_image", "amp_raw",
 ]
 
 
@@ -359,7 +359,9 @@ def exactness_year(
     t, y, info = isd.station_year(csv_path, field)
     images, meta = load_images(npz_path)
     image = images[f"year_{field}"]
-    ref = raw_lstsq(annual_design(t), y, ANNUAL_NAMES)
+    design = annual_design(t)
+    ref = raw_lstsq(design, y, ANNUAL_NAMES)
+    dcond = design_condition(design)
     res = fit_from_image(ANNUAL_EXPR, image, ANNUAL_NAMES)
     got = res.params
     score = param_score(got, ref)
@@ -375,12 +377,15 @@ def exactness_year(
     if cover > COVERAGE_TOL or sparse:
         gate = "UNDERSAMPLED"
     else:
-        gate = verdict(score, attainable(image), also_missed=day_missed)
+        gate = verdict(
+            score, attainable(image, design_cond=dcond, coverage=cover),
+            also_missed=day_missed,
+        )
     return {
         "station": info["station"], "year": info["year"], "field": field,
         "n": int(image.n), "order": int(image.order),
         "score": float(score), "coverage": cover,
-        "gram_cond": gram_condition(image),
+        "gram_cond": gram_condition(image), "design_cond": dcond,
         "day_score": day_score, "n_days_checked": checked,
         "gate": gate, "worst_param": worst_param(got, ref),
         "amp_image": amp_phase(got["a1"], got["b1"], PERIOD)[0],
@@ -390,12 +395,20 @@ def exactness_year(
 
 def _year_one(args: tuple[str, list[str]]) -> list[dict[str, Any]]:
     npz_path, fields = args
-    return year_rows(npz_path, fields)
+    try:
+        return year_rows(npz_path, fields)
+    except Exception as exc:                     # keep the batch alive
+        return [{"station": Path(npz_path).stem,
+                 "error": f"{type(exc).__name__}: {exc}"}]
 
 
 def _normals_one(args: tuple[str, str]) -> list[dict[str, Any]]:
     npz_path, normals_path = args
-    return normals_rows(npz_path, normals_path)
+    try:
+        return normals_rows(npz_path, normals_path)
+    except Exception as exc:                     # keep the batch alive
+        return [{"station": Path(npz_path).stem,
+                 "error": f"{type(exc).__name__}: {exc}"}]
 
 
 def _exact_isd_one(args: tuple[str, str]) -> list[dict[str, Any]]:
@@ -405,7 +418,8 @@ def _exact_isd_one(args: tuple[str, str]) -> list[dict[str, Any]]:
     except Exception as exc:                     # keep the batch alive
         return [{"station": Path(npz_path).stem, "year": 0, "field": "",
                  "n": 0, "order": 0, "score": float("inf"),
-                 "coverage": None, "day_score": None,
+                 "coverage": None, "gram_cond": None, "design_cond": None,
+                 "day_score": None,
                  "n_days_checked": 0,
                  "gate": f"ERROR: {type(exc).__name__}: {exc}",
                  "worst_param": "", "amp_image": None, "amp_raw": None}]

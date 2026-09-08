@@ -177,9 +177,13 @@ def _regate(rows: Sequence[dict[str, Any]], tol: float) -> None:
         if str(row["gate"]).startswith(("UNDERSAMPLED", "ERROR")):
             continue
         day = row.get("day_score")
+        bound = float(row["design_cond"]) ** 2 * (
+            float(row["coverage"])
+            + compare.EPS * float(row["gram_cond"])
+        )
         row["gate"] = compare.verdict(
-            float(row["score"]), compare.EPS * float(row["gram_cond"]),
-            tol, also_missed=day is not None and float(day) > tol,
+            float(row["score"]), bound, tol,
+            also_missed=day is not None and float(day) > tol,
         )
 
 
