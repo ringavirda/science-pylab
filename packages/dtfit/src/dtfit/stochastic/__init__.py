@@ -29,6 +29,7 @@ offers ``.forecast()``, ``.simulate()`` and ``.summary()``. There is no
 """
 
 from .image import SecondOrderImage
+from .stream import SecondOrderStream
 
 from dtfit.stochastic._estimators import (
     sample_acf,
@@ -48,6 +49,7 @@ from dtfit.stochastic._filter import StochasticFilter
 
 __all__ = [
     "SecondOrderImage",
+    "SecondOrderStream",
     "sample_acf",
     "hurst_aggvar",
     "hurst_spectral",
