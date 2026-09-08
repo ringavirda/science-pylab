@@ -58,6 +58,11 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
 
 ### Changed
 
+- `gram_whitener` escalates its diagonal jitter through `1e-14`, `1e-12`,
+  `1e-10` and `1e-8` times the mean diagonal until the Cholesky factor
+  exists, instead of raising on the first failure: `fit()` on a
+  numerically singular image now returns instead of raising
+  `LinAlgError`.
 - The stochastic tier reads every estimator, gate, forecaster and generator
   from its own additive second-order image (`SecondOrderImage`), with a
   block-stream form (`SecondOrderStream`); `garch_persistence(use=...)`,

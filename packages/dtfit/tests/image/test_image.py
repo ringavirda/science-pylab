@@ -249,25 +249,35 @@ def test_roundtrip_equality_and_hash():
 
 
 def test_gram_whitener_factors_a_gram_singular_to_rounding():
-    # samples on the last tenth of the domain at order 40 leave the
-    # Legendre Gram singular far below the 1e-14 jitter; the whitener
-    # still returns a factor, and its square is G up to that jitter
-    x = np.linspace(0.9, 1.0, 400)
+    # samples on the last percent of the domain at order 100 leave the
+    # Legendre Gram singular past what a single 1e-14 jitter can factor
+    # (a plain Cholesky on G + 1e-14 * trace(G)/k * I still raises), so
+    # only the escalation ladder returns a factor at all.
+    from scipy.linalg import LinAlgError, cholesky
+
+    x = np.linspace(0.99, 1.0, 1000)
     img = Image.of(Original(x, np.cos(3.0 * x), domain=(0.0, 1.0)),
-                   "legendre", 40)
+                   "legendre", 100)
     s = np.linalg.svd(img.G, compute_uv=False)
     assert s[0] / max(s[-1], 1e-300) > 1e16
+    k = img.G.shape[0]
+    trace_scale = np.trace(img.G) / k
+    with pytest.raises(LinAlgError):
+        cholesky(img.G + 1e-14 * trace_scale * np.eye(k), lower=True)
     L = gram_whitener(img.G)
-    scale = 1e-8 * np.trace(img.G) / img.G.shape[0]
+    resid = np.abs(L @ L.T - img.G).max()
     assert np.tril(L).shape == img.G.shape
-    assert np.abs(L @ L.T - img.G).max() <= scale * 1.01
+    # the returned factor is looser than the 1e-14 jitter could ever be,
+    # which pins the rung actually used to one above it.
+    assert resid > 1e-14 * trace_scale
+    assert resid <= 1e-8 * trace_scale * 1.01
 
 
 def test_fit_from_a_numerically_singular_image_returns():
     from dtfit.image import fit
 
-    x = np.linspace(0.9, 1.0, 400)
+    x = np.linspace(0.99, 1.0, 1000)
     y = 2.0 * np.exp(-1.5 * x)
-    img = Image.of(Original(x, y, domain=(0.0, 1.0)), "legendre", 40)
+    img = Image.of(Original(x, y, domain=(0.0, 1.0)), "legendre", 100)
     res = fit("a * exp(-b * x)", img, "x", p0=[1.0, 1.0])
     assert np.isfinite(res.params["a"]) and np.isfinite(res.params["b"])
