@@ -62,7 +62,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest
-      - run: pytest -q packages/dtfit/tests/test_docs_symbol_guard.py
+      - run: pytest -q --noconftest packages/dtfit/tests/test_docs_symbol_guard.py
 
   # The stable, published package -- gated on its own: ruff, the accuracy gate,
   # mypy and the pytest coverage floor, across the full OS/Python matrix.
