@@ -302,12 +302,13 @@ class FusedChiSquareDetector:
     A fault that moves every stream (a damping fault on all axes of an
     oscillator, a regime shift in a sensor array) leaves only a weak signature
     in any single stream's innovation but a strong one in the sum across
-    streams. This detector normalises each filter's one-step residual
-    (``last_residual_``) by an online EWMA estimate of its variance and sums
-    the squares into a ``chi2(K)`` statistic. Passing the ``alpha``-level
-    threshold flags a fault and optionally re-arms each filter via
-    :meth:`~dtfit.EACFilter.inflate`. In the embedded-control domain study a
-    3-axis damping fault was flagged within one window at zero false alarms.
+    streams. This detector sums each filter's own ``nis_`` (already a
+    chi-square statistic with ``n_coef`` degrees of freedom under the model)
+    into one fused ``chi2(sum n_coef)`` statistic. Passing the
+    ``alpha``-level threshold flags a fault and optionally re-arms each
+    filter via :meth:`~dtfit.EACFilter.inflate`. In the embedded-control
+    domain study a 3-axis damping fault was flagged within one window at
+    zero false alarms.
 
     Usage::
 
@@ -320,15 +321,15 @@ class FusedChiSquareDetector:
 
     Args:
         bank: The :class:`FilterBank` to drive. Its filters must expose
-            ``last_residual_``, ``W`` and :meth:`inflate`; both stock ones do.
+            ``nis_``, ``basis.n_coef``, ``W`` and :meth:`inflate`; both
+            stock ones do.
         alpha: Per-step false-alarm probability; the threshold is
-            ``chi2.ppf(1 - alpha, df=K)``.
+            ``chi2.ppf(1 - alpha, df=sum(n_coef))`` over the bank's filters.
         inflate: Covariance re-arm factor applied to every filter on a
             detection (``<= 1`` disables the re-arm; the flag is still
             raised).
-        ewma: Decay for the per-stream innovation-variance estimate.
         warmup: Steps to wait before detecting. Defaults to ``3 * window``,
-            long enough for the EWMA variance and the filters to settle.
+            long enough for the filters to settle.
         cooldown: Steps to suppress detection after a flag. Defaults to one
             ``window``, so a single fault is not re-flagged every step.
     """
@@ -339,15 +340,14 @@ class FusedChiSquareDetector:
         *,
         alpha: float = 1e-4,
         inflate: float = 4.0,
-        ewma: float = 0.9,
         warmup: int | None = None,
         cooldown: int | None = None,
     ) -> None:
         self.bank = bank
         self.k = len(bank.filters)
-        self.threshold_ = float(chi2.ppf(1.0 - alpha, df=self.k))
+        df = sum(f.basis.n_coef for f in bank.filters)
+        self.threshold_ = float(chi2.ppf(1.0 - alpha, df=df))
         self.inflate_factor = float(inflate)
-        self.ewma = float(ewma)
         # W is the filter's window cap. An adaptive-window filter starts at
         # min_window and grows, so the default ``3*W`` warmup is conservative:
         # it delays first detection but never causes a false positive. Pass an
@@ -356,12 +356,8 @@ class FusedChiSquareDetector:
         w = int(getattr(bank.filters[0], "W", 1))
         self._warmup = 3 * w if warmup is None else int(warmup)
         self._cooldown_len = w if cooldown is None else int(cooldown)
-        # Annotated shape-agnostic. ``update`` rebuilds this from
-        # ``np.array([...])``, a general shape that newer numpy stubs reject
-        # against the 1-D shape inferred from ``np.zeros``.
-        self._scale2: np.ndarray = np.zeros(self.k)
         self._step = -1   # raw stream index of the current sample
-        self._seen = 0    # steps with a full (finite-residual) window
+        self._seen = 0    # steps with a full (finite-nis_) window
         self._cool = 0
         self.statistic_ = float("nan")
         self.flag_ = False
@@ -378,18 +374,14 @@ class FusedChiSquareDetector:
         self._step += 1
         self.bank.partial_fit(t, y)
         self.flag_ = False
-        res = np.array(
-            [getattr(f, "last_residual_", np.nan) for f in self.bank.filters]
+        nis = np.array(
+            [getattr(f, "nis_", np.nan) for f in self.bank.filters]
         )
-        if not np.all(np.isfinite(res)):
+        if not np.all(np.isfinite(nis)):
             return False  # windows not yet full
         idx = self._step
         self._seen += 1
-        z2 = np.zeros(self.k)
-        nz = self._scale2 > 0
-        z2[nz] = res[nz] ** 2 / self._scale2[nz]
-        self._scale2 = self.ewma * self._scale2 + (1.0 - self.ewma) * res ** 2
-        self.statistic_ = float(z2.sum())
+        self.statistic_ = float(nis.sum())
         if self._cool > 0:
             self._cool -= 1
             return False
@@ -401,7 +393,6 @@ class FusedChiSquareDetector:
                     f.inflate(self.inflate_factor)
             self.flag_ = True
             self.flags_.append(idx)
-            self._scale2[:] = 0.0
             self._cool = self._cooldown_len
             return True
         return False

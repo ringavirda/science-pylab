@@ -4,9 +4,41 @@ from typing import Any
 
 import numpy as np
 import pytest
+from scipy.stats import chi2
 
 from dtfit.streaming import EACFilter, LSIFilter
 from dtfit_experimental.streaming import FilterBank, FusedChiSquareDetector
+
+
+def test_bank_and_detector_are_experimental_only():
+    """Neither name lives in core: they route through experimental over
+    the stock image filters, not a relocation into dtfit."""
+    with pytest.raises(ImportError):
+        from dtfit import FilterBank as _  # noqa: F401
+    with pytest.raises(ImportError):
+        from dtfit.streaming import FusedChiSquareDetector as _  # noqa: F401
+
+
+def test_fused_detector_sums_the_current_filters_nis(seed=0):
+    """The fused statistic is the sum of the members' nis_, and the
+    threshold gate matches scipy.stats.chi2 at the total degrees of
+    freedom (the sum of each filter's basis n_coef)."""
+    rng = np.random.default_rng(seed)
+    t = np.linspace(0, 4 * np.pi, 300)
+    bank = FilterBank.from_model(
+        OSC, "t", 2, filter_cls=LSIFilter, p0=[2.0, 2.5, 0.1],
+        window_size=40, order=4)
+    det = bank.fused_detector(alpha=1e-3)
+    df = sum(f.basis.n_coef for f in bank.filters)
+    assert det.threshold_ == pytest.approx(chi2.ppf(1 - 1e-3, df=df))
+    for i in range(60):
+        y = np.array([2.0, 1.5]) * np.sin(2.5 * t[i]) \
+            + rng.normal(0, 0.03, 2)
+        det.update(float(t[i]), y)
+    assert np.all(np.isfinite([f.nis_ for f in bank.filters]))
+    assert det.statistic_ == pytest.approx(
+        sum(f.nis_ for f in bank.filters)
+    )
 
 
 def _streams(K=5, n=400, seed=0):
