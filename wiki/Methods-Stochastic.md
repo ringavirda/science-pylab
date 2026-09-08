@@ -80,16 +80,19 @@ claims only the structure that is really there:
 
 Two disambiguations matter. Long memory is tested on the **whitened innovations**,
 so a near-unit-root AR(1) (whose innovations are white) is not mislabelled as long
-memory. Volatility clustering is tested on the **excess squared autocorrelation**
-`rho_2 - rho^2` of the residual -- a Gaussian linear process with autocorrelation
-`rho` has squared-series autocorrelation `rho^2` on its own, so subtracting it
-isolates the genuine ARCH-type structure and a persistent level does not read as a
-false positive. The **unit-root gate** is the load-bearing guard -- without it a
-random walk's wandering level draws a spurious trend / cycle / long memory (the
-classic spurious regression). It is the augmented Dickey-Fuller statistic of the
-constant+trend regression, computed from the image's autocovariances in Toeplitz
-form (AIC lag selection), reproducing `statsmodels.adfuller` to machine precision,
-with a strict cyclical exemption so a genuine interior spectral peak (a real cycle,
+memory. Volatility clustering is tested on the **excess autocorrelation**
+`rho_2 - rho^2` of the squared level (`image.acov_squares()`) over the residual's
+own autocorrelation `rho` -- a Gaussian linear process with autocorrelation `rho`
+has squared-series autocorrelation `rho^2` on its own, so subtracting it isolates
+genuine ARCH-type structure. `acov_squares` reads the raw level, never detrended
+or deseasonalized, so a persistent trend or seasonal component can itself read as
+spurious volatility clustering rather than being screened out. The **unit-root
+gate** is the load-bearing guard -- without it a random walk's wandering level
+draws a spurious trend / cycle / long memory (the classic spurious regression). It
+is the augmented Dickey-Fuller statistic of the constant+trend regression,
+computed from the image's autocovariances in Toeplitz form (AIC lag selection),
+agreeing with `statsmodels.adfuller`'s verdict in 139 of 140 measured series, with
+a strict cyclical exemption so a genuine interior spectral peak (a real cycle,
 near the unit circle but at `f > 0`) is kept for the stationary branch instead of
 being differenced.
 
@@ -99,7 +102,7 @@ being differenced.
 
 Rather than trusting one structural forecast, `fit_stochastic` rolling-origin
 backtests a **regime-informed candidate set** -- random walk, drift, mean reversion,
-a curvature-aware LSI trend, and two multi-harmonic seasonal continuations (an
+the image's least-squares trend, and two multi-harmonic seasonal continuations (an
 unbiased fitted extrapolation and an anchored one) -- and keeps the RMSE-optimal
 one, defaulting to the random walk when nothing beats it. So it beats persistence
 wherever some model genuinely can (a drift for GDP, mean reversion for a rate, a

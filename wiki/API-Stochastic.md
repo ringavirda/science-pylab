@@ -59,8 +59,10 @@ image of their union. Its fields, for a series `y` at global sample indices
   `m = 0..nfreq-1`;
 - the head and tail carries, the first and last `lag + 1` samples.
 
-At `lag=64`, `scales=8`, `nfreq=128`, the state holds 706 numbers whatever the
-record length.
+At `lag=64`, `scales=8`, `nfreq=128`, the state holds 705 accumulator numbers
+(4x65 lagged sums + 6x9 block fields + 256 residues + 2x65 carries + 5
+moments) plus a version tag, 712 entries in all with the six budget/position
+values -- once `n >= lag + 1`; the carries are shorter before that.
 
 | argument | default | meaning |
 |---|---|---|
@@ -132,9 +134,10 @@ under-reading silently -- a stream fixes its grid before it knows the record
 length. On the period-50 line `0.02 t + 3 sin(2 pi t / 50) + N(0, 1)`, twenty
 seeds, `seasonal` reads period 0.065 percent, amplitude 1.1 percent and phase
 0.035 rad off at `n = 600`, and 0.010 percent, 0.46 percent and 0.020 rad off
-at `n = 4000` on the grid `of` raises to 2048 bins -- against period 50.61 and
-amplitude 2.23 on the fixed 512-bin grid at `n = 4000`, versus 49.996 and
-3.000 on the grid `of` chooses.
+at `n = 4000` on the grid `of` raises to 2048 bins. On the noiseless line
+`3 sin(2 pi t / 50) + 0.5`, the fixed 512-bin grid reads period 50.61 and
+amplitude 2.23 at `n = 4000`, versus 49.996 and 3.000 on the grid `of`
+chooses.
 
 ```python
 import numpy as np
@@ -205,14 +208,17 @@ print(bool(np.max(np.abs(whole.acov() - merged.acov())) < 1e-9))
 ## Estimators -- the individual functional routes
 
 Each takes a series, an `Original` or a [`SecondOrderImage`](#image) --
-`as_image` builds one at the given budgets if it is not one already. Most
-recover a stochastic-model parameter by feeding a functional read off the
-image to [`fit_lsi`](API-Fitting#fit_lsi) / [`fit_eac`](API-Fitting#fit_eac).
+`as_image` builds one if it is not one already, none of these estimators
+taking lag or frequency budgets of its own. Most recover a stochastic-model
+parameter by feeding a functional read off the image to
+[`fit_lsi`](API-Fitting#fit_lsi) / [`fit_eac`](API-Fitting#fit_eac).
 `method="lsi"` (default) / `"eac"` pick the engine; `"ols"` / `"acf1"` /
 `"yw"` are plain baselines. The AR helpers (`ar_order` / `fit_ar`) are direct
-Yule-Walker instead, and `fractional_difference` is a transform on the raw
-series -- together they let the router tell a finite-order AR(p) apart from
-genuine long memory.
+Yule-Walker instead, `fractional_difference` is a transform on the raw
+series, and `decompose_trend_cycle` needs the axes themselves -- it takes
+`(t, y)` or an `Original`, raising `ValueError` on a bare image with `y`
+omitted. Together the AR helpers and `fractional_difference` let the router
+tell a finite-order AR(p) apart from genuine long memory.
 
 | function | recovers | functional fit |
 |---|---|---|
@@ -273,21 +279,23 @@ the second-order theory dictates, each behind a **significance gate**:
    fit (kept only on a genuine repeating spectral peak: `> cycle_strength`
    of the power, repeating `>= min_cycles` times; period detected or
    supplied via `period=`).
-3. **whiten** with a Yule-Walker AR(1) off the residual autocovariance, then
-   test **long memory on the innovations** (the whitened Blackman-Tukey
-   spectrum's GPH slope, `H > lm_hurst`) so a near-unit-root AR(1) is not
-   mislabelled.
+3. **long memory** -- the residual's Blackman-Tukey spectrum's GPH slope,
+   `H > lm_hurst`. If it fires, a veto: whiten with a Yule-Walker AR(p)
+   (order up to 3, chosen off the residual autocorrelation by AIC) and
+   recheck the GPH slope of the whitened spectrum against a stricter
+   threshold `0.5 + 0.5 * (lm_hurst - 0.5)`, above 128 samples only, so a
+   near-unit-root AR(1) is not mislabelled long memory.
 4. **mean reversion** (`mr_phi < phi < 0.99`, lag-1 autocorrelation
-   significant) and **volatility clustering** -- the excess squared
-   autocorrelation `rho_2 - rho^2` of the residual, tested for persistence
-   (`> vol_persist`).
+   significant) and **volatility clustering** -- the excess autocorrelation
+   `rho_2 - rho^2` of the squared level over the residual's own
+   autocorrelation `rho`, tested for persistence (`> vol_persist`).
 
 A series with no gate open is reported as `regime="white noise / random
 walk"`.
 
 **Forecasting is RMSE-optimal backtest model selection** -- a
-regime-informed candidate set (random walk, drift, mean reversion, a
-curvature-aware dtfit LSI trend, two multi-harmonic seasonal continuations)
+regime-informed candidate set (random walk, drift, mean reversion, the
+image's least-squares trend, two multi-harmonic seasonal continuations)
 is rolling-origin backtested and the best kept; the choice is in
 `model.forecaster_name`. Backtesting refits each candidate's image on
 successive training folds, so it needs the raw series: a fit from a
@@ -372,7 +380,8 @@ import numpy as np
 from dtfit import fit_stochastic
 
 t = np.arange(600.0)
-y = 0.02 * t + 3 * np.sin(2 * np.pi * t / 50) + np.random.default_rng(0).normal(0, 1, 600)
+rng = np.random.default_rng(0)
+y = 0.02 * t + 3 * np.sin(2 * np.pi * t / 50) + rng.normal(0, 1, 600)
 m = fit_stochastic(y)
 pt, lo, hi = m.forecast(40, return_conf_int=True)   # forecast + 95% band
 sim = m.simulate(600, seed=1)                        # a new series, same structure
@@ -433,8 +442,9 @@ structural breaks (a persistence jump, a volatility switch), once per change, at
 low false-alarm rate. Flat memory, bounded per-sample cost.
 
 > **Scope.** This is the online twin of the *second-order* stage only. Long memory
-> (the spectral Hurst) and the unit-root gate are inherently batch (a periodogram /
-> a regression over the whole record), so they are not tracked here.
+> (the spectral Hurst) and the unit-root gate need a full spectral sweep or a
+> Toeplitz solve over the maintained lag window each time they are read, not the
+> filter's closed-form per-sample update, so they are not tracked here.
 
 | argument | default | meaning |
 |---|---|---|

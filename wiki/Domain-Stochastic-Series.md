@@ -21,10 +21,11 @@ against the established toolkit -- reported honestly.
 - **estimators** -- `hurst_spectral` / `hurst_aggvar` (long memory), `ar1_reversion`
   (mean reversion), `garch_persistence` (volatility), `cycle_period` (stochastic
   cycle), `decompose_trend_cycle`; each feeds a functional to `fit_lsi` / `fit_eac`.
-- **`fit_stochastic`** -- the merged solution: a gated, ordered pipeline (vendored
-  statsmodels-free ADF unit-root gate -> deterministic mean -> whiten -> long memory
-  on the innovations -> mean reversion -> volatility) returning a `StochasticModel`
-  with the detected regime, a backtest-selected forecast, and a generator.
+- **`fit_stochastic`** -- the merged solution: a gated, ordered pipeline (an ADF
+  unit-root gate off the image's autocovariances -> deterministic mean -> whiten ->
+  long memory on the innovations -> mean reversion -> volatility) returning a
+  `StochasticModel` with the detected regime, a backtest-selected forecast, and a
+  generator.
 - **`StochasticModel.simulate`** -- draws fresh realizations from the detected
   components (the model is a tunable generator, not just a summary).
 - **`StochasticFilter`** -- the per-input streaming twin (EWMA autocovariances read
