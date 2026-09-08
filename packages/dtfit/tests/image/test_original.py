@@ -100,3 +100,53 @@ def test_pandas_input_is_coerced():
             [0.0, 1.0, 2.0],
             pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [1.0, 2.0, 3.0]}),
         )
+
+
+def test_diagnostics_reports_white_residuals_for_the_right_model():
+    x = np.linspace(0.0, 4.0, 400)
+    rng = np.random.default_rng(0)
+    y = 2.0 * np.exp(-0.7 * x) + 0.3 + 0.05 * rng.standard_normal(x.size)
+    d = Original(x, y).diagnostics("a*exp(-b*t) + c", [2.0, 0.7, 0.3], "t")
+    assert set(d) == {"residuals", "durbin_watson", "lag1_autocorr",
+                      "normality_p", "mean", "std"}
+    assert d["residuals"].shape == (400,)
+    assert abs(d["durbin_watson"] - 2.0) < 0.25
+    assert abs(d["lag1_autocorr"]) < 0.15
+    assert d["normality_p"] > 0.01
+    assert d["std"] == pytest.approx(0.05, rel=0.2)
+
+
+def test_diagnostics_flags_a_wrong_model():
+    x = np.linspace(0.0, 4.0, 400)
+    rng = np.random.default_rng(0)
+    y = 2.0 * np.exp(-0.7 * x) + 0.3 + 0.05 * rng.standard_normal(x.size)
+    d = Original(x, y).diagnostics("a + b*t", [2.0, -0.4], "t")
+    assert d["durbin_watson"] < 0.5 and d["lag1_autocorr"] > 0.9
+
+
+def test_diagnostics_matches_residual_diagnostics_on_a_fit():
+    from dtfit.diagnostics import residual_diagnostics
+    from dtfit.image import fit
+
+    x = np.linspace(0.0, 4.0, 300)
+    rng = np.random.default_rng(1)
+    y = 2.0 * np.exp(-0.7 * x) + 0.3 + 0.05 * rng.standard_normal(x.size)
+    o = Original(x, y)
+    res = fit("a*exp(-b*t) + c", o, "t", order=10, p0=[2.0, 0.7, 0.3])
+    mine = o.diagnostics("a*exp(-b*t) + c", res.coeffs, "t")
+    theirs = residual_diagnostics(res, x, y)
+    for key in ("durbin_watson", "lag1_autocorr", "normality_p", "mean",
+                "std"):
+        assert mine[key] == pytest.approx(theirs[key], rel=1e-12)
+
+
+def test_diagnostics_takes_a_callable_model():
+    def model(t, a, b):
+        return a * np.exp(-b * t)
+
+    x = np.linspace(0.0, 4.0, 200)
+    rng = np.random.default_rng(2)
+    o = Original(x, 2.0 * np.exp(-0.7 * x) + 0.05 * rng.standard_normal(200))
+    d = o.diagnostics(model, [2.0, 0.7])
+    assert abs(d["mean"]) < 0.02 and d["std"] == pytest.approx(0.05, rel=0.2)
+    assert abs(d["durbin_watson"] - 2.0) < 0.25

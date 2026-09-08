@@ -35,10 +35,10 @@ def fit_report(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
     The returned dict holds the sample and parameter counts, ``rss``,
     ``rmse`` and ``r2``, the Gaussian-likelihood ``aic`` and ``bic`` for
     comparing candidates fitted to the same data, and ``durbin_watson``
-    (≈2 means no residual autocorrelation). ``converged`` appears when the
-    result reports it, and ``params`` with ``stderr`` when the fit carries a
-    covariance. To select a model, fit several candidates and keep the
-    lowest information criterion.
+    (about 2 means no residual autocorrelation). ``converged`` appears when
+    the result reports it, and ``params`` with ``stderr`` when the fit
+    carries a covariance. To select a model, fit several candidates and keep
+    the lowest information criterion.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float).ravel()
@@ -78,7 +78,26 @@ def residual_diagnostics(result: Any, x: np.ndarray, y: np.ndarray) -> dict[str,
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float).ravel()
-    resid = y - np.asarray(result.predict(x), dtype=float).ravel()
+    return residual_stats(
+        y - np.asarray(result.predict(x), dtype=float).ravel()
+    )
+
+
+def residual_stats(resid: np.ndarray) -> dict[str, Any]:
+    """The residual-structure statistics of :func:`residual_diagnostics`,
+    from the residuals alone.
+
+    Args:
+        resid: Residuals ``y - f(x)``, a 1-D float array.
+
+    Returns:
+        The dict :func:`residual_diagnostics` returns: ``residuals``,
+        ``durbin_watson``, ``lag1_autocorr``, ``normality_p``, ``mean``
+        and ``std``. ``durbin_watson`` and ``lag1_autocorr`` are NaN for a
+        zero residual or fewer than three samples; ``normality_p`` is NaN
+        unless ``3 <= n <= 5000``.
+    """
+    resid = np.asarray(resid, dtype=float).ravel()
     n = resid.size
     rss = float(resid @ resid)
     dw = float(np.sum(np.diff(resid) ** 2) / rss) if rss > 0 else float("nan")

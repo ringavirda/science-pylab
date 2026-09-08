@@ -11,12 +11,13 @@ metrics on ``(y_true, y_pred)`` arrays, use ``sklearn.metrics`` or
 The ``*Display`` classes need matplotlib (``pip install 'dtfit[viz]'``).
 """
 
-from ._report import fit_report, residual_diagnostics
+from ._report import fit_report, residual_diagnostics, residual_stats
 from ._plot import FitDisplay, ResidualsDisplay
 
 __all__ = [
     "fit_report",
     "residual_diagnostics",
+    "residual_stats",
     "FitDisplay",
     "ResidualsDisplay",
 ]

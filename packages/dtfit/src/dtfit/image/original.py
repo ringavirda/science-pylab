@@ -172,3 +172,36 @@ class Original:
 
         spec = resolve_model(model, var)
         return self.y - spec.eval(self.x, np.asarray(params, dtype=float))
+
+    def diagnostics(
+        self, model: Any, params: Any, var: str | None = None
+    ) -> dict[str, Any]:
+        """Residual-structure tests for a model on these samples.
+
+        The model is resolved and evaluated exactly as :meth:`residuals`
+        does it, and the residuals go through
+        :func:`dtfit.diagnostics.residual_stats`, the statistics
+        :func:`dtfit.diagnostics.residual_diagnostics` reports for a
+        :class:`~dtfit.types.FittingResult`. A structured fit leaves white
+        noise behind: a Durbin-Watson far from 2 or a lag-1
+        autocorrelation far from 0 means the model class is wrong.
+
+        Args:
+            model: A SymPy expression string, a ``sympy.Expr``, or a
+                callable ``f(x, *params)``.
+            params: Parameter values in canonical order (sorted names for
+                a symbolic model, signature order for a callable).
+            var: The main variable name; required for a symbolic model.
+
+        Returns:
+            ``{"residuals", "durbin_watson", "lag1_autocorr",
+            "normality_p", "mean", "std"}``; ``normality_p`` is the
+            Shapiro-Wilk p-value, NaN unless ``3 <= n <= 5000``.
+
+        Raises:
+            ValueError: a symbolic model without ``var``, or a callable
+                whose parameter names cannot be introspected.
+        """
+        from dtfit.diagnostics import residual_stats
+
+        return residual_stats(self.residuals(model, params, var))
