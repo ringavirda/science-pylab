@@ -178,9 +178,10 @@ def is_nonstationary(data: Any, *, alpha: float = 0.05) -> bool:
     positive rate stays a few percent from n=100 up: measured over white
     noise and AR(1) phi=0.5 (the worse of the two, 60 seeds each), the
     rate at which this gate wrongly returns True is n=40: 12%, n=100: 3%,
-    n=200: 0%, n=400: 0%. Below ``n = 20`` the regression has too few
-    samples to fit even the smallest candidate lag, so the gate reports
-    "not nonstationary" rather than trust a verdict from there.
+    n=200: 0%, n=400: 0%. Below n=40 the same rate climbs fast (n=20: 35%,
+    n=24: 30%, n=28: 23%, n=32: 20%, n=36: 23%), so below ``n = 40`` the
+    gate reports "not nonstationary" rather than trust a verdict from
+    there.
 
     Args:
         data: a series, an Original or a :class:`SecondOrderImage`.
@@ -188,7 +189,7 @@ def is_nonstationary(data: Any, *, alpha: float = 0.05) -> bool:
             cannot be rejected.
     """
     img = as_image(data)
-    if img.n < 20:
+    if img.n < 40:
         return False
     return adf_pvalue(img.dickey_fuller()) > alpha
 

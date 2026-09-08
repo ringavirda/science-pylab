@@ -894,8 +894,10 @@ class SecondOrderImage:
 
         Args:
             lags: difference lags in the regression; ``None`` selects the
-                lag count by AIC (``n * log(rss / n) + 2 * k``, ``k`` the
-                regressor count) over ``0..maxlag`` with ``maxlag =
+                lag count by AIC (``n * log(rss / n) + 2 * k``, ``k =
+                1 + p`` the level and difference regressors; the constant
+                and trend are centered out of the autocovariances, not
+                counted) over ``0..maxlag`` with ``maxlag =
                 min(12 (n/100)^0.25, 12, n // 3, lag - 2)``. A value given
                 fixes the lag instead, clamped into ``[1, lag - 2]``.
             return_lag: also return the lag count the regression used.
@@ -946,9 +948,12 @@ class SecondOrderImage:
             p, best, best_ic = maxlag, None, float("inf")
             for cand in range(0, maxlag + 1):
                 got = solve(cand)
-                if got is None:
+                # a non-positive closed-form residual variance is a
+                # numerical degeneracy, not a genuine fit: its log
+                # diverges and would always win the comparison
+                if got is None or got[1] <= 0.0:
                     continue
-                ic = n * np.log(max(got[1], 1e-300)) + 2 * (1 + cand)
+                ic = n * np.log(got[1]) + 2 * (1 + cand)
                 if ic < best_ic:
                     p, best, best_ic = cand, got, ic
 

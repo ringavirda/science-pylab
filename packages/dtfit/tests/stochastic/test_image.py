@@ -403,19 +403,19 @@ def test_dickey_fuller_selects_the_lag_by_aic():
     # drops to 0 the way it does on white noise
     ar2_lags = [SecondOrderImage.of(
         gen_ar2(600, 0.6, -0.3, s), lag=64, nfreq=64
-    ).dickey_fuller(return_lag=True)[1] for s in range(20)]
+    ).dickey_fuller(return_lag=True)[1] for s in range(60)]
     assert min(ar2_lags) >= 1
 
     wn_lags = [SecondOrderImage.of(
         np.random.default_rng(s).standard_normal(600), lag=64, nfreq=64
-    ).dickey_fuller(return_lag=True)[1] for s in range(20)]
-    assert sum(p <= 1 for p in wn_lags) >= 15
+    ).dickey_fuller(return_lag=True)[1] for s in range(60)]
+    assert sum(p == 0 for p in wn_lags) >= 30
 
 
 def test_dickey_fuller_does_not_over_reject_a_unit_root_with_ma_noise():
     # the augmentation lags exist for exactly this family: a unit root whose
     # innovation is a moving average, not white noise
-    trials = 40
+    trials = 200
     rejections = 0
     for seed in range(trials):
         e = np.random.default_rng(seed).standard_normal(801)
@@ -423,9 +423,7 @@ def test_dickey_fuller_does_not_over_reject_a_unit_root_with_ma_noise():
         tau = SecondOrderImage.of(y, lag=64, nfreq=64).dickey_fuller()
         if tau < -3.42:
             rejections += 1
-    # 11/40 measured with the AIC-selected lag, against 9/40 at the old
-    # fixed Schwert lag; AIC trades a little of this margin for the false
-    # positive rate the unit-root gate now runs at.
+    # 43/200 measured against a nominal five percent test
     assert rejections / trials < 0.30
 
 

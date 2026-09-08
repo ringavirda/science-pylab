@@ -270,9 +270,10 @@ one. Every gate below reads that image; the routes are composed in the order
 the second-order theory dictates, each behind a **significance gate**:
 
 1. **unit-root gate** -- the augmented Dickey-Fuller `tau` statistic, read
-   off the image's autocovariances (`SecondOrderImage.dickey_fuller`) and
-   its MacKinnon p-value. An I(1) level (random walk) is *differenced* and
-   reported as such, not given a spurious trend / cycle / long memory.
+   off the image's autocovariances (`SecondOrderImage.dickey_fuller`) with
+   the augmentation lag chosen by AIC over `0..min(12 (n/100)^0.25, 12)`,
+   and its MacKinnon p-value. An I(1) level (random walk) is *differenced*
+   and reported as such, not given a spurious trend / cycle / long memory.
 2. **deterministic mean** -- the image's least-squares trend (kept only if
    its Newey-West `|t|` exceeds `trend_t` *and* it explains real variance)
    and the image's fixed-grid-DFT seasonal read-out, a multi-harmonic Fourier

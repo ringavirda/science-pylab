@@ -398,8 +398,8 @@ def dickey_fuller(data: Any, *, lags: int | None = None) -> dict[str, float]:
 
     Args:
         data: a series, an Original or a :class:`SecondOrderImage`.
-        lags: difference lags; ``None`` takes the Schwert rule
-            ``min(12 (n/100)^0.25, 12)``.
+        lags: difference lags; ``None`` selects the lag by AIC over
+            ``0..min(12 (n/100)^0.25, 12)``.
 
     Returns:
         ``{"tau", "pvalue"}``; MacKinnon's (1994) approximate asymptotic
