@@ -38,10 +38,10 @@ carry breaking changes, and each one is listed explicitly under **Changed**.
   autocorrelation and normality for a model on the samples, without a fit
   result; `dtfit.diagnostics.residual_stats` computes them from a residual
   array.
-- Gates on the noise estimate (within 15 percent of the true sigma on six
-  smooth families) and on the equality test's false-alarm rate (within
-  `[0.03, 0.08]` under Gaussian, Student-t and Laplace noise) in
-  `tests/image/test_gates.py`.
+- Gates on the noise estimate (nightly: within 15 percent of the true sigma
+  on six smooth families) and on the equality test's false-alarm rate
+  (nightly: within `[0.03, 0.08]` under Gaussian, Student-t and Laplace
+  noise) in `tests/image/test_gates.py`.
 
 ### Changed
 

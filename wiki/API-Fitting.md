@@ -263,10 +263,12 @@ G^+ S` are derived, never stored.
   leaves structure the basis still resolves. `fitted=True` spends one degree
   of freedom per parameter.
 - **`ChiSquareTest`** -- `statistic`, `dof`, `pvalue`, `alpha` and the
-  property `reject` (`pvalue < alpha`). Both tests take their noise scale
-  from the basis-regression residual `(sumsq - S^T beta) / (n - rank(G))`
-  unless `sigma` is given. Exported from `dtfit.image` with `Decay` and the
-  five functions of `dtfit.image.analytics`.
+  property `reject` (`pvalue < alpha`). Unless `sigma` is given,
+  `test_structure` takes its noise scale from the basis-regression residual
+  `(sumsq - S^T beta) / (n - rank(G))`; `test_equal` pools both images'
+  residuals, `(rss_a + rss_b) / (dof_a + dof_b)` with each `dof` the sample
+  count less the rank of that image's Gram. Exported from `dtfit.image`
+  with `Decay` and the five functions of `dtfit.image.analytics`.
 - **`of(original, basis="legendre", order=None, *, robust=False) -> Image`**
   (classmethod) -- the image of an `Original`; the robust IRLS uses the Huber
   constant c = 1.345.

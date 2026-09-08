@@ -13,7 +13,7 @@ friendly path -- their `from_estimator` only needs `.predict`, so they accept a
 
 ```python
 from dtfit.diagnostics import (fit_report, residual_diagnostics,
-                               FitDisplay, ResidualsDisplay)
+                               residual_stats, FitDisplay, ResidualsDisplay)
 ```
 
 (Imported from the `dtfit.diagnostics` submodule, not the top level -- the

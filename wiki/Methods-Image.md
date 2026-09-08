@@ -205,10 +205,12 @@ under Gaussian noise, 0.052 under Student-t with three degrees of freedom,
 question, whether a model explains everything the basis resolves: the
 leftover projections `d = S - S_f` against `d^T (s2 G)^+ d`, which is the
 drop in residual sum of squares between the model and the best fit in the
-span, in units of the noise variance. Both take their noise scale from the
-basis-regression residual `(sumsq - S^T beta) / (n - rank(G))`, which exists
-at any order and in any basis, and both return a `ChiSquareTest`
-(`statistic`, `dof`, `pvalue`, `alpha`, `reject`).
+span, in units of the noise variance. `test_structure` takes its noise
+scale from the basis-regression residual `(sumsq - S^T beta) / (n -
+rank(G))`, which exists at any order and in any basis; `test_equal` pools
+both images' residuals instead, `(rss_a + rss_b) / (dof_a + dof_b)` with
+each `dof` the sample count less the rank of that image's Gram. Both
+return a `ChiSquareTest` (`statistic`, `dof`, `pvalue`, `alpha`, `reject`).
 
 `simulate(n=None, sigma=None, rng=None)` goes the other way: the
 reconstruction plus Gaussian noise, on the image's own grid when `n` is

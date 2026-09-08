@@ -78,9 +78,13 @@ from dtfit.streaming import DriftDetector
 from dtfit import ImageStream, fit_many, FittingProblem
 from dtfit.image import coverage, assemble, legendre_transfer, block_transfer
 
+# Image analytics (also reachable as Image methods)
+from dtfit.image import (noise_sigma, effective_order, decay,
+                         test_equal, test_structure)
+
 # diagnostics (submodule, not top-level - sklearn convention)
 from dtfit.diagnostics import (fit_report, residual_diagnostics,
-                               FitDisplay, ResidualsDisplay)
+                               residual_stats, FitDisplay, ResidualsDisplay)
 
 # logging
 from dtfit import enable_logging, logger
