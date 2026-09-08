@@ -54,6 +54,7 @@ from .basis_lsi import fit_lsi_basis
 from .bases import ChebyshevBasis, FourierBasis, LaguerreBasis
 from .weak_ode import (
     fit_logistic,
+    fit_damped_oscillator,
     fit_lotka_volterra_prey,
     fit_michaelis_menten,
     weak_operators,
@@ -79,4 +80,5 @@ __all__ = [
     "fit_logistic",
     "fit_michaelis_menten",
     "fit_lotka_volterra_prey",
+    "fit_damped_oscillator",
 ]

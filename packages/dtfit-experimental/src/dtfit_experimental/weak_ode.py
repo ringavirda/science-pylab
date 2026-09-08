@@ -144,6 +144,29 @@ def fit_michaelis_menten(
     return {"Vm": float(vm), "Km": float(km)}
 
 
+def fit_damped_oscillator(
+    t: np.ndarray, y: np.ndarray, n_test: int = 12
+) -> dict[str, float]:
+    """Fit a damped oscillation ``y'' + 2 zeta omega y' + omega**2 y = 0``.
+
+    The homogeneous second-order law is already linear in its constants, so
+    the weak form is ``I2(y) + c1 I1(y) + c2 I0(y) = 0`` with ``c1 = 2 zeta
+    omega`` and ``c2 = omega**2``; solving ``[I1(y), I0(y)] [c1, c2] = -I2(y)``
+    gives the natural frequency and damping ratio without differentiating the
+    noisy ``y`` and without a starting guess.
+
+    Returns:
+        ``{"omega": natural frequency, "zeta": damping ratio}``.
+    """
+    t = np.asarray(t, dtype=float)
+    y = np.asarray(y, dtype=float)
+    i0, i1, i2 = weak_operators(t, n_test=n_test)
+    a = np.column_stack([i1(y), i0(y)])
+    c1, c2 = np.linalg.lstsq(a, -i2(y), rcond=None)[0]
+    omega = float(np.sqrt(abs(c2)))
+    return {"omega": omega, "zeta": float(c1 / (2 * omega)) if omega else float("nan")}
+
+
 def fit_lotka_volterra_prey(
     t: np.ndarray, x: np.ndarray, n_test: int = 24
 ) -> dict[str, float]:
