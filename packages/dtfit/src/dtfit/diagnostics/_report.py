@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from dtfit.methods._common import information_criteria
+from dtfit._stats import information_criteria
 
 
 def _basic_stats(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:

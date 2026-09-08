@@ -12,8 +12,10 @@ from scipy.linalg import solve_triangular
 from scipy.optimize import differential_evolution, least_squares, minimize
 
 from dtfit._signal import dominant_period
-from dtfit.methods._common import _validate_p0, normalize_bounds, normalize_p0
-from dtfit.methods._modelinput import ModelSpec, resolve_model, result_kwargs
+from dtfit._input import (
+    ModelSpec, _validate_p0, normalize_bounds, normalize_p0, resolve_model,
+    result_kwargs,
+)
 from dtfit.types import FittingResult
 from .image import Image, gram_whitener
 from .original import Original
@@ -230,7 +232,7 @@ def order_for(
         tol: Relative L2 truncation tolerance, in ``(0, 1)``.
         max_order: Upper cap on the returned order, >= 1.
         param_names: Parameter names for a callable model; see
-            :func:`~dtfit.methods._modelinput.resolve_model`.
+            :func:`~dtfit.models.resolve_model`.
 
     Returns:
         The smallest order meeting ``tol`` for every parameter, or
@@ -273,7 +275,7 @@ def coverage(
         image: The image the fit would run on.
         var: The main variable name, required for a symbolic model.
         param_names: Parameter names for a callable model; see
-            :func:`~dtfit.methods._modelinput.resolve_model`.
+            :func:`~dtfit.models.resolve_model`.
 
     Returns:
         The largest relative L2 truncation error, over every parameter,
@@ -361,7 +363,7 @@ def fit(
             ones.
         bounds: Per-parameter bounds, a sequence of ``(lo, hi)`` pairs, a
             ``{name: (lo, hi)}`` mapping, or the ``(lo, hi)`` scipy
-            convention; see :func:`dtfit.methods._common.normalize_bounds`.
+            convention; see :func:`dtfit.models.normalize_bounds`.
         sigma: Per-sample standard deviations for an Original; builds the
             weights ``w = 1/sigma**2``. Raises ``TypeError`` with an Image
             and ``ValueError`` if the Original already carries weights.

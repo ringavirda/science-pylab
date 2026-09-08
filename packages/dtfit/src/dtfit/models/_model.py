@@ -7,7 +7,7 @@ models compose with ``+`` (trend plus seasonal, a sum of peaks).
 
 The model itself is either a SymPy expression string or a plain Python
 callable ``f(x, *params)``. A callable is resolved through
-:func:`dtfit.methods.resolve_model` and keeps its signature parameter order,
+:func:`dtfit.models.resolve_model` and keeps its signature parameter order,
 where a symbolic model sorts its names; both fit through the same engines.
 Composition with ``+`` and the seed-detrend evaluator need symbolic operands,
 and a callable raises a clear error there (see :meth:`__add__`).
@@ -21,7 +21,8 @@ import numpy as np
 import sympy as sp
 
 from dtfit.types import FittingResult
-from dtfit.methods import fit_lsi, fit_eac, resolve_model
+from dtfit._input import resolve_model
+from dtfit.image.fit import fit_lsi, fit_eac
 from dtfit.auto import auto_estimate
 
 # A seeder reads (x, y) and returns ``{param_name: (p0, lo, hi)}``.
@@ -37,8 +38,8 @@ def _params_of(
     """Canonical parameter order of ``expr``.
 
     A symbolic expression parses its free symbols and sorts them by name. A
-    callable is delegated to :func:`dtfit.methods.resolve_model`, whose
-    :attr:`~dtfit.methods.ModelSpec.names` follow the signature order, either
+    callable is delegated to :func:`dtfit.models.resolve_model`, whose
+    :attr:`~dtfit.models.ModelSpec.names` follow the signature order, either
     introspected or taken from ``param_names``.
     """
     if callable(expr):
@@ -63,7 +64,7 @@ class Model:
         expr: The model. Either a SymPy expression string such as
             ``"a*exp(b*x)"``, or a plain Python callable ``f(x, *params)``
             (see :meth:`from_callable`). A callable is resolved via
-            :func:`dtfit.methods.resolve_model` and its parameters keep their
+            :func:`dtfit.models.resolve_model` and its parameters keep their
             signature order.
         var: The main variable name. For a callable it is a label only,
             defaulting to ``"x"``.
@@ -235,7 +236,7 @@ class Model:
         :func:`dtfit.auto_estimate`; ``"lsi"`` and ``"eac"`` force a
         specific engine. Seeds and bounds come from the model's seeder
         unless overridden. A callable model is passed straight through to the
-        fitters, which resolve it via :func:`dtfit.methods.resolve_model`.
+        fitters, which resolve it via :func:`dtfit.models.resolve_model`.
         """
         sp0, sb = self._seed_arrays(x, y)
         p0 = sp0 if p0 is None else p0

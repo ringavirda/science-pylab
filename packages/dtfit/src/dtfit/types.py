@@ -69,7 +69,7 @@ class FittingResult:
         x_range: ``(min, max)`` of the training ``x``, recorded for
             :meth:`predict`'s extrapolation warning; ``None`` when unknown.
         param_model: A parameters-explicit evaluator ``f(x, coeffs) -> y``, as
-            produced by :meth:`dtfit.methods.ModelSpec.eval`. Set in place of
+            produced by :meth:`dtfit.models.ModelSpec.eval`. Set in place of
             ``expr`` for a callable-only model, in which case :meth:`predict`
             finite-differences it for the std band and :attr:`model` falls
             back to it. ``None`` for a symbolic model.
@@ -220,10 +220,10 @@ class FittingResult:
     def _information_criteria(self) -> tuple[float, float] | None:
         if self.rss is None or self.n_obs is None:
             return None
-        # Lazy: dtfit.types is imported before dtfit.methods, and importing
+        # Lazy: dtfit.types is imported before dtfit._stats, and importing
         # the criteria at module scope would form a partial-import cycle. By
         # call time the package is loaded.
-        from dtfit.methods._common import information_criteria
+        from dtfit._stats import information_criteria
 
         k = len(self.names) if self.names else self.coeffs.size
         return information_criteria(self.rss, self.n_obs, int(k))

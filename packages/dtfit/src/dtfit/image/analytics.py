@@ -407,7 +407,7 @@ def test_structure(
         var: The main variable name; required for a symbolic model.
         alpha: Significance level of the verdict, in ``(0, 1)``.
         param_names: Parameter names for a callable model; see
-            :func:`~dtfit.methods.resolve_model`.
+            :func:`~dtfit.models.resolve_model`.
         sigma: The noise standard deviation, if known. ``None`` takes it
             from the image's own basis-regression residual,
             ``sqrt((sumsq - S^T beta) / (n - rank(G)))``.
@@ -426,7 +426,7 @@ def test_structure(
             parameters; the noise scale cannot be estimated.
         RuntimeError: the model has no free parameters.
     """
-    from dtfit.methods._modelinput import resolve_model
+    from dtfit._input import resolve_model
     from .image import Image
 
     if not 0.0 < alpha < 1.0:

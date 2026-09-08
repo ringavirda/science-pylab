@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from dtfit import NonlineRegressor, fit_dsb
-from dtfit.methods import taylor_coeffs
+from dtfit._symbolic import taylor_coeffs
 import sympy as sp
 
 

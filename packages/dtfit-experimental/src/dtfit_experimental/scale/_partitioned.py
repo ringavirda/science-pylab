@@ -31,7 +31,8 @@ from scipy.optimize import least_squares
 from dtfit.types import FittingResult, InitialGuess
 from dtfit._core._backend import Backend, resolve_backend
 from dtfit._core._spectral import make_basis, solve_spectral
-from dtfit.methods._common import model_params, _covariance
+from dtfit._stats import nlls_covariance
+from dtfit._symbolic import model_params
 
 
 class PartitionedLSI:
@@ -262,7 +263,7 @@ class PartitionedEAC:
         guess = np.ones(n) if p0 is None else np.asarray(p0, float)
         sol = least_squares(residual, guess, method="lm")
         coeffs = np.asarray(sol.x, dtype=np.float64)
-        cov = _covariance(sol.jac, residual(coeffs), n)
+        cov = nlls_covariance(sol.jac, residual(coeffs), n)
         return FittingResult(coeffs=coeffs, cov=cov,
                              expr=self.expr, var=self.var,
                              names=tuple(str(p) for p in params),

@@ -21,14 +21,9 @@ from sklearn.utils.validation import (
 
 import sympy as sp
 
-from dtfit.methods import (
-    fit_lsi,
-    fit_eac,
-    fit_dsb,
-    find_degree,
-    model_params,
-    normalize_p0,
-)
+from dtfit._input import normalize_p0
+from dtfit._symbolic import model_params
+from dtfit.methods import fit_lsi, fit_eac, fit_dsb, find_degree
 from dtfit._pandas import as_series, capture_index, is_dataframe, is_series
 from dtfit.types import FittingResult
 
@@ -38,7 +33,7 @@ class NonlineRegressor(RegressorMixin, BaseEstimator):
 
     Args:
         expr: The model, in any of three equivalent forms resolved by
-            :func:`dtfit.methods.resolve_model`: a SymPy-expression string
+            :func:`dtfit.models.resolve_model`: a SymPy-expression string
             such as ``"a0 + a1*x + a2*exp(a3*x)"``, a :class:`sympy.Expr`, or
             a plain Python callable ``f(x, *params)``. The default is a
             simple affine string, because the scikit-learn contract requires

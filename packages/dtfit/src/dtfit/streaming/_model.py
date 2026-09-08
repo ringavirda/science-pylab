@@ -49,7 +49,7 @@ class CompiledModel:
     ) -> None:
         import sympy as sp
 
-        from dtfit.methods._modelinput import resolve_model
+        from dtfit._input import resolve_model
 
         self.source = model
         self.var = str(var)

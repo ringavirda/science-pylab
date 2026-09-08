@@ -7,7 +7,7 @@ spectrum comes from a prior polynomial fit.
 Each equation in the balance sets the model discrete equal to the data
 discrete at the same order ``k``. The differential-transform factor ``H**k``
 therefore cancels on both sides and the balance reduces to matching plain
-Maclaurin coefficients ``f^(k)(0)/k!`` (see :mod:`dtfit.methods._common`).
+Maclaurin coefficients ``f^(k)(0)/k!`` (see :mod:`dtfit._symbolic`).
 For a polynomial those coefficients are just its ascending coefficients
 ``c_k``. Any differentiable model expression works, with no per-function
 discrete rules.
@@ -26,7 +26,8 @@ from scipy.optimize import least_squares
 
 from dtfit.log import echo
 from dtfit.types import FittingResult, InitialGuess
-from ._common import model_params, taylor_coeffs, _validate_p0
+from dtfit._input import _validate_p0
+from dtfit._symbolic import model_params, taylor_coeffs
 
 
 def fit_dsb(

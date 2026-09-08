@@ -203,9 +203,9 @@ class Image:
 
         ``param_names`` names the parameters of a callable model whose
         signature cannot be introspected; see
-        :func:`~dtfit.methods.resolve_model`.
+        :func:`~dtfit.models.resolve_model`.
         """
-        from dtfit.methods._modelinput import resolve_model
+        from dtfit._input import resolve_model
 
         spec = resolve_model(model, var, param_names=param_names)
         x = grid.positions()
@@ -510,7 +510,7 @@ class Image:
             var: The main variable name; required for a symbolic model.
             alpha: Significance level of the verdict, in ``(0, 1)``.
             param_names: Parameter names for a callable model; see
-                :func:`~dtfit.methods.resolve_model`.
+                :func:`~dtfit.models.resolve_model`.
             sigma: The noise standard deviation, if known. ``None`` takes
                 it from the image's own basis-regression residual,
                 ``sqrt((sumsq - S^T beta) / (n - rank(G)))``.

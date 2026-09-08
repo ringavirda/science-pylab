@@ -32,8 +32,8 @@ from numpy.polynomial import (
 )
 from scipy.optimize import least_squares, differential_evolution, minimize
 
-from dtfit.methods._common import model_params
-from dtfit.methods._common import _covariance
+from dtfit._symbolic import model_params
+from dtfit._stats import nlls_covariance
 from dtfit.types import FittingResult
 from dtfit._core._backend import Backend
 
@@ -385,7 +385,7 @@ def solve_spectral(
     coeffs, jac, converged, message, nfev = solve_weighted_nlls(
         residual, sqrt_w, beta_data, guess, p0=p0, bounds=bounds
     )
-    cov = _covariance(jac, residual(coeffs), len(params))
+    cov = nlls_covariance(jac, residual(coeffs), len(params))
     # No model= here: FittingResult lambdifies it lazily from expr and coeffs.
     # The optimizer status and the fitted domain go through so callers get a
     # `converged` signal and the predict(warn_extrapolation) guard.

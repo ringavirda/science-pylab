@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from dtfit.methods import resolve_model, ModelSpec, result_kwargs
+from dtfit.models import resolve_model, ModelSpec, result_kwargs
 
 
 # string / sympy.Expr / callable resolution

@@ -1,11 +1,11 @@
-"""Shared p0/bounds normalizers: ``dtfit.methods.normalize_p0`` and
+"""Shared p0/bounds normalizers: ``dtfit.models.normalize_p0`` and
 ``normalize_bounds`` are the one place every batch fitter's input forms get
 canonicalized."""
 
 import numpy as np
 import pytest
 
-from dtfit.methods import normalize_bounds, normalize_p0
+from dtfit.models import normalize_bounds, normalize_p0
 
 NAMES = ["a", "b", "w"]
 

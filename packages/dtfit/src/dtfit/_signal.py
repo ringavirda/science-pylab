@@ -1,6 +1,6 @@
 """FFT-based shape detection.
 
-Used by the shape router (:mod:`dtfit.auto`) and the model recommender
+Used by the shape router (:mod:`dtfit.forecast`) and the model recommender
 (:mod:`dtfit.models`); it lives here so neither has to import the other.
 """
 

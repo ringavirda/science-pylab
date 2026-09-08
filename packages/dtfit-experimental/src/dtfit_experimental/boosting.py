@@ -15,7 +15,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from dtfit.methods import fit_lsi, fit_eac
+from dtfit import fit_lsi, fit_eac
 from dtfit.types import FittingResult
 
 _FITTERS: dict[str, Callable[..., FittingResult]] = {"lsi": fit_lsi, "eac": fit_eac}

@@ -168,7 +168,7 @@ class Original:
         self, model: Any, params: Any, var: str | None = None
     ) -> np.ndarray:
         """``y - f(x; params)`` for a model as in :func:`dtfit.image.fit`."""
-        from dtfit.methods._modelinput import resolve_model
+        from dtfit._input import resolve_model
 
         spec = resolve_model(model, var)
         return self.y - spec.eval(self.x, np.asarray(params, dtype=float))

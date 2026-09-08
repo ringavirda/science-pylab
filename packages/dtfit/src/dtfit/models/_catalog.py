@@ -21,7 +21,7 @@ from typing import Callable
 
 import numpy as np
 
-from dtfit.methods import fft_frequency_seed
+from dtfit.image.fit import fft_frequency_seed
 from ._model import Model
 
 INF = float("inf")

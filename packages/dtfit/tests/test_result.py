@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from dtfit import fit_lsi, fit_eac, FittingResult
-from dtfit.methods import resolve_model, result_kwargs
-from dtfit.methods._common import _covariance, information_criteria
+from dtfit.models import resolve_model, result_kwargs
+from dtfit._stats import information_criteria, nlls_covariance
 
 
 @pytest.fixture
@@ -176,8 +176,8 @@ def test_covariance_absolute_sigma_invariants():
     res = rng.normal(size=m)
     k = 3.7
 
-    cov_def = _covariance(jac, res, n)
-    cov_abs = _covariance(jac, res, n, absolute_sigma=True)
+    cov_def = nlls_covariance(jac, res, n)
+    cov_abs = nlls_covariance(jac, res, n, absolute_sigma=True)
     assert cov_def is not None and cov_abs is not None
 
     # default cov = absolute cov * reduced chi-square
@@ -185,14 +185,14 @@ def test_covariance_absolute_sigma_invariants():
     np.testing.assert_allclose(cov_def, sigma2 * cov_abs, rtol=1e-10)
 
     # absolute-sigma cov ignores the residual magnitude (sigma^2 = 1)
-    cov_abs_scaled = _covariance(jac, k * res, n, absolute_sigma=True)
+    cov_abs_scaled = nlls_covariance(jac, k * res, n, absolute_sigma=True)
     np.testing.assert_allclose(cov_abs_scaled, cov_abs, rtol=1e-10)
 
     # default cov scales by k^2 when the residual is scaled by k (jac fixed)
-    cov_def_res = _covariance(jac, k * res, n)
+    cov_def_res = nlls_covariance(jac, k * res, n)
     np.testing.assert_allclose(cov_def_res, k**2 * cov_def, rtol=1e-10)
 
     # scaling jac and res together rescales the assumed sigma, not the fit,
     # so the default cov comes out unchanged
-    cov_def_global = _covariance(k * jac, k * res, n)
+    cov_def_global = nlls_covariance(k * jac, k * res, n)
     np.testing.assert_allclose(cov_def_global, cov_def, rtol=1e-10)

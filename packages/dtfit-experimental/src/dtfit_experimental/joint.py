@@ -19,7 +19,7 @@ import numpy as np
 import sympy as sp
 from scipy.optimize import least_squares, differential_evolution, minimize
 
-from dtfit.methods._common import model_params
+from dtfit._symbolic import model_params
 
 
 @dataclass
