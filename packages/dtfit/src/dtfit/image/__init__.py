@@ -4,6 +4,7 @@ from .grid import Grid
 from .bases import Basis, LegendreBasis, BlockBasis, make_basis, u_of
 from .original import Original
 from .image import Image, huber_weights, gram_whitener
+from .analytics import Decay, decay, effective_order, noise_sigma
 from .transfer import assemble, legendre_transfer, block_transfer
 from .stream import ImageStream
 from .fit import (
@@ -23,6 +24,10 @@ __all__ = [
     "Image",
     "huber_weights",
     "gram_whitener",
+    "Decay",
+    "noise_sigma",
+    "effective_order",
+    "decay",
     "ImageStream",
     "assemble",
     "legendre_transfer",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from scipy.linalg import cholesky
@@ -12,6 +12,9 @@ from scipy.linalg import cholesky
 from .bases import Basis, make_basis, u_of
 from .grid import Grid
 from .original import Original
+
+if TYPE_CHECKING:
+    from .analytics import Decay
 
 
 def gram_whitener(G: np.ndarray) -> np.ndarray:
@@ -340,6 +343,60 @@ class Image:
         return x, self.reconstruct(x) + float(sigma) * rng.standard_normal(
             x.size
         )
+
+    def noise_sigma(self) -> float | None:
+        """The noise standard deviation read off the tail orders.
+
+        Returns:
+            The standard deviation, or ``None`` when fewer than eight
+            orders stand above the effective order.
+
+        Raises:
+            ValueError: the image is not in the Legendre basis.
+
+        Warns:
+            RuntimeWarning: the return is ``None`` for lack of tail
+                orders.
+
+        See :func:`~dtfit.image.analytics.noise_sigma` for the formula.
+        """
+        from .analytics import noise_sigma
+
+        return noise_sigma(self)
+
+    def effective_order(self) -> int:
+        """The highest order whose coefficient stands above the noise.
+
+        Returns:
+            An order in ``[0, image.order]``.
+
+        Raises:
+            ValueError: the image is not in the Legendre basis.
+
+        See :func:`~dtfit.image.analytics.effective_order` for the
+        formula.
+        """
+        from .analytics import effective_order
+
+        return effective_order(self)
+
+    def decay(self) -> "Decay":
+        """Geometric and algebraic decay rates of the coefficients.
+
+        Returns:
+            A :class:`~dtfit.image.analytics.Decay` with both rates,
+            both goodness-of-fit values and the name of the better law.
+
+        Raises:
+            ValueError: the image is not in the Legendre basis; or fewer
+                than three non-zero coefficients lie between order 2 and
+                the effective order.
+
+        See :func:`~dtfit.image.analytics.decay` for the formula.
+        """
+        from .analytics import decay
+
+        return decay(self)
 
     def fit(self, model: Any, var: str | None = None, **kwargs: Any):
         from .fit import fit
